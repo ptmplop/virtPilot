@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+packages/backend/dist/
+packages/frontend/dist/
+
+# Environment / secrets — never commit the real .env
+.env
+.env.local
+.env.*.local
+packages/backend/.env
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Misc
+.cache/

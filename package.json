@@ -1,0 +1,19 @@
+{
+  "name": "virtpilot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Web-based KVM/QEMU management UI",
+  "workspaces": [
+    "packages/backend",
+    "packages/frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace @virtpilot/backend run dev",
+    "dev:frontend": "npm --workspace @virtpilot/frontend run dev",
+    "build": "npm --workspace @virtpilot/backend run build && npm --workspace @virtpilot/frontend run build",
+    "typecheck": "npm --workspace @virtpilot/frontend run typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

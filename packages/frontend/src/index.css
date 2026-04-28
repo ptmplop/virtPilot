@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light mode — warm off-white base */
+    --background:             218 22% 96%;
+    --card:                   0 0% 100%;
+    --surface:                220 18% 93%;
+    --foreground:             222 30% 8%;
+    --card-foreground:        222 30% 8%;
+    --muted-foreground:       220 14% 44%;
+    --border:                 220 16% 87%;
+    --input:                  220 16% 87%;
+    --ring:                   214 100% 52%;
+    --primary:                214 100% 52%;
+    --primary-foreground:     0 0% 100%;
+    --muted:                  220 16% 92%;
+    --accent:                 214 90% 94%;
+    --accent-foreground:      214 90% 30%;
+    --destructive:            0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success:                158 60% 34%;
+    --warning:                38 92% 46%;
+    --sidebar-background:     222 30% 11%;
+    --sidebar-border:         220 24% 18%;
+    --radius:                 0.5rem;
+  }
+
+  .dark {
+    /* Dark mode — deep navy */
+    --background:             222 28% 5%;
+    --card:                   222 24% 8%;
+    --surface:                222 22% 10%;
+    --foreground:             210 22% 92%;
+    --card-foreground:        210 22% 92%;
+    --muted-foreground:       220 12% 48%;
+    --border:                 220 20% 13%;
+    --input:                  220 20% 13%;
+    --ring:                   214 100% 62%;
+    --primary:                214 100% 62%;
+    --primary-foreground:     222 28% 5%;
+    --muted:                  222 22% 10%;
+    --accent:                 214 45% 14%;
+    --accent-foreground:      214 100% 74%;
+    --destructive:            0 65% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --success:                158 55% 48%;
+    --warning:                38 90% 58%;
+    --sidebar-background:     222 32% 5%;
+    --sidebar-border:         220 24% 11%;
+  }
+
+  * { border-color: hsl(var(--border)); }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Refined scrollbars */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+  }
+}
+
+html, body, #root { height: 100%; }
+
+/* Tabular numbers for metrics */
+@layer utilities {
+  .nums { font-variant-numeric: tabular-nums; }
+}
+
+/* xterm.js overrides */
+.xterm-screen { width: 100% !important; }
+
+/* ─── Toast notifications ─────────────────────────────────────────────────── */
+
+[data-sonner-toaster] {
+  --width: 360px !important;
+  font-family: inherit !important;
+}
+
+[data-sonner-toaster] li {
+  width: var(--width) !important;
+  max-width: var(--width) !important;
+  overflow: hidden !important;
+}
+
+[data-sonner-toast] [data-title],
+[data-sonner-toast] [data-description] {
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+/* Base toast */
+[data-sonner-toast] {
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 14px !important;
+  color: hsl(var(--foreground)) !important;
+  padding: 14px 16px !important;
+  box-shadow:
+    0 0 0 1px hsl(var(--border) / 0.6),
+    0 2px 4px -1px rgb(0 0 0 / 0.12),
+    0 8px 24px -4px rgb(0 0 0 / 0.28),
+    0 24px 48px -8px rgb(0 0 0 / 0.18) !important;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition-duration: 400ms !important;
+}
+
+/* Success */
+[data-sonner-toast][data-type="success"] {
+  border-color: rgb(52 211 153 / 0.28) !important;
+  box-shadow:
+    0 0 0 1px rgb(52 211 153 / 0.12),
+    0 2px 4px -1px rgb(0 0 0 / 0.12),
+    0 8px 24px -4px rgb(0 0 0 / 0.28),
+    0 0 32px -8px rgb(52 211 153 / 0.18) !important;
+}
+
+/* Error */
+[data-sonner-toast][data-type="error"] {
+  border-color: rgb(239 68 68 / 0.28) !important;
+  box-shadow:
+    0 0 0 1px rgb(239 68 68 / 0.12),
+    0 2px 4px -1px rgb(0 0 0 / 0.12),
+    0 8px 24px -4px rgb(0 0 0 / 0.28),
+    0 0 32px -8px rgb(239 68 68 / 0.18) !important;
+}
+
+/* Warning */
+[data-sonner-toast][data-type="warning"] {
+  border-color: rgb(245 158 11 / 0.28) !important;
+  box-shadow:
+    0 0 0 1px rgb(245 158 11 / 0.12),
+    0 2px 4px -1px rgb(0 0 0 / 0.12),
+    0 8px 24px -4px rgb(0 0 0 / 0.28),
+    0 0 32px -8px rgb(245 158 11 / 0.18) !important;
+}
+
+/* Typography */
+[data-sonner-toast] [data-title] {
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+[data-sonner-toast] [data-description] {
+  font-size: 0.75rem !important;
+  color: hsl(var(--muted-foreground)) !important;
+  margin-top: 1px !important;
+}
+
+/* Icon sizing */
+[data-sonner-toast] [data-icon] {
+  width: 16px !important;
+  height: 16px !important;
+  margin-top: 1px !important;
+}
