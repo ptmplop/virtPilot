@@ -28,7 +28,7 @@ import { useIsos } from '@/hooks/useIsos';
 import { useNetworks } from '@/hooks/useNetworks';
 import { formatMemory } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import type { DhcpReservation, FirewallRule, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
+import type { DhcpReservation, FirewallConfig, FirewallRule, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
 
 type Tab = 'overview' | 'disks' | 'network' | 'snapshots' | 'firewall';
@@ -1444,75 +1444,167 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
 
 // ─── Firewall ─────────────────────────────────────────────────────────────────
 
-const PROTOCOLS = ['tcp', 'udp', 'icmp', 'all'] as const;
-const DIRECTIONS = ['inbound', 'outbound'] as const;
-const ACTIONS = ['allow', 'drop'] as const;
+const FW_PROTOCOLS = ['tcp', 'udp', 'icmp', 'all'] as const;
+const FW_ACTIONS = ['allow', 'drop'] as const;
 
-interface FirewallForm {
-  direction: 'inbound' | 'outbound';
+interface RuleForm {
   protocol: 'tcp' | 'udp' | 'icmp' | 'all';
   portRange: string;
   action: 'allow' | 'drop';
   description: string;
 }
 
-const defaultFwForm: FirewallForm = {
-  direction: 'inbound',
+const defaultRuleForm: RuleForm = {
   protocol: 'tcp',
   portRange: '',
-  action: 'drop',
+  action: 'allow',
   description: '',
 };
 
+const emptyFirewallConfig: FirewallConfig = {
+  rules: [],
+  defaultInbound: 'allow',
+  defaultOutbound: 'allow',
+};
+
+function FirewallRulesTable({
+  rules,
+  onDelete,
+  isPending,
+  emptyLabel,
+}: {
+  rules: FirewallRule[];
+  onDelete: (id: string) => void;
+  isPending: boolean;
+  emptyLabel: string;
+}) {
+  if (rules.length === 0) {
+    return (
+      <div className="rounded-xl border border-border bg-card px-6 py-8 text-center text-sm text-muted-foreground">
+        {emptyLabel}
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-muted/40">
+            {['#', 'Protocol', 'Port / Range', 'Action', 'Description', ''].map((h) => (
+              <th
+                key={h}
+                className={cn(
+                  'px-4 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
+                  h === '' ? 'text-right' : 'text-left'
+                )}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {rules.map((rule, idx) => (
+            <tr key={rule.id} className="transition-colors hover:bg-muted/30">
+              <td className="px-4 py-3 text-xs text-muted-foreground/50">{idx + 1}</td>
+              <td className="px-4 py-3 font-mono text-xs text-foreground uppercase">{rule.protocol}</td>
+              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{rule.portRange ?? '—'}</td>
+              <td className="px-4 py-3">
+                <span className={cn(
+                  'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase',
+                  rule.action === 'allow'
+                    ? 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-400'
+                    : 'bg-red-500/10 text-red-500 dark:text-red-400'
+                )}>
+                  {rule.action}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-xs text-muted-foreground">{rule.description ?? '—'}</td>
+              <td className="px-4 py-3 text-right">
+                <Tooltip label="Remove rule">
+                  <button
+                    type="button"
+                    onClick={() => onDelete(rule.id)}
+                    disabled={isPending}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </Tooltip>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }) {
-  const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState<FirewallForm>(defaultFwForm);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const { data: rules = [], isLoading } = useVmFirewall(vmName);
+  const [addDirection, setAddDirection] = useState<'inbound' | 'outbound' | null>(null);
+  const [form, setForm] = useState<RuleForm>(defaultRuleForm);
+  const { data: cfg, isLoading } = useVmFirewall(vmName);
   const saveFirewall = useSaveFirewall(vmName);
   const applyFirewall = useApplyFirewall(vmName);
 
+  const current = cfg ?? emptyFirewallConfig;
   const portlessProtocol = form.protocol === 'icmp' || form.protocol === 'all';
+  const portRangeValid =
+    portlessProtocol || !form.portRange.trim() || /^\d+(-\d+)?$/.test(form.portRange.trim());
 
-  const set = (key: keyof FirewallForm) =>
+  const setField = (key: keyof RuleForm) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const value = e.target.value;
       setForm((f) => {
         const next = { ...f, [key]: value };
-        if (key === 'protocol' && (value === 'icmp' || value === 'all')) {
-          next.portRange = '';
-        }
+        if (key === 'protocol' && (value === 'icmp' || value === 'all')) next.portRange = '';
         return next;
       });
     };
 
-  const handleAdd = async () => {
-    setSaveError(null);
+  const handleSetDefault = async (
+    direction: 'inbound' | 'outbound',
+    value: 'allow' | 'drop'
+  ) => {
+    const updated: FirewallConfig = {
+      ...current,
+      ...(direction === 'inbound' ? { defaultInbound: value } : { defaultOutbound: value }),
+    };
+    try {
+      await saveFirewall.mutateAsync(updated);
+      toast.success(`${direction === 'inbound' ? 'Inbound' : 'Outbound'} default policy updated`);
+    } catch {
+      toast.error('Failed to update default policy');
+    }
+  };
+
+  const handleAddRule = async () => {
+    if (!addDirection) return;
+    if (!portRangeValid) return;
     const newRule: FirewallRule = {
       id: crypto.randomUUID(),
-      direction: form.direction,
+      direction: addDirection,
       protocol: form.protocol,
       portRange: form.portRange.trim() || undefined,
       action: form.action,
       description: form.description.trim() || undefined,
     };
     try {
-      await saveFirewall.mutateAsync([...rules, newRule]);
-      toast.success('Firewall rule added');
-      setAddOpen(false);
-      setForm(defaultFwForm);
+      await saveFirewall.mutateAsync({ ...current, rules: [...current.rules, newRule] });
+      toast.success(`${addDirection === 'inbound' ? 'Inbound' : 'Outbound'} rule added`);
+      setAddDirection(null);
+      setForm(defaultRuleForm);
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        'Failed to save firewall rule';
-      setSaveError(msg);
+        'Failed to save rule';
       toast.error(msg);
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
-      await saveFirewall.mutateAsync(rules.filter((r) => r.id !== id));
+      await saveFirewall.mutateAsync({ ...current, rules: current.rules.filter((r) => r.id !== id) });
       toast.success('Rule removed');
     } catch {
       toast.error('Failed to remove rule');
@@ -1524,119 +1616,148 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
       await applyFirewall.mutateAsync();
       toast.success('Firewall rules applied');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to apply rules';
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Failed to apply rules';
       toast.error(msg);
     }
   };
 
-  const portRangeValid = portlessProtocol || !form.portRange.trim() || /^\d+(-\d+)?$/.test(form.portRange.trim());
+  const inboundRules = current.rules.filter((r) => r.direction === 'inbound');
+  const outboundRules = current.rules.filter((r) => r.direction === 'outbound');
 
   return (
     <div className="space-y-6">
-      <div className="mb-4 flex items-center justify-between">
-        <SectionHeading>Firewall Rules</SectionHeading>
-        <div className="flex items-center gap-2">
-          <Tooltip label={vmStatus !== 'running' ? 'VM must be running to apply rules' : 'Apply rules to running VM via iptables'}>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={handleApply}
-              disabled={applyFirewall.isPending || vmStatus !== 'running'}
-            >
-              <Shield size={13} />
-              {applyFirewall.isPending ? 'Applying…' : 'Apply Rules'}
-            </Button>
-          </Tooltip>
-          <Button size="sm" onClick={() => setAddOpen(true)}>
-            <Plus size={13} /> Add Rule
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <SectionHeading>Firewall</SectionHeading>
+        <Tooltip
+          label={
+            vmStatus !== 'running'
+              ? 'VM must be running to apply rules'
+              : 'Apply saved rules to the running VM via iptables'
+          }
+        >
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleApply}
+            disabled={applyFirewall.isPending || vmStatus !== 'running'}
+          >
+            <Shield size={13} />
+            {applyFirewall.isPending ? 'Applying…' : 'Apply Rules'}
           </Button>
-        </div>
+        </Tooltip>
       </div>
 
-      <div className="rounded-lg bg-muted/40 border border-border px-4 py-3 text-xs text-muted-foreground">
-        Default policy is <span className="font-semibold text-foreground">allow all</span> inbound and outbound traffic.
-        Rules are evaluated in order — add DROP rules to restrict specific traffic, or ALLOW rules before a broad DROP.
-        Click <span className="font-semibold text-foreground">Apply Rules</span> after saving to enforce them on the running VM.
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+      {/* Default Policies */}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Default Policies
+        </p>
+        <p className="mb-4 text-xs text-muted-foreground">
+          Applied after all explicit rules. Set to <span className="font-medium text-foreground">Drop all</span> to
+          block unmatched traffic, then add <span className="font-medium text-foreground">Allow</span> rules for
+          permitted ports.
+        </p>
         {isLoading ? (
-          <div className="px-6 py-10 text-center text-sm text-muted-foreground">Loading…</div>
-        ) : rules.length === 0 ? (
-          <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No rules configured — all traffic is permitted.
+          <div className="grid grid-cols-2 gap-4">
+            <Skeleton className="h-[60px]" />
+            <Skeleton className="h-[60px]" />
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                {['#', 'Direction', 'Protocol', 'Port / Range', 'Action', 'Description', ''].map((h) => (
-                  <th
-                    key={h}
-                    className={cn(
-                      'px-4 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
-                      h === '' ? 'text-right' : 'text-left'
-                    )}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {rules.map((rule, idx) => (
-                <tr key={rule.id} className="transition-colors hover:bg-muted/30">
-                  <td className="px-4 py-3 text-xs text-muted-foreground/50">{idx + 1}</td>
-                  <td className="px-4 py-3">
-                    <span className={cn(
-                      'rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase',
-                      rule.direction === 'inbound' ? 'text-blue-500 dark:text-blue-400' : 'text-violet-500 dark:text-violet-400'
-                    )}>
-                      {rule.direction}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-foreground uppercase">{rule.protocol}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{rule.portRange ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={cn(
-                      'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase',
-                      rule.action === 'allow'
-                        ? 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-400'
-                        : 'bg-red-500/10 text-red-500 dark:text-red-400'
-                    )}>
-                      {rule.action}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{rule.description ?? '—'}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Tooltip label="Remove rule">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(rule.id)}
-                        disabled={saveFirewall.isPending}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </Tooltip>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="grid grid-cols-2 gap-4">
+            <Select
+              label="Inbound default"
+              value={current.defaultInbound}
+              onChange={(e) => handleSetDefault('inbound', e.target.value as 'allow' | 'drop')}
+              disabled={saveFirewall.isPending}
+            >
+              <option value="allow">Allow all</option>
+              <option value="drop">Drop all</option>
+            </Select>
+            <Select
+              label="Outbound default"
+              value={current.defaultOutbound}
+              onChange={(e) => handleSetDefault('outbound', e.target.value as 'allow' | 'drop')}
+              disabled={saveFirewall.isPending}
+            >
+              <option value="allow">Allow all</option>
+              <option value="drop">Drop all</option>
+            </Select>
+          </div>
         )}
       </div>
 
+      {/* Inbound Rules */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">Inbound Rules</span>
+            <span className="rounded bg-blue-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-500 dark:text-blue-400">
+              {inboundRules.length}
+            </span>
+          </div>
+          <Button size="sm" onClick={() => { setForm(defaultRuleForm); setAddDirection('inbound'); }}>
+            <Plus size={13} /> Add Rule
+          </Button>
+        </div>
+        {isLoading ? (
+          <Skeleton className="h-20 rounded-xl" />
+        ) : (
+          <FirewallRulesTable
+            rules={inboundRules}
+            onDelete={handleDelete}
+            isPending={saveFirewall.isPending}
+            emptyLabel="No inbound rules — traffic follows the default inbound policy."
+          />
+        )}
+      </div>
+
+      {/* Outbound Rules */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">Outbound Rules</span>
+            <span className="rounded bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-violet-500 dark:text-violet-400">
+              {outboundRules.length}
+            </span>
+          </div>
+          <Button size="sm" onClick={() => { setForm(defaultRuleForm); setAddDirection('outbound'); }}>
+            <Plus size={13} /> Add Rule
+          </Button>
+        </div>
+        {isLoading ? (
+          <Skeleton className="h-20 rounded-xl" />
+        ) : (
+          <FirewallRulesTable
+            rules={outboundRules}
+            onDelete={handleDelete}
+            isPending={saveFirewall.isPending}
+            emptyLabel="No outbound rules — traffic follows the default outbound policy."
+          />
+        )}
+      </div>
+
+      {/* Add Rule Dialog */}
       <Dialog
-        open={addOpen}
-        onClose={() => { setAddOpen(false); setForm(defaultFwForm); setSaveError(null); }}
-        title="Add Firewall Rule"
+        open={addDirection !== null}
+        onClose={() => { setAddDirection(null); setForm(defaultRuleForm); }}
+        title={`Add ${addDirection === 'inbound' ? 'Inbound' : 'Outbound'} Rule`}
         footer={
           <>
-            <Button variant="secondary" size="sm" onClick={() => { setAddOpen(false); setForm(defaultFwForm); setSaveError(null); }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => { setAddDirection(null); setForm(defaultRuleForm); }}
+            >
               Cancel
             </Button>
-            <Button size="sm" onClick={handleAdd} disabled={saveFirewall.isPending || !portRangeValid}>
+            <Button
+              size="sm"
+              onClick={handleAddRule}
+              disabled={saveFirewall.isPending || !portRangeValid}
+            >
               {saveFirewall.isPending ? 'Saving…' : 'Add Rule'}
             </Button>
           </>
@@ -1644,36 +1765,36 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
       >
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Direction" value={form.direction} onChange={set('direction')}>
-              {DIRECTIONS.map((d) => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
+            <Select label="Action" value={form.action} onChange={setField('action')}>
+              {FW_ACTIONS.map((a) => (
+                <option key={a} value={a}>
+                  {a.charAt(0).toUpperCase() + a.slice(1)}
+                </option>
+              ))}
             </Select>
-            <Select label="Action" value={form.action} onChange={set('action')}>
-              {ACTIONS.map((a) => <option key={a} value={a}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
+            <Select label="Protocol" value={form.protocol} onChange={setField('protocol')}>
+              {FW_PROTOCOLS.map((p) => (
+                <option key={p} value={p}>
+                  {p.toUpperCase()}
+                </option>
+              ))}
             </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="Protocol" value={form.protocol} onChange={set('protocol')}>
-              {PROTOCOLS.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
-            </Select>
-            <Input
-              label="Port / Range"
-              placeholder="e.g. 22 or 8000-9000"
-              value={form.portRange}
-              onChange={set('portRange')}
-              disabled={portlessProtocol}
-            />
           </div>
           <Input
+            label="Port / Range"
+            placeholder="e.g. 22 or 8000-9000"
+            value={form.portRange}
+            onChange={setField('portRange')}
+            disabled={portlessProtocol}
+          />
+          <Input
             label="Description (optional)"
-            placeholder="e.g. Block SSH"
+            placeholder="e.g. Allow SSH"
             value={form.description}
-            onChange={set('description')}
+            onChange={setField('description')}
           />
           {!portRangeValid && (
-            <p className="text-xs text-red-500">Port must be a number or range (e.g. 80 or 8000-9000).</p>
-          )}
-          {saveError && (
-            <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{saveError}</p>
+            <p className="text-xs text-destructive">Port must be a number or range (e.g. 80 or 8000-9000).</p>
           )}
         </div>
       </Dialog>

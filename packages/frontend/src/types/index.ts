@@ -141,6 +141,12 @@ export interface FirewallRule {
   description?: string;
 }
 
+export interface FirewallConfig {
+  rules: FirewallRule[];
+  defaultInbound: 'allow' | 'drop';
+  defaultOutbound: 'allow' | 'drop';
+}
+
 export interface Settings {
   storageRoot: string;
   templatesDir: string;

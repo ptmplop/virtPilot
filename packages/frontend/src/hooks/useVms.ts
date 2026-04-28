@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { DhcpReservation, FirewallRule, Vm, VmMeta, VmSnapshot, VmSummary } from '@/types';
+import type { DhcpReservation, FirewallConfig, Vm, VmMeta, VmSnapshot, VmSummary } from '@/types';
 
 const KEYS = {
   vms: ['vms'] as const,
@@ -241,8 +241,8 @@ export function useVmFirewall(name: string) {
   return useQuery({
     queryKey: [...KEYS.vm(name), 'firewall'] as const,
     queryFn: async () => {
-      const { data } = await api.get<{ rules: FirewallRule[] }>(`/api/vms/${name}/firewall`);
-      return data.rules;
+      const { data } = await api.get<FirewallConfig>(`/api/vms/${name}/firewall`);
+      return data;
     },
   });
 }
@@ -250,8 +250,8 @@ export function useVmFirewall(name: string) {
 export function useSaveFirewall(name: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (rules: FirewallRule[]) => {
-      await api.put(`/api/vms/${name}/firewall`, { rules });
+    mutationFn: async (cfg: FirewallConfig) => {
+      await api.put(`/api/vms/${name}/firewall`, cfg);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [...KEYS.vm(name), 'firewall'] }),
   });

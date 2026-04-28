@@ -590,8 +590,8 @@ vmsRouter.post('/:name/snapshots/:snapshot/to-template', async (req, res) => {
 // Firewall
 vmsRouter.get('/:name/firewall', async (req, res) => {
   try {
-    const rules = await firewallService.getFirewallRules(req.params.name);
-    res.json({ rules });
+    const cfg = await firewallService.getFirewallConfig(req.params.name);
+    res.json(cfg);
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
@@ -599,9 +599,14 @@ vmsRouter.get('/:name/firewall', async (req, res) => {
 
 vmsRouter.put('/:name/firewall', async (req, res) => {
   try {
-    const { rules } = req.body as { rules: firewallService.FirewallRule[] };
-    if (!Array.isArray(rules)) return res.status(400).json({ error: 'rules must be an array' });
-    await firewallService.saveFirewallRules(req.params.name, rules);
+    const body = req.body as firewallService.FirewallConfig;
+    if (!Array.isArray(body.rules)) return res.status(400).json({ error: 'rules must be an array' });
+    const cfg: firewallService.FirewallConfig = {
+      rules: body.rules,
+      defaultInbound: body.defaultInbound ?? 'allow',
+      defaultOutbound: body.defaultOutbound ?? 'allow',
+    };
+    await firewallService.saveFirewallConfig(req.params.name, cfg);
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
@@ -626,9 +631,9 @@ vmsRouter.post('/:name/firewall/apply', async (req, res) => {
       } catch { /* VM not running */ }
     }
     if (!ip) return res.status(400).json({ error: 'Could not resolve VM IP — ensure the VM is running' });
-    const rules = await firewallService.getFirewallRules(name);
-    await firewallService.applyFirewallRules(name, ip, rules);
-    void logService.appendLog({ type: 'vm.firewall.apply', subject: name, status: 'success', output: `Applied ${rules.length} rule(s) to ${ip}`, durationMs: Date.now() - start });
+    const cfg = await firewallService.getFirewallConfig(name);
+    await firewallService.applyFirewallRules(name, ip, cfg);
+    void logService.appendLog({ type: 'vm.firewall.apply', subject: name, status: 'success', output: `Applied ${cfg.rules.length} rule(s) to ${ip}`, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.firewall.apply', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });

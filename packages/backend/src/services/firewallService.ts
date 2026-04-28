@@ -16,12 +16,17 @@ export interface FirewallRule {
   description?: string;
 }
 
+export interface FirewallConfig {
+  rules: FirewallRule[];
+  defaultInbound: 'allow' | 'drop';
+  defaultOutbound: 'allow' | 'drop';
+}
+
 function firewallPath(vmName: string): string {
   return path.join(config.cloudInitDir, `${vmName}-firewall.json`);
 }
 
 function inChain(vmName: string): string {
-  // iptables chain names max 28 chars; truncate vmName if needed
   const safe = vmName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
   return `VP-IN-${safe}`;
 }
@@ -31,19 +36,27 @@ function outChain(vmName: string): string {
   return `VP-OUT-${safe}`;
 }
 
-export async function getFirewallRules(vmName: string): Promise<FirewallRule[]> {
+export async function getFirewallConfig(vmName: string): Promise<FirewallConfig> {
   try {
     const raw = await fs.readFile(firewallPath(vmName), 'utf8');
-    const cfg = JSON.parse(raw) as { rules: FirewallRule[] };
-    return cfg.rules ?? [];
+    const cfg = JSON.parse(raw) as Partial<FirewallConfig>;
+    return {
+      rules: (cfg.rules ?? []).map((r) => ({ ...r, id: r.id || randomUUID() })),
+      defaultInbound: cfg.defaultInbound ?? 'allow',
+      defaultOutbound: cfg.defaultOutbound ?? 'allow',
+    };
   } catch {
-    return [];
+    return { rules: [], defaultInbound: 'allow', defaultOutbound: 'allow' };
   }
 }
 
-export async function saveFirewallRules(vmName: string, rules: FirewallRule[]): Promise<void> {
-  const withIds = rules.map((r) => ({ ...r, id: r.id || randomUUID() }));
-  await fs.writeFile(firewallPath(vmName), JSON.stringify({ rules: withIds }, null, 2), 'utf8');
+export async function saveFirewallConfig(vmName: string, cfg: FirewallConfig): Promise<void> {
+  const withIds = cfg.rules.map((r) => ({ ...r, id: r.id || randomUUID() }));
+  await fs.writeFile(
+    firewallPath(vmName),
+    JSON.stringify({ ...cfg, rules: withIds }, null, 2),
+    'utf8'
+  );
 }
 
 export async function deleteFirewallConfig(vmName: string): Promise<void> {
@@ -59,11 +72,12 @@ async function chainExists(chain: string): Promise<boolean> {
   }
 }
 
-export async function applyFirewallRules(vmName: string, vmIp: string, rules: FirewallRule[]): Promise<void> {
+export async function applyFirewallRules(vmName: string, vmIp: string, cfg: FirewallConfig): Promise<void> {
+  const { rules, defaultInbound, defaultOutbound } = cfg;
   const inC = inChain(vmName);
   const outC = outChain(vmName);
 
-  // Clear existing jump rules regardless of whether rules exist
+  // Remove existing jump rules
   await execAsync(`iptables -D FORWARD -d ${vmIp} -j ${inC} 2>/dev/null`).catch(() => {});
   await execAsync(`iptables -D FORWARD -s ${vmIp} -j ${outC} 2>/dev/null`).catch(() => {});
 
@@ -75,7 +89,8 @@ export async function applyFirewallRules(vmName: string, vmIp: string, rules: Fi
     }
   }
 
-  if (rules.length === 0) return;
+  // Nothing to do if no rules and both defaults are allow (iptables default behaviour)
+  if (rules.length === 0 && defaultInbound === 'allow' && defaultOutbound === 'allow') return;
 
   // Create fresh chains
   await execAsync(`iptables -N ${inC}`);
@@ -98,6 +113,12 @@ export async function applyFirewallRules(vmName: string, vmIp: string, rules: Fi
     parts.push(`-m comment --comment "virtpilot-fw-${vmName}"`);
     await execAsync(parts.join(' ')).catch(() => {});
   }
+
+  // Append default policy as a catch-all rule at the end of each chain
+  const inDefault = defaultInbound === 'allow' ? 'ACCEPT' : 'DROP';
+  const outDefault = defaultOutbound === 'allow' ? 'ACCEPT' : 'DROP';
+  await execAsync(`iptables -A ${inC} -j ${inDefault}`).catch(() => {});
+  await execAsync(`iptables -A ${outC} -j ${outDefault}`).catch(() => {});
 
   // Insert jump rules at top of FORWARD
   await execAsync(`iptables -I FORWARD -d ${vmIp} -j ${inC}`);
