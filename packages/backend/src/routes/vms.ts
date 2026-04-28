@@ -229,7 +229,7 @@ vmsRouter.post('/', async (req, res) => {
 
       const mac = generateMac();
 
-      if (network.type === 'bridge' && network.ipMode === 'static') {
+      if ((network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static') {
         if (!req.staticIp) {
           return res.status(400).json({ error: `staticIp required for bridge/static network "${network.name}"` });
         }

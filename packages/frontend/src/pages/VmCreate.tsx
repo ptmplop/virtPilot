@@ -702,7 +702,7 @@ function NetworkCard({
   ipOptions: Array<{ ip: string; allocated: boolean }>;
 }) {
   const checked = !!selection;
-  const needsIp = network.type === 'bridge' && network.ipMode === 'static';
+  const needsIp = (network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static';
 
   const typeBadgeClass = network.type === 'nat'
     ? 'bg-blue-500/10 text-blue-400'
@@ -951,7 +951,7 @@ function NetworkCardWithIps({
   onSetIp: (ip: string) => void;
 }) {
   const { data: detail } = useNetwork(
-    selection && network.type === 'bridge' && network.ipMode === 'static' ? network.id : ''
+    selection && (network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static' ? network.id : ''
   );
   const availableIps = (detail?.ips ?? []).filter((i) => !i.allocated);
 
