@@ -60,7 +60,9 @@ sudo apt-get install -y -qq \
   curl \
   openssl \
   ca-certificates \
-  gnupg
+  gnupg \
+  build-essential \
+  python3
 
 # ─── Node.js 20 ───────────────────────────────────────────────────────────────
 NODE_MAJOR=20
