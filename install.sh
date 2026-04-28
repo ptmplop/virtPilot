@@ -27,12 +27,8 @@ echo -e "${NC}${BOLD}  VirtPilot — KVM Virtual Machine Manager${NC}"
 echo -e "  Installer for Ubuntu 24\n"
 
 # ─── Pre-flight checks ────────────────────────────────────────────────────────
-if [[ $EUID -eq 0 ]]; then
-  die "Run this installer as a normal user (e.g. ubuntu), not root. sudo will be used as needed."
-fi
-
-if ! command -v sudo &>/dev/null; then
-  die "sudo is required but not installed."
+if [[ $EUID -ne 0 ]]; then
+  die "Run this installer as root: sudo bash install.sh"
 fi
 
 if ! grep -qi 'ubuntu' /etc/os-release 2>/dev/null; then
@@ -46,10 +42,10 @@ info "Project root: ${INSTALL_DIR}"
 
 # ─── APT dependencies ─────────────────────────────────────────────────────────
 info "Updating package lists..."
-sudo apt-get update -qq
+apt-get update -qq
 
 info "Installing system dependencies..."
-sudo apt-get install -y -qq \
+apt-get install -y -qq \
   qemu-kvm \
   libvirt-daemon-system \
   libvirt-clients \
@@ -72,26 +68,19 @@ if node --version 2>/dev/null | grep -q "^${REQUIRED_NODE}"; then
   log "Node.js $(node --version) already installed"
 else
   info "Installing Node.js ${NODE_MAJOR} via NodeSource..."
-  sudo mkdir -p /etc/apt/keyrings
+  mkdir -p /etc/apt/keyrings
   curl -fsSL "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key" \
-    | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+    | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
-    | sudo tee /etc/apt/sources.list.d/nodesource.list >/dev/null
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq nodejs
+    > /etc/apt/sources.list.d/nodesource.list
+  apt-get update -qq
+  apt-get install -y -qq nodejs
   log "Node.js $(node --version) installed"
 fi
 
-# ─── libvirt group membership ─────────────────────────────────────────────────
-if ! groups "$USER" | grep -qw libvirt; then
-  info "Adding ${USER} to the libvirt group..."
-  sudo usermod -aG libvirt "$USER"
-  warn "Group membership takes effect on next login (required for virsh access)."
-fi
-
-# Ensure libvirtd is running
-sudo systemctl enable --quiet libvirtd
-sudo systemctl start libvirtd
+# ─── libvirtd ─────────────────────────────────────────────────────────────────
+systemctl enable --quiet libvirtd
+systemctl start libvirtd
 log "libvirtd running"
 
 # ─── Build ────────────────────────────────────────────────────────────────────
@@ -105,15 +94,12 @@ log "Build complete"
 
 # ─── Storage directories ──────────────────────────────────────────────────────
 info "Creating storage directories at /var/lib/virtpilot..."
-sudo mkdir -p \
+mkdir -p \
   /var/lib/virtpilot/templates \
   /var/lib/virtpilot/isos \
   /var/lib/virtpilot/vms \
   /var/lib/virtpilot/cloud-init
-
-# Service runs as root so it can call iptables/virsh; storage owned by root
-sudo chown -R root:root /var/lib/virtpilot
-sudo chmod -R 755 /var/lib/virtpilot
+chmod -R 755 /var/lib/virtpilot
 log "Storage ready"
 
 # ─── Password setup ───────────────────────────────────────────────────────────
@@ -154,7 +140,6 @@ LIBVIRT_URI=qemu:///system
 AUTH_PASSWORD=${VP_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
 EOF
-# Restrict permissions — contains plaintext password
 chmod 600 "${INSTALL_DIR}/packages/backend/.env"
 log "Configuration written"
 
@@ -162,10 +147,9 @@ log "Configuration written"
 NODE_BIN="$(command -v node)"
 
 info "Installing systemd service..."
-sudo tee /etc/systemd/system/virtpilot.service > /dev/null << EOF
+cat > /etc/systemd/system/virtpilot.service << EOF
 [Unit]
 Description=VirtPilot KVM Manager
-Documentation=https://github.com/your-org/virtpilot
 After=network.target libvirtd.service
 Wants=libvirtd.service
 
@@ -184,16 +168,16 @@ SyslogIdentifier=virtpilot
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable virtpilot
-sudo systemctl restart virtpilot
+systemctl daemon-reload
+systemctl enable virtpilot
+systemctl restart virtpilot
 
 # Brief wait then check status
 sleep 2
-if sudo systemctl is-active --quiet virtpilot; then
+if systemctl is-active --quiet virtpilot; then
   log "VirtPilot service started"
 else
-  warn "Service may not have started cleanly. Check: sudo journalctl -u virtpilot -n 30"
+  warn "Service may not have started cleanly. Check: journalctl -u virtpilot -n 30"
 fi
 
 # ─── Connection info ──────────────────────────────────────────────────────────
@@ -209,12 +193,7 @@ echo -e "  ${BOLD}Web UI:${NC}      ${CYAN}http://${HOST_IP}:3001${NC}"
 echo -e "  ${BOLD}Password:${NC}    the one you just set"
 echo ""
 echo -e "  ${BOLD}Useful commands:${NC}"
-echo -e "    sudo systemctl status virtpilot"
-echo -e "    sudo journalctl -u virtpilot -f"
-echo -e "    sudo systemctl restart virtpilot"
+echo -e "    systemctl status virtpilot"
+echo -e "    journalctl -u virtpilot -f"
+echo -e "    systemctl restart virtpilot"
 echo ""
-if ! groups "$USER" | grep -qw libvirt; then
-  echo -e "${YELLOW}  Note:${NC} Log out and back in for the libvirt group to take effect."
-  echo -e "        VMs won't be visible in the UI until you do."
-  echo ""
-fi
