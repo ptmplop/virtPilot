@@ -4,7 +4,6 @@ import {
   ArrowDown,
   ArrowUp,
   CheckCircle2,
-  ChevronRight,
   Cpu,
   HardDrive,
   MemoryStick,
