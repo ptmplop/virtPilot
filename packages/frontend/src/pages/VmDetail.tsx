@@ -30,6 +30,7 @@ import { formatMemory } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { DhcpReservation, FirewallConfig, FirewallRule, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
+import { useVmOpsStore } from '@/store/vmOpsStore';
 
 type Tab = 'overview' | 'disks' | 'network' | 'snapshots' | 'firewall';
 
@@ -690,9 +691,18 @@ function SnapshotsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus
   const [toTemplateTarget, setToTemplateTarget] = useState<string | null>(null);
   const [snapshotName, setSnapshotName] = useState('');
   const [templateName, setTemplateName] = useState('');
-  const [pendingSnapshot, setPendingSnapshot] = useState<string | null>(null);
-  const [pendingRevert, setPendingRevert] = useState<string | null>(null);
-  const [pendingConvert, setPendingConvert] = useState<string | null>(null);
+
+  const {
+    pendingSnapshot: allPendingSnapshots, setPendingSnapshot: storePendingSnapshot,
+    pendingRevert: allPendingReverts, setPendingRevert: storePendingRevert,
+    pendingConvert: allPendingConverts, setPendingConvert: storePendingConvert,
+  } = useVmOpsStore();
+  const pendingSnapshot = allPendingSnapshots[vmName] ?? null;
+  const pendingRevert = allPendingReverts[vmName] ?? null;
+  const pendingConvert = allPendingConverts[vmName] ?? null;
+  const setPendingSnapshot = (name: string | null) => storePendingSnapshot(vmName, name);
+  const setPendingRevert = (name: string | null) => storePendingRevert(vmName, name);
+  const setPendingConvert = (name: string | null) => storePendingConvert(vmName, name);
 
   const { data: snapshots = [], isLoading } = useSnapshots(vmName);
   const { templates: templateLogos, setTemplateLogo } = useLogoStore();
