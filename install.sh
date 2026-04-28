@@ -93,12 +93,12 @@ sudo systemctl start libvirtd
 log "libvirtd running"
 
 # ─── Build ────────────────────────────────────────────────────────────────────
-info "Installing npm dependencies..."
+info "Installing npm dependencies (this may take a minute on first run)..."
 cd "$INSTALL_DIR"
-npm install --silent
+npm install --no-fund --no-audit
 
 info "Building VirtPilot..."
-npm run build
+npm run build 2>&1
 log "Build complete"
 
 # ─── Storage directories ──────────────────────────────────────────────────────
