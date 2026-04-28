@@ -193,11 +193,14 @@ export function useSnapshots(name: string) {
 
 export function useCreateSnapshot(name: string) {
   const qc = useQueryClient();
+  const invalidate = () => qc.invalidateQueries({ queryKey: [...KEYS.vm(name), 'snapshots'] });
   return useMutation({
     mutationFn: async (payload: { name: string; description?: string }) => {
-      await api.post(`/api/vms/${name}/snapshots`, payload);
+      await api.post(`/api/vms/${name}/snapshots`, payload, { timeout: 3 * 60_000 });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: [...KEYS.vm(name), 'snapshots'] }),
+    onSuccess: invalidate,
+    // Snapshot may have been created even if the request timed out — always refresh the list
+    onError: invalidate,
   });
 }
 
@@ -205,7 +208,7 @@ export function useDeleteSnapshot(name: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (snapshotName: string) => {
-      await api.delete(`/api/vms/${name}/snapshots/${snapshotName}`);
+      await api.delete(`/api/vms/${name}/snapshots/${snapshotName}`, { timeout: 3 * 60_000 });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [...KEYS.vm(name), 'snapshots'] }),
   });
@@ -215,7 +218,7 @@ export function useRevertSnapshot(name: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (snapshotName: string) => {
-      await api.post(`/api/vms/${name}/snapshots/${snapshotName}/revert`);
+      await api.post(`/api/vms/${name}/snapshots/${snapshotName}/revert`, undefined, { timeout: 3 * 60_000 });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEYS.vms });

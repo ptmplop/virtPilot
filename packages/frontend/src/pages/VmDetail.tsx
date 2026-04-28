@@ -709,8 +709,13 @@ function SnapshotsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus
     try {
       await createSnapshot.mutateAsync({ name });
       toast.success('Snapshot created');
-    } catch {
-      toast.error('Failed to create snapshot');
+    } catch (err: unknown) {
+      const isTimeout = (err as { code?: string })?.code === 'ECONNABORTED';
+      if (isTimeout) {
+        toast.warning('Snapshot is taking longer than expected — check the list in a moment');
+      } else {
+        toast.error('Failed to create snapshot');
+      }
     } finally {
       setPendingSnapshot(null);
     }

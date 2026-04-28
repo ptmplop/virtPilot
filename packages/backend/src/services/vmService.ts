@@ -11,13 +11,13 @@ const execAsync = promisify(exec);
 
 // ─── Internal virsh helper ────────────────────────────────────────────────────
 
-async function virsh(args: string, trace?: TraceEntry[]): Promise<string> {
+async function virsh(args: string, trace?: TraceEntry[], timeout = 30_000): Promise<string> {
   const cmd = `virsh -c ${config.libvirtUri} ${args}`;
   if (!trace) {
-    const { stdout } = await execAsync(cmd, { timeout: 30_000 });
+    const { stdout } = await execAsync(cmd, { timeout });
     return stdout.trim();
   }
-  return execTraced(cmd, trace, { timeout: 30_000 });
+  return execTraced(cmd, trace, { timeout });
 }
 
 // ─── Parsers ──────────────────────────────────────────────────────────────────
@@ -377,25 +377,28 @@ export async function listSnapshots(nameOrId: string): Promise<VmSnapshot[]> {
   }
 }
 
+// Internal QEMU snapshots on a running VM can take >30s for large disks/memory
+const SNAPSHOT_TIMEOUT = 3 * 60_000;
+
 export async function createSnapshot(nameOrId: string, snapshotName: string, description?: string): Promise<string> {
   const trace: TraceEntry[] = [];
   const args = description
     ? `snapshot-create-as ${nameOrId} ${snapshotName} "${description}" --atomic`
     : `snapshot-create-as ${nameOrId} ${snapshotName} --atomic`;
-  await virsh(args, trace);
+  await virsh(args, trace, SNAPSHOT_TIMEOUT);
   return formatTrace(trace);
 }
 
 export async function deleteSnapshot(nameOrId: string, snapshotName: string): Promise<string> {
   const trace: TraceEntry[] = [];
-  await virsh(`snapshot-delete ${nameOrId} ${snapshotName}`, trace);
+  await virsh(`snapshot-delete ${nameOrId} ${snapshotName}`, trace, SNAPSHOT_TIMEOUT);
   return formatTrace(trace);
 }
 
 export async function revertSnapshot(nameOrId: string, snapshotName: string): Promise<string> {
   const trace: TraceEntry[] = [];
   try { await virsh(`destroy ${nameOrId}`, trace); } catch { /* already stopped */ }
-  await virsh(`snapshot-revert ${nameOrId} ${snapshotName} --force`, trace);
+  await virsh(`snapshot-revert ${nameOrId} ${snapshotName} --force`, trace, SNAPSHOT_TIMEOUT);
   // snapshot-revert --force may have already started the VM (e.g. snapshot taken while running)
   const state = await virsh(`domstate ${nameOrId}`);
   if (parseStatus(state) !== 'running') {
