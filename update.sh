@@ -19,6 +19,11 @@ if [[ $EUID -ne 0 ]]; then
   die "Run as root: sudo bash update.sh"
 fi
 
+FORCE=false
+for arg in "$@"; do
+  [[ "$arg" == "--force" ]] && FORCE=true
+done
+
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo -e "${BOLD}  VirtPilot — Update${NC}\n"
@@ -33,8 +38,12 @@ git pull --ff-only
 AFTER=$(git rev-parse HEAD)
 
 if [[ "$BEFORE" == "$AFTER" ]]; then
-  log "Already up to date ($(git rev-parse --short HEAD))"
-  exit 0
+  if [[ "$FORCE" == true ]]; then
+    warn "Already up to date — rebuilding anyway (--force)"
+  else
+    log "Already up to date ($(git rev-parse --short HEAD))"
+    exit 0
+  fi
 fi
 
 log "Updated $(git rev-parse --short "$BEFORE") → $(git rev-parse --short "$AFTER")"
