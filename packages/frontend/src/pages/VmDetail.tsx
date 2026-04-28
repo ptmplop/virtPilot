@@ -191,11 +191,12 @@ export function VmDetailPage() {
             ))}
           </div>
 
-          {tab === 'overview' && <OverviewTab vm={vm} vmName={name!} />}
-          {tab === 'disks' && <DisksTab vmName={name!} disks={vm.disks} vmStatus={vm.status} />}
-          {tab === 'network' && <NetworkTab vmName={name!} nics={vm.nics} meta={vmMeta} />}
-          {tab === 'snapshots' && <SnapshotsTab vmName={name!} vmStatus={vm.status} />}
-          {tab === 'firewall' && <FirewallTab vmName={name!} vmStatus={vm.status} />}
+          {/* Always mount tab panels so in-flight operations (e.g. snapshot progress) survive tab switches */}
+          <div className={tab !== 'overview' ? 'hidden' : undefined}><OverviewTab vm={vm} vmName={name!} /></div>
+          <div className={tab !== 'disks' ? 'hidden' : undefined}><DisksTab vmName={name!} disks={vm.disks} vmStatus={vm.status} /></div>
+          <div className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmName={name!} nics={vm.nics} meta={vmMeta} /></div>
+          <div className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmName={name!} vmStatus={vm.status} /></div>
+          <div className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmName={name!} vmStatus={vm.status} /></div>}
         </>
       )}
     </Layout>
