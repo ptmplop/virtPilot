@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Disc, Download, Pencil, Trash2, Upload } from 'lucide-react';
+import { Disc, Download, Pencil, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
@@ -15,6 +15,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
+import { useUploadProgressStore } from '@/store/uploadProgressStore';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -100,12 +101,22 @@ export function IsosPage() {
 
   const { isos: isoLogos, setIsoLogo } = useLogoStore();
 
+  const {
+    isoUploadPct: uploadPct,
+    isoUploadName: uploadingName,
+    isoActiveJob: activeJob,
+    isoUploadAbort: uploadAbort,
+    setIsoUploadPct: setUploadPct,
+    setIsoUploadName: setUploadingName,
+    setIsoActiveJob: setActiveJob,
+    updateIsoActiveJob: updateActiveJob,
+    setIsoUploadAbort: setUploadAbort,
+  } = useUploadProgressStore();
+
   // Upload flow: pick file → name dialog → upload
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadDisplayName, setUploadDisplayName] = useState('');
   const [uploadLogoSlug, setUploadLogoSlug] = useState<string | null>(null);
-  const [uploadPct, setUploadPct] = useState<number | null>(null);
-  const [uploadingName, setUploadingName] = useState('');
   const uploadIso = useUploadIso((pct) => setUploadPct(pct));
 
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -122,19 +133,26 @@ export function IsosPage() {
     const file = pendingFile;
     const displayName = uploadDisplayName.trim() || file.name.replace(/\.iso$/i, '');
     const logoSlug = uploadLogoSlug;
+    const ac = new AbortController();
     setPendingFile(null);
     setUploadLogoSlug(null);
     setUploadingName(displayName || file.name);
     setUploadPct(0);
+    setUploadAbort(() => ac.abort.bind(ac));
     try {
-      await uploadIso.mutateAsync({ file, displayName });
+      await uploadIso.mutateAsync({ file, displayName, signal: ac.signal });
       if (logoSlug) setIsoLogo(file.name, logoSlug);
       toast.success(`${displayName || file.name} uploaded`);
     } catch {
-      toast.error('Upload failed');
+      if (ac.signal.aborted) {
+        toast.info('Upload cancelled');
+      } else {
+        toast.error('Upload failed');
+      }
     } finally {
       setUploadPct(null);
       setUploadingName('');
+      setUploadAbort(null);
     }
   };
 
@@ -143,7 +161,6 @@ export function IsosPage() {
   const [downloadFilename, setDownloadFilename] = useState('');
   const [downloadDisplayName, setDownloadDisplayName] = useState('');
   const [downloadLogoSlug, setDownloadLogoSlug] = useState<string | null>(null);
-  const [activeJob, setActiveJob] = useState<{ jobId: string; job: DownloadJob } | null>(null);
   const downloadFromUrl = useDownloadIsoFromUrl();
   const qc = useQueryClient();
 
@@ -173,7 +190,7 @@ export function IsosPage() {
   const pollJob = useCallback(async (jobId: string) => {
     try {
       const { data } = await api.get<DownloadJob>(`/api/isos/download/${jobId}`);
-      setActiveJob((prev) => prev ? { ...prev, job: data } : null);
+      updateActiveJob((prev) => prev ? { ...prev, job: data } : null);
       if (data.status === 'done') {
         toast.success(`${data.filename} downloaded`);
         qc.invalidateQueries({ queryKey: ['isos'] });
@@ -185,7 +202,7 @@ export function IsosPage() {
     } catch {
       setActiveJob(null);
     }
-  }, [qc]);
+  }, [qc, updateActiveJob, setActiveJob]);
 
   useEffect(() => {
     if (!activeJob || activeJob.job.status !== 'downloading') return;
@@ -219,7 +236,19 @@ export function IsosPage() {
         <div className="mb-5 rounded-xl border border-border bg-card px-5 py-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="max-w-xs truncate text-xs font-medium text-foreground">{uploadingName}</span>
-            <span className="ml-4 shrink-0 font-mono text-xs text-muted-foreground">{uploadPct}%</span>
+            <div className="ml-4 flex shrink-0 items-center gap-3">
+              <span className="font-mono text-xs text-muted-foreground">{uploadPct}%</span>
+              {uploadAbort && (
+                <button
+                  type="button"
+                  onClick={() => uploadAbort()}
+                  title="Cancel upload"
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
           </div>
           <ProgressBar pct={uploadPct} />
         </div>
