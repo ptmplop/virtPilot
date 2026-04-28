@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';
 import { useCreateVm } from '@/hooks/useVms';
 import { api } from '@/lib/api';
@@ -773,26 +774,16 @@ function NetworkCard({
                   No available IPs — all addresses are allocated.
                 </p>
               ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {availableIps.map((ip) => {
-                    const sel = selection.staticIp === ip.ip;
-                    return (
-                      <button
-                        key={ip.ip}
-                        type="button"
-                        onClick={() => onSetIp(ip.ip)}
-                        className={cn(
-                          'rounded border px-2.5 py-1 font-mono text-xs transition-all',
-                          sel
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border text-muted-foreground hover:bg-muted/30 hover:text-foreground'
-                        )}
-                      >
-                        {ip.ip}
-                      </button>
-                    );
-                  })}
-                </div>
+                <Select
+                  value={selection.staticIp}
+                  onChange={(e) => onSetIp(e.target.value)}
+                  className="font-mono"
+                >
+                  <option value="">Select an IP…</option>
+                  {availableIps.map((ip) => (
+                    <option key={ip.ip} value={ip.ip}>{ip.ip}</option>
+                  ))}
+                </Select>
               )}
             </div>
           )}
