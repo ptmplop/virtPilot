@@ -537,8 +537,6 @@ function AptSection() {
                   {pkg.name}
                 </span>
                 <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-muted-foreground">
-                  <span className="font-mono line-through opacity-60">{pkg.currentVersion}</span>
-                  <ChevronRight className="h-3 w-3 opacity-40" />
                   <span className="font-mono font-semibold text-foreground">{pkg.version}</span>
                   <span className="ml-1 rounded bg-muted px-1 py-0.5 text-[9px] uppercase tracking-wider">
                     {pkg.arch}
