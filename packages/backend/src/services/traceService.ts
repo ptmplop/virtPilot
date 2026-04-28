@@ -28,8 +28,10 @@ export async function execTraced(
 ): Promise<string> {
   try {
     const { stdout, stderr } = await execAsync(cmd, opts);
-    trace.push({ cmd, stdout: stdout.trim(), stderr: stderr.trim(), exitCode: 0 });
-    return stdout.trim();
+    const out = String(stdout).trim();
+    const err = String(stderr).trim();
+    trace.push({ cmd, stdout: out, stderr: err, exitCode: 0 });
+    return out;
   } catch (err: unknown) {
     const e = err as { stdout?: string; stderr?: string; code?: number };
     trace.push({
