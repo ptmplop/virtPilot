@@ -196,7 +196,7 @@ export function VmDetailPage() {
           <div className={tab !== 'disks' ? 'hidden' : undefined}><DisksTab vmName={name!} disks={vm.disks} vmStatus={vm.status} /></div>
           <div className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmName={name!} nics={vm.nics} meta={vmMeta} /></div>
           <div className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmName={name!} vmStatus={vm.status} /></div>
-          <div className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmName={name!} vmStatus={vm.status} /></div>}
+          <div className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmName={name!} vmStatus={vm.status} /></div>
         </>
       )}
     </Layout>
