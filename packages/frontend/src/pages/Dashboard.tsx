@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Cpu,
   HardDrive,
+  Info,
   MemoryStick,
   PackageOpen,
   RefreshCw,
@@ -21,6 +22,7 @@ import { Button } from '@/components/ui/Button';
 import { AreaChart } from '@/components/ui/AreaChart';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useSystemStats, useAptPackages, useInvalidateApt, type StatsSample, type AptPackage } from '@/hooks/useSystemStats';
+import { releaseNotes, type ChangeType } from '@/data/releaseNotes';
 import { useSettings } from '@/hooks/useSettings';
 import { useVms } from '@/hooks/useVms';
 import { cn } from '@/lib/cn';
@@ -620,6 +622,83 @@ function VmAgentCard() {
   );
 }
 
+// ─── About section ─────────────────────────────────────────────────────────────
+
+const changeTypeBadge: Record<ChangeType, string> = {
+  added:   'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  changed: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  fixed:   'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  removed: 'bg-red-500/10 text-red-500',
+};
+
+const STACK_TAGS = ['Express', 'React 18', 'TypeScript', 'Vite', 'Tailwind', 'libvirt', 'KVM/QEMU'];
+
+function AboutSection() {
+  const current = releaseNotes[0];
+
+  return (
+    <div className="grid grid-cols-[1fr_2fr] gap-5 items-start">
+      {/* Software identity */}
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="flex flex-col gap-5 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+              <Info className="h-4 w-4 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">VirtPilot</p>
+              <span className="font-mono text-[10px] text-muted-foreground">v{current.version}</span>
+            </div>
+          </div>
+
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Web-based KVM/QEMU manager — create, monitor, and control virtual machines from a browser. Wraps libvirt via virsh with a React frontend.
+          </p>
+
+          <div className="flex flex-wrap gap-1.5">
+            {STACK_TAGS.map((tag) => (
+              <span key={tag} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Release notes */}
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="border-b border-border px-6 py-5">
+          <p className="text-sm font-semibold text-foreground">Release Notes</p>
+          <p className="mt-1 text-xs text-muted-foreground">See <span className="font-mono">CHANGELOG.md</span> in the repository root for the full history.</p>
+        </div>
+        <div className="max-h-[380px] divide-y divide-border/60 overflow-y-auto">
+          {releaseNotes.map((entry) => (
+            <div key={entry.version} className="px-6 py-4">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="font-mono text-xs font-semibold text-foreground">v{entry.version}</span>
+                <span className="text-[10px] text-muted-foreground">{entry.date}</span>
+              </div>
+              <ul className="space-y-1.5">
+                {entry.changes.map((change, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <span className={cn(
+                      'mt-px shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wider',
+                      changeTypeBadge[change.type],
+                    )}>
+                      {change.type}
+                    </span>
+                    {change.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Dashboard page ────────────────────────────────────────────────────────────
 
 function extract(history: StatsSample[], key: keyof StatsSample): number[] {
@@ -779,6 +858,12 @@ export function DashboardPage() {
             <HostConfigSection />
             <VmAgentCard />
           </div>
+        </section>
+
+        {/* ── About ── */}
+        <section className="space-y-3">
+          <SectionLabel label="About" />
+          <AboutSection />
         </section>
 
       </div>
