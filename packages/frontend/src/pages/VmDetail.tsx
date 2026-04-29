@@ -1687,9 +1687,13 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
     direction: 'inbound' | 'outbound',
     value: 'allow' | 'drop'
   ) => {
+    const establishedKey = direction === 'inbound' ? 'allowEstablishedInbound' : 'allowEstablishedOutbound';
     const updated: FirewallConfig = {
       ...current,
       ...(direction === 'inbound' ? { defaultInbound: value } : { defaultOutbound: value }),
+      // auto-enable when switching to drop (prevents cutting off return traffic),
+      // auto-disable when switching to allow (redundant with catch-all accept)
+      [establishedKey]: value === 'drop',
     };
     try {
       await saveFirewall.mutateAsync(updated);
@@ -1900,18 +1904,25 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              {(['inbound', 'outbound'] as const).map((dir) => (
-                <label key={dir} className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40">
-                  <input
-                    type="checkbox"
-                    checked={dir === 'inbound' ? (current.allowEstablishedInbound ?? false) : (current.allowEstablishedOutbound ?? false)}
-                    onChange={(e) => handleSetEstablished(dir, e.target.checked)}
-                    disabled={saveFirewall.isPending}
-                    className="h-3.5 w-3.5 accent-primary"
-                  />
-                  Allow established & related ({dir})
-                </label>
-              ))}
+              {(['inbound', 'outbound'] as const).map((dir) => {
+                const defaultIsAllow = dir === 'inbound' ? current.defaultInbound === 'allow' : current.defaultOutbound === 'allow';
+                const isDisabled = saveFirewall.isPending || defaultIsAllow;
+                return (
+                  <label
+                    key={dir}
+                    className={`flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground transition-opacity ${isDisabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-muted/40'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={dir === 'inbound' ? (current.allowEstablishedInbound ?? false) : (current.allowEstablishedOutbound ?? false)}
+                      onChange={(e) => handleSetEstablished(dir, e.target.checked)}
+                      disabled={isDisabled}
+                      className="h-3.5 w-3.5 accent-primary"
+                    />
+                    Allow established & related ({dir})
+                  </label>
+                );
+              })}
             </div>
           </div>
         )}

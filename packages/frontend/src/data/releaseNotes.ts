@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.1.2',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: '"Allow established & related" checkboxes are disabled when the default policy is "Allow all" — redundant in that state' },
+      { type: 'changed', text: 'Switching default policy to "Drop all" auto-enables the established & related checkbox; switching back to "Allow all" clears it' },
+    ],
+  },
+  {
     version: '1.1.1',
     date: '2026-04-29',
     changes: [
