@@ -13,6 +13,17 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.1.0',
+    date: '2026-04-29',
+    changes: [
+      { type: 'added', text: 'Firewall rule reordering with up/down buttons on each row' },
+      { type: 'added', text: 'Multi-port firewall rules — comma-separated ports and ranges (e.g. 80,443 or 80,8000-9000)' },
+      { type: 'added', text: 'ICMP type filtering — select specific ICMP types (echo-request, echo-reply, etc.)' },
+      { type: 'added', text: 'Stateful connection tracking — allow established & related connections per direction' },
+      { type: 'changed', text: 'Port field shows "any" in rules table when no port restriction is set' },
+    ],
+  },
+  {
     version: '1.0.15',
     date: '2026-04-29',
     changes: [

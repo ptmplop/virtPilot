@@ -1508,12 +1508,21 @@ function genId(): string {
 
 const FW_PROTOCOLS = ['tcp', 'udp', 'icmp', 'all'] as const;
 const FW_ACTIONS = ['allow', 'drop'] as const;
+const FW_ICMP_TYPES = [
+  { value: '', label: 'Any type' },
+  { value: 'echo-request', label: 'Echo Request (ping in)' },
+  { value: 'echo-reply', label: 'Echo Reply (ping out)' },
+  { value: 'destination-unreachable', label: 'Destination Unreachable' },
+  { value: 'time-exceeded', label: 'Time Exceeded (TTL)' },
+  { value: 'redirect', label: 'Redirect' },
+] as const;
 
 interface RuleForm {
   protocol: 'tcp' | 'udp' | 'icmp' | 'all';
   portRange: string;
   source: string;
   destination: string;
+  icmpType: string;
   action: 'allow' | 'drop';
   description: string;
 }
@@ -1523,6 +1532,7 @@ const defaultRuleForm: RuleForm = {
   portRange: '',
   source: '',
   destination: '',
+  icmpType: '',
   action: 'allow',
   description: '',
 };
@@ -1537,12 +1547,16 @@ function FirewallRulesTable({
   rules,
   onEdit,
   onDelete,
+  onMoveUp,
+  onMoveDown,
   isPending,
   emptyLabel,
 }: {
   rules: FirewallRule[];
   onEdit: (rule: FirewallRule) => void;
   onDelete: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
   isPending: boolean;
   emptyLabel: string;
 }) {
@@ -1558,7 +1572,7 @@ function FirewallRulesTable({
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/40">
-            {['#', 'Protocol', 'Port / Range', 'Source / Dest', 'Action', 'Description', ''].map((h) => (
+            {['#', 'Protocol', 'Port / Type', 'Source / Dest', 'Action', 'Description', ''].map((h) => (
               <th
                 key={h}
                 className={cn(
@@ -1576,7 +1590,9 @@ function FirewallRulesTable({
             <tr key={rule.id} className="transition-colors hover:bg-muted/30">
               <td className="px-4 py-3 text-xs text-muted-foreground/50">{idx + 1}</td>
               <td className="px-4 py-3 font-mono text-xs text-foreground uppercase">{rule.protocol}</td>
-              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{rule.portRange ?? '—'}</td>
+              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                {rule.protocol === 'icmp' ? (rule.icmpType ?? 'any') : (rule.portRange ?? 'any')}
+              </td>
               <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{rule.source ?? rule.destination ?? '—'}</td>
               <td className="px-4 py-3">
                 <span className={cn(
@@ -1591,6 +1607,26 @@ function FirewallRulesTable({
               <td className="px-4 py-3 text-xs text-muted-foreground">{rule.description ?? '—'}</td>
               <td className="px-4 py-3 text-right">
                 <div className="inline-flex items-center justify-end gap-1">
+                  <Tooltip label="Move up">
+                    <button
+                      type="button"
+                      onClick={() => onMoveUp(rule.id)}
+                      disabled={isPending || idx === 0}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-25"
+                    >
+                      <ChevronUp size={12} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="Move down">
+                    <button
+                      type="button"
+                      onClick={() => onMoveDown(rule.id)}
+                      disabled={isPending || idx === rules.length - 1}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-25"
+                    >
+                      <ChevronDown size={12} />
+                    </button>
+                  </Tooltip>
                   <Tooltip label="Edit rule">
                     <button
                       type="button"
@@ -1632,14 +1668,17 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
   const current = cfg ?? emptyFirewallConfig;
   const portlessProtocol = form.protocol === 'icmp' || form.protocol === 'all';
   const portRangeValid =
-    portlessProtocol || !form.portRange.trim() || /^\d+(-\d+)?$/.test(form.portRange.trim());
+    portlessProtocol || !form.portRange.trim() || /^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(form.portRange.trim());
 
   const setField = (key: keyof RuleForm) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const value = e.target.value;
       setForm((f) => {
         const next = { ...f, [key]: value };
-        if (key === 'protocol' && (value === 'icmp' || value === 'all')) next.portRange = '';
+        if (key === 'protocol') {
+          if (value === 'icmp' || value === 'all') next.portRange = '';
+          if (value !== 'icmp') next.icmpType = '';
+        }
         return next;
       });
     };
@@ -1672,11 +1711,49 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
       portRange: rule.portRange ?? '',
       source: rule.source ?? '',
       destination: rule.destination ?? '',
+      icmpType: rule.icmpType ?? '',
       action: rule.action,
       description: rule.description ?? '',
     });
     setAddDirection(rule.direction);
     setEditingRuleId(rule.id);
+  };
+
+  const handleMoveRule = async (id: string, dir: 'up' | 'down') => {
+    const rules = [...current.rules];
+    const idx = rules.findIndex((r) => r.id === id);
+    if (idx === -1) return;
+    const direction = rules[idx].direction;
+    let swapIdx = -1;
+    if (dir === 'up') {
+      for (let i = idx - 1; i >= 0; i--) {
+        if (rules[i].direction === direction) { swapIdx = i; break; }
+      }
+    } else {
+      for (let i = idx + 1; i < rules.length; i++) {
+        if (rules[i].direction === direction) { swapIdx = i; break; }
+      }
+    }
+    if (swapIdx === -1) return;
+    [rules[idx], rules[swapIdx]] = [rules[swapIdx], rules[idx]];
+    try {
+      await saveFirewall.mutateAsync({ ...current, rules });
+    } catch {
+      toast.error('Failed to reorder rules');
+    }
+  };
+
+  const handleSetEstablished = async (direction: 'inbound' | 'outbound', value: boolean) => {
+    const updated: FirewallConfig = {
+      ...current,
+      ...(direction === 'inbound' ? { allowEstablishedInbound: value } : { allowEstablishedOutbound: value }),
+    };
+    try {
+      await saveFirewall.mutateAsync(updated);
+      toast.success(`${direction === 'inbound' ? 'Inbound' : 'Outbound'} established connections ${value ? 'allowed' : 'blocked'}`);
+    } catch {
+      toast.error('Failed to update policy');
+    }
   };
 
   const handleAddRule = async () => {
@@ -1689,6 +1766,7 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
       portRange: form.portRange.trim() || undefined,
       source: addDirection === 'inbound' ? (form.source.trim() || undefined) : undefined,
       destination: addDirection === 'outbound' ? (form.destination.trim() || undefined) : undefined,
+      icmpType: form.protocol === 'icmp' ? (form.icmpType || undefined) : undefined,
       action: form.action,
       description: form.description.trim() || undefined,
     };
@@ -1714,6 +1792,7 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
       portRange: form.portRange.trim() || undefined,
       source: addDirection === 'inbound' ? (form.source.trim() || undefined) : undefined,
       destination: addDirection === 'outbound' ? (form.destination.trim() || undefined) : undefined,
+      icmpType: form.protocol === 'icmp' ? (form.icmpType || undefined) : undefined,
       action: form.action,
       description: form.description.trim() || undefined,
     };
@@ -1791,30 +1870,49 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
           permitted ports.
         </p>
         {isLoading ? (
-          <div className="grid grid-cols-2 gap-4">
-            <Skeleton className="h-[60px]" />
-            <Skeleton className="h-[60px]" />
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-4">
+              <Skeleton className="h-[60px]" />
+              <Skeleton className="h-[60px]" />
+            </div>
+            <Skeleton className="h-8" />
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4">
-            <Select
-              label="Inbound default"
-              value={current.defaultInbound}
-              onChange={(e) => handleSetDefault('inbound', e.target.value as 'allow' | 'drop')}
-              disabled={saveFirewall.isPending}
-            >
-              <option value="allow">Allow all</option>
-              <option value="drop">Drop all</option>
-            </Select>
-            <Select
-              label="Outbound default"
-              value={current.defaultOutbound}
-              onChange={(e) => handleSetDefault('outbound', e.target.value as 'allow' | 'drop')}
-              disabled={saveFirewall.isPending}
-            >
-              <option value="allow">Allow all</option>
-              <option value="drop">Drop all</option>
-            </Select>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-4">
+              <Select
+                label="Inbound default"
+                value={current.defaultInbound}
+                onChange={(e) => handleSetDefault('inbound', e.target.value as 'allow' | 'drop')}
+                disabled={saveFirewall.isPending}
+              >
+                <option value="allow">Allow all</option>
+                <option value="drop">Drop all</option>
+              </Select>
+              <Select
+                label="Outbound default"
+                value={current.defaultOutbound}
+                onChange={(e) => handleSetDefault('outbound', e.target.value as 'allow' | 'drop')}
+                disabled={saveFirewall.isPending}
+              >
+                <option value="allow">Allow all</option>
+                <option value="drop">Drop all</option>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {(['inbound', 'outbound'] as const).map((dir) => (
+                <label key={dir} className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40">
+                  <input
+                    type="checkbox"
+                    checked={dir === 'inbound' ? (current.allowEstablishedInbound ?? false) : (current.allowEstablishedOutbound ?? false)}
+                    onChange={(e) => handleSetEstablished(dir, e.target.checked)}
+                    disabled={saveFirewall.isPending}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  Allow established & related ({dir})
+                </label>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -1839,6 +1937,8 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
             rules={inboundRules}
             onEdit={handleEditOpen}
             onDelete={handleDelete}
+            onMoveUp={(id) => handleMoveRule(id, 'up')}
+            onMoveDown={(id) => handleMoveRule(id, 'down')}
             isPending={saveFirewall.isPending}
             emptyLabel="No inbound rules — traffic follows the default inbound policy."
           />
@@ -1865,6 +1965,8 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
             rules={outboundRules}
             onEdit={handleEditOpen}
             onDelete={handleDelete}
+            onMoveUp={(id) => handleMoveRule(id, 'up')}
+            onMoveDown={(id) => handleMoveRule(id, 'down')}
             isPending={saveFirewall.isPending}
             emptyLabel="No outbound rules — traffic follows the default outbound policy."
           />
@@ -1908,13 +2010,21 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
               ))}
             </Select>
           </div>
-          <Input
-            label="Port / Range"
-            placeholder="e.g. 22 or 8000-9000"
-            value={form.portRange}
-            onChange={setField('portRange')}
-            disabled={portlessProtocol}
-          />
+          {form.protocol === 'icmp' ? (
+            <Select label="ICMP type" value={form.icmpType} onChange={setField('icmpType')}>
+              {FW_ICMP_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </Select>
+          ) : (
+            <Input
+              label="Port / Range (leave blank for any)"
+              placeholder="e.g. 22, 80,443, or 8000-9000"
+              value={form.portRange}
+              onChange={setField('portRange')}
+              disabled={form.protocol === 'all'}
+            />
+          )}
           {addDirection !== null && (
             <Input
               label={addDirection === 'inbound' ? 'Source address (optional)' : 'Destination address (optional)'}
@@ -1930,7 +2040,7 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
             onChange={setField('description')}
           />
           {!portRangeValid && (
-            <p className="text-xs text-destructive">Port must be a number or range (e.g. 80 or 8000-9000).</p>
+            <p className="text-xs text-destructive">Port must be a number or range, e.g. 22, 80,443, or 8000-9000.</p>
           )}
         </div>
       </Dialog>

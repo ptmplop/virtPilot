@@ -3,6 +3,15 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] — 2026-04-29
+
+### Added
+- Firewall rule reordering via up/down buttons on each row
+- Multi-port support in firewall rules — comma-separated ports and ranges (e.g. `80,443` or `80,8000-9000`) via iptables multiport module
+- ICMP type filtering — dropdown replaces port field when protocol is ICMP (echo-request, echo-reply, destination-unreachable, time-exceeded, redirect)
+- Stateful connection tracking — per-direction "Allow established & related" checkbox in Default Policies; inserts `conntrack ESTABLISHED,RELATED` rule at the top of the chain
+- Port field now shows `any` in the rules table when no port is specified; label clarifies blank = any
+
 ## [1.0.15] — 2026-04-29
 
 ### Added

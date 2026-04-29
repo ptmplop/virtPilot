@@ -14,6 +14,7 @@ export interface FirewallRule {
   portRange?: string;
   source?: string;
   destination?: string;
+  icmpType?: string;
   action: 'allow' | 'drop';
   description?: string;
 }
@@ -22,6 +23,8 @@ export interface FirewallConfig {
   rules: FirewallRule[];
   defaultInbound: 'allow' | 'drop';
   defaultOutbound: 'allow' | 'drop';
+  allowEstablishedInbound?: boolean;
+  allowEstablishedOutbound?: boolean;
 }
 
 function firewallPath(vmName: string): string {
@@ -46,9 +49,11 @@ export async function getFirewallConfig(vmName: string): Promise<FirewallConfig>
       rules: (cfg.rules ?? []).map((r) => ({ ...r, id: r.id || randomUUID() })),
       defaultInbound: cfg.defaultInbound ?? 'allow',
       defaultOutbound: cfg.defaultOutbound ?? 'allow',
+      allowEstablishedInbound: cfg.allowEstablishedInbound ?? false,
+      allowEstablishedOutbound: cfg.allowEstablishedOutbound ?? false,
     };
   } catch {
-    return { rules: [], defaultInbound: 'allow', defaultOutbound: 'allow' };
+    return { rules: [], defaultInbound: 'allow', defaultOutbound: 'allow', allowEstablishedInbound: false, allowEstablishedOutbound: false };
   }
 }
 
@@ -74,8 +79,17 @@ async function chainExists(chain: string): Promise<boolean> {
   }
 }
 
+function portArgs(portRange: string): string {
+  if (portRange.includes(',')) {
+    const ports = portRange.split(',').map((p) => p.includes('-') ? p.replace('-', ':') : p).join(',');
+    return `-m multiport --dports ${ports}`;
+  }
+  const range = portRange.includes('-') ? portRange.replace('-', ':') : portRange;
+  return `--dport ${range}`;
+}
+
 export async function applyFirewallRules(vmName: string, vmIp: string, cfg: FirewallConfig): Promise<void> {
-  const { rules, defaultInbound, defaultOutbound } = cfg;
+  const { rules, defaultInbound, defaultOutbound, allowEstablishedInbound, allowEstablishedOutbound } = cfg;
   const inC = inChain(vmName);
   const outC = outChain(vmName);
 
@@ -91,12 +105,26 @@ export async function applyFirewallRules(vmName: string, vmIp: string, cfg: Fire
     }
   }
 
-  // Nothing to do if no rules and both defaults are allow (iptables default behaviour)
-  if (rules.length === 0 && defaultInbound === 'allow' && defaultOutbound === 'allow') return;
+  // Nothing to do if no rules and both defaults are allow and no stateful overrides
+  if (
+    rules.length === 0 &&
+    defaultInbound === 'allow' &&
+    defaultOutbound === 'allow' &&
+    !allowEstablishedInbound &&
+    !allowEstablishedOutbound
+  ) return;
 
   // Create fresh chains
   await execAsync(`iptables -N ${inC}`);
   await execAsync(`iptables -N ${outC}`);
+
+  // Stateful: allow established/related traffic at the top of each chain
+  if (allowEstablishedInbound) {
+    await execAsync(`iptables -A ${inC} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`).catch(() => {});
+  }
+  if (allowEstablishedOutbound) {
+    await execAsync(`iptables -A ${outC} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`).catch(() => {});
+  }
 
   for (const rule of rules) {
     const chain = rule.direction === 'inbound' ? inC : outC;
@@ -106,11 +134,10 @@ export async function applyFirewallRules(vmName: string, vmIp: string, cfg: Fire
     if (rule.direction === 'outbound' && rule.destination) parts.push(`-d ${rule.destination}`);
     if (rule.protocol !== 'all') {
       parts.push(`-p ${rule.protocol}`);
-      if (rule.portRange && (rule.protocol === 'tcp' || rule.protocol === 'udp')) {
-        const range = rule.portRange.includes('-')
-          ? rule.portRange.replace('-', ':')
-          : rule.portRange;
-        parts.push(`--dport ${range}`);
+      if (rule.protocol === 'icmp' && rule.icmpType) {
+        parts.push(`--icmp-type ${rule.icmpType}`);
+      } else if (rule.portRange && (rule.protocol === 'tcp' || rule.protocol === 'udp')) {
+        parts.push(portArgs(rule.portRange));
       }
     }
     parts.push(`-j ${target}`);

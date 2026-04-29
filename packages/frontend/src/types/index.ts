@@ -140,6 +140,7 @@ export interface FirewallRule {
   portRange?: string;
   source?: string;
   destination?: string;
+  icmpType?: string;
   action: 'allow' | 'drop';
   description?: string;
 }
@@ -148,6 +149,8 @@ export interface FirewallConfig {
   rules: FirewallRule[];
   defaultInbound: 'allow' | 'drop';
   defaultOutbound: 'allow' | 'drop';
+  allowEstablishedInbound?: boolean;
+  allowEstablishedOutbound?: boolean;
 }
 
 export interface Settings {
