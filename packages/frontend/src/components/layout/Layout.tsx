@@ -86,46 +86,41 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   return (
     <aside
       className={cn(
-        'dark flex shrink-0 flex-col border-r border-sidebar-border overflow-hidden transition-[max-width] duration-200',
-        collapsed ? 'max-w-[56px]' : 'max-w-[320px]'
+        'dark flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-[max-width] duration-200',
+        collapsed ? 'max-w-[56px]' : 'max-w-[240px]'
       )}
-      style={{
-        background: 'linear-gradient(170deg, hsl(224 30% 7%) 0%, hsl(222 28% 4%) 100%)',
-      }}
     >
       {/* Brand */}
-      <div className={cn('flex items-center gap-3 pb-4 pt-5', collapsed ? 'justify-center px-0' : 'px-5')}>
-        <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ring-1 ring-primary/25"
-          style={{ background: 'linear-gradient(135deg, hsl(214 100% 62% / 0.3), hsl(214 100% 62% / 0.08))' }}
-        >
+      <div className={cn(
+        'flex items-center gap-2.5 border-b border-sidebar-border py-4',
+        collapsed ? 'justify-center px-0' : 'px-5'
+      )}>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10">
           <Cpu size={15} className="text-primary" />
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <span className="block text-sm font-bold tracking-tight text-white">VirtPilot</span>
-            <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-white/30">
+            <span className="block text-sm font-semibold tracking-tight text-foreground">VirtPilot</span>
+            <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
               KVM Manager
             </p>
           </div>
         )}
       </div>
 
-      <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent" />
-
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4" style={{ padding: collapsed ? '16px 8px' : '16px 12px' }}>
+      <nav className={cn('flex-1 overflow-y-auto py-3', collapsed ? 'px-2' : 'px-3')}>
         {collapsed ? (
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <CollapsedNavItem to="/" icon={LayoutDashboard} label="Dashboard" end />
             <CollapsedNavItem to="/vms/new" icon={Plus} label="New VM" />
-            <div className="my-3 h-px bg-white/6" />
+            <div className="my-2 border-t border-sidebar-border" />
             <CollapsedNavItem to="/vms" icon={Server} label="Virtual Machines" badge={<RunningVmsDot />} />
             <CollapsedNavItem to="/networks" icon={Network} label="Networks" />
             <CollapsedNavItem to="/templates" icon={HardDrive} label="Templates" />
             <CollapsedNavItem to="/isos" icon={Disc} label="ISOs" />
             <CollapsedNavItem to="/storage" icon={Database} label="Storage" />
-            <div className="my-3 h-px bg-white/6" />
+            <div className="my-2 border-t border-sidebar-border" />
             <CollapsedNavItem to="/logs" icon={ScrollText} label="Logs" />
             <CollapsedNavItem to="/settings" icon={Settings2} label="Settings" />
           </div>
@@ -151,57 +146,54 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       </nav>
 
       {/* Footer */}
-      <div className={cn('pb-4 pt-2', collapsed ? 'px-2' : 'px-4')}>
-        <div className="mb-3 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent" />
-
+      <div className={cn('border-t border-sidebar-border py-3', collapsed ? 'px-2' : 'px-3')}>
         {collapsed ? (
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-2">
             <ThemeToggle />
             <Tooltip label="Sign out" side="right">
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-white/30 transition-all hover:bg-white/6 hover:text-red-400"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
               >
                 <LogOut size={13} />
               </button>
             </Tooltip>
+            <button
+              type="button"
+              onClick={onToggle}
+              title="Expand sidebar"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            >
+              <PanelLeftOpen size={14} />
+            </button>
           </div>
         ) : (
-          <div className="flex items-center gap-1">
-            <ThemeToggle />
-            <span className="ml-auto font-mono text-[10px] text-white/45">v1.0.10</span>
-            <Tooltip label="Sign out" side="top">
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-white/25 transition-all hover:bg-white/6 hover:text-red-400"
-              >
-                <LogOut size={13} />
-              </button>
-            </Tooltip>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1">
+              <ThemeToggle />
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.0.11</span>
+              <Tooltip label="Sign out" side="top">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="ml-1 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                >
+                  <LogOut size={13} />
+                </button>
+              </Tooltip>
+            </div>
+            <button
+              type="button"
+              onClick={onToggle}
+              title="Collapse sidebar"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            >
+              <PanelLeftClose size={14} />
+              <span className="text-[11px]">Collapse</span>
+            </button>
           </div>
         )}
-
-        {/* Collapse toggle */}
-        <button
-          type="button"
-          onClick={onToggle}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className={cn(
-            'mt-3 flex w-full items-center rounded-lg px-2 py-1.5 text-white/25 transition-all hover:bg-white/5 hover:text-white/50',
-            collapsed ? 'justify-center' : 'gap-2'
-          )}
-        >
-          {collapsed
-            ? <PanelLeftOpen size={14} />
-            : (
-              <>
-                <PanelLeftClose size={14} />
-                <span className="text-[11px]">Collapse</span>
-              </>
-            )}
-        </button>
       </div>
     </aside>
   );
@@ -211,8 +203,8 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
 
 function NavSection({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="mb-5">
-      <p className="mb-1.5 px-3 text-[9px] font-bold uppercase tracking-[0.14em] text-white/25">
+    <div className="mb-4">
+      <p className="mb-1 px-3 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground/60">
         {label}
       </p>
       <div className="space-y-0.5">{children}</div>
@@ -239,25 +231,16 @@ function NavItem({
       end={end}
       className={({ isActive }) =>
         cn(
-          'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
+          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
           isActive
-            ? 'bg-primary/12 text-primary ring-1 ring-primary/15'
-            : 'text-white/45 hover:bg-white/6 hover:text-white/80'
+            ? 'border-l-2 border-primary bg-accent pl-[10px] text-accent-foreground'
+            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
         )
       }
     >
-      {({ isActive }) => (
-        <>
-          <Icon
-            className={cn(
-              'h-4 w-4 shrink-0 transition-colors',
-              isActive ? 'text-primary' : 'text-white/35 group-hover:text-white/60'
-            )}
-          />
-          <span className="whitespace-nowrap">{label}</span>
-          {badge}
-        </>
-      )}
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="whitespace-nowrap">{label}</span>
+      {badge}
     </NavLink>
   );
 }
@@ -282,10 +265,10 @@ function CollapsedNavItem({
         end={end}
         className={({ isActive }) =>
           cn(
-            'relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150',
+            'relative flex h-9 w-9 items-center justify-center rounded-md transition-colors',
             isActive
-              ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
-              : 'text-white/35 hover:bg-white/6 hover:text-white/70'
+              ? 'bg-accent text-accent-foreground'
+              : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           )
         }
       >
@@ -303,7 +286,7 @@ function RunningVmsBadge() {
   const running = vms?.filter((v) => v.status === 'running').length ?? 0;
   if (!running) return null;
   return (
-    <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400 ring-1 ring-emerald-500/20">
+    <span className="ml-auto flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400 ring-1 ring-emerald-500/20">
       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
       {running}
     </span>
@@ -318,4 +301,3 @@ function RunningVmsDot() {
     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgb(52_211_153_/_0.6)]" />
   );
 }
-

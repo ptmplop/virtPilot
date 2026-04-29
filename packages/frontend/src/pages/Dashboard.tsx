@@ -72,7 +72,7 @@ function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', h
 
   const inner = (
     <div className={cn(
-      'flex flex-col justify-between overflow-hidden rounded-2xl border px-5 py-4 shadow-sm transition-all duration-150',
+      'flex flex-col justify-between overflow-hidden rounded-xl border px-5 py-4 shadow-sm transition-all duration-150',
       href && 'cursor-pointer hover:shadow-md hover:-translate-y-px',
       isWarn ? 'border-amber-500/25 bg-amber-500/5' : 'border-border bg-card',
     )}>
@@ -126,7 +126,7 @@ function StatTiles() {
   if (!settings) {
     return (
       <div className="grid grid-cols-5 gap-4">
-        {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-[108px] rounded-2xl" />)}
+        {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-[108px] rounded-xl" />)}
       </div>
     );
   }
@@ -215,7 +215,7 @@ function MetricCard({
   chartData, chartData2, chartColor2, loading,
 }: MetricCardProps) {
   return (
-    <div className="flex h-[220px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div className="flex h-[220px] overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
       {/* Left: label + value + detail — fixed width */}
       <div className="flex w-56 shrink-0 flex-col justify-center gap-3 px-6">
         <div className="flex items-center gap-2.5">
@@ -339,7 +339,7 @@ function UpgradeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-2xl overflow-hidden border border-border shadow-2xl"
+      <div className="w-full max-w-2xl rounded-xl overflow-hidden border border-border shadow-2xl"
            style={{ background: 'hsl(224 30% 5%)' }}>
         {/* Terminal title bar */}
         <div className="flex items-center gap-3 border-b border-white/8 px-4 py-3">
@@ -438,7 +438,7 @@ function AptSection() {
 
   return (
     <>
-      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-5">
           <div className="flex items-center gap-3">

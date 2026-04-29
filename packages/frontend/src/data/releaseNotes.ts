@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.11',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'Sidebar restyled to match HostedAI Launchpad: bg-sidebar token, left-border active state, semantic colour tokens' },
+      { type: 'changed', text: 'Card rounding standardised to rounded-xl across all pages' },
+    ],
+  },
+  {
     version: '1.0.10',
     date: '2026-04-29',
     changes: [

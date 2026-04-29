@@ -3,6 +3,13 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.11] — 2026-04-29
+
+### Changed
+- Sidebar restyled to match HostedAI Launchpad: bg-sidebar token, left-border active state, semantic colour tokens throughout
+- Sidebar collapsed to 240px max-width (from 320px)
+- Card rounding standardised to rounded-xl across all pages (was rounded-2xl in Dashboard and Vms)
+
 ## [1.0.10] — 2026-04-29
 
 ### Changed
