@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Camera, ChevronDown, ChevronUp, Cpu, Disc, Eye, EyeOff,
-  HardDrive, MemoryStick, Network, Plus, Power, RotateCcw,
+  HardDrive, MemoryStick, Network, Plus, Power, PowerOff, RotateCcw,
   Server, Shield, Terminal, Trash2, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -155,6 +155,16 @@ export function VmDetailPage() {
                   >
                     <RotateCcw size={13} /> Reboot
                   </Button>
+                  <Tooltip label="Hard reset (immediate)">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleAction('reboot', true)}
+                      disabled={action.isPending}
+                    >
+                      <Zap size={13} /> Hard Reset
+                    </Button>
+                  </Tooltip>
                   <Button
                     size="sm"
                     variant="danger"
@@ -163,6 +173,16 @@ export function VmDetailPage() {
                   >
                     <Power size={13} /> Power Off
                   </Button>
+                  <Tooltip label="Force off (kill immediately)">
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => handleAction('stop', true)}
+                      disabled={action.isPending}
+                    >
+                      <PowerOff size={13} /> Force Off
+                    </Button>
+                  </Tooltip>
                 </>
               )}
               <Link to={`/vms/${name}/console`}>
