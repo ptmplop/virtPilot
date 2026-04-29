@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.10',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'System Updates overview tile shows count only, without "pending" label' },
+    ],
+  },
+  {
     version: '1.0.9',
     date: '2026-04-29',
     changes: [

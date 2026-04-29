@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.10] — 2026-04-29
+
+### Changed
+- System Updates overview tile shows count only, without "pending" label
+
 ## [1.0.9] — 2026-04-29
 
 ### Changed

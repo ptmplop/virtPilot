@@ -183,7 +183,7 @@ function StatTiles() {
       <StatTile
         icon={PackageOpen}
         label="System Updates"
-        primary={updates > 0 ? `${updates} pending` : 'Up to date'}
+        primary={updates > 0 ? String(updates) : 'Up to date'}
         secondary={updates > 0 ? 'Packages ready to upgrade' : 'No updates available'}
         accent={updates > 0 ? 'warn' : 'ok'}
       />
