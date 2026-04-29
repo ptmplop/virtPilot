@@ -26,6 +26,7 @@ export interface Vm {
   nics: VmNic[];
   vncDisplay?: string;
   vncPort?: number;
+  guestAgent?: boolean;
 }
 
 export interface VmSummary {

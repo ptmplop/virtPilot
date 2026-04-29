@@ -130,7 +130,10 @@ export async function getVmInfo(nameOrId: string): Promise<Vm> {
     // VNC not available (VM stopped)
   }
 
-  return { id, name, status: parseStatus(stateStr), cpus, memoryMb, disks, nics, vncDisplay, vncPort };
+  const status = parseStatus(stateStr);
+  const guestAgent = status === 'running' ? await checkGuestAgent(nameOrId) : undefined;
+
+  return { id, name, status, cpus, memoryMb, disks, nics, vncDisplay, vncPort, guestAgent };
 }
 
 export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
