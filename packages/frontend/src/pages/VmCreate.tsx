@@ -711,7 +711,8 @@ function NetworkCard({
       ? 'bg-violet-500/10 text-violet-400'
       : 'bg-emerald-500/10 text-emerald-400';
 
-  const typeLabel = network.type === 'nat' ? 'NAT' : network.ipMode === 'dhcp' ? 'Bridge DHCP' : 'Bridge Static';
+  const prefix = network.type === 'existing-bridge' ? 'OS Bridge' : 'Bridge';
+  const typeLabel = network.type === 'nat' ? 'NAT' : network.ipMode === 'dhcp' ? `${prefix} DHCP` : `${prefix} Static`;
 
   return (
     <div className={cn(

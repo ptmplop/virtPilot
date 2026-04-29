@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.1.4',
+    date: '2026-04-29',
+    changes: [
+      { type: 'fixed', text: 'Existing-bridge networks now labelled "OS Bridge DHCP" / "OS Bridge Static" in VM creation and VM detail — previously indistinguishable from VirtPilot-managed bridges' },
+    ],
+  },
+  {
     version: '1.1.3',
     date: '2026-04-29',
     changes: [

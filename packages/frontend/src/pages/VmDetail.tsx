@@ -1026,7 +1026,8 @@ function SnapshotsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus
 
 function networkTypeLabel(type: string, ipMode?: string): string {
   if (type === 'nat') return 'NAT';
-  return ipMode === 'dhcp' ? 'Bridge DHCP' : 'Bridge Static';
+  const prefix = type === 'existing-bridge' ? 'OS Bridge' : 'Bridge';
+  return ipMode === 'dhcp' ? `${prefix} DHCP` : `${prefix} Static`;
 }
 
 function networkTypeClass(type: string, ipMode?: string): string {
