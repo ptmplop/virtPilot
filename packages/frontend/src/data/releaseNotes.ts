@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.14',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'Sidebar is always dark regardless of page theme' },
+    ],
+  },
+  {
     version: '1.0.13',
     date: '2026-04-29',
     changes: [

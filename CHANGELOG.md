@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.14] — 2026-04-29
+
+### Changed
+- Sidebar is always dark in both light and dark mode
+
 ## [1.0.13] — 2026-04-29
 
 ### Changed

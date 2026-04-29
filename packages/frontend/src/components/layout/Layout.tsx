@@ -85,7 +85,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   return (
     <aside
       className={cn(
-        'flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-[max-width] duration-200',
+        'dark flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-[max-width] duration-200',
         collapsed ? 'max-w-[56px]' : 'max-w-[240px]'
       )}
     >
@@ -165,7 +165,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           <div className="space-y-1">
             <div className="flex items-center gap-1">
               <ThemeToggle />
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.0.13</span>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.0.14</span>
               <Tooltip label="Sign out" side="top">
                 <button
                   type="button"
