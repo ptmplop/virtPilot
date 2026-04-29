@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.1] — 2026-04-29
+
+### Fixed
+- "Allow established & related" checkboxes now persist — PUT route was stripping the new boolean fields before saving
+
 ## [1.1.0] — 2026-04-29
 
 ### Added

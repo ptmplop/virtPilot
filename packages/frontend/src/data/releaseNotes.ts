@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.1.1',
+    date: '2026-04-29',
+    changes: [
+      { type: 'fixed', text: '"Allow established & related" checkboxes now persist correctly' },
+    ],
+  },
+  {
     version: '1.1.0',
     date: '2026-04-29',
     changes: [

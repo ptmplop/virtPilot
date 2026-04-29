@@ -605,6 +605,8 @@ vmsRouter.put('/:name/firewall', async (req, res) => {
       rules: body.rules,
       defaultInbound: body.defaultInbound ?? 'allow',
       defaultOutbound: body.defaultOutbound ?? 'allow',
+      allowEstablishedInbound: body.allowEstablishedInbound ?? false,
+      allowEstablishedOutbound: body.allowEstablishedOutbound ?? false,
     };
     await firewallService.saveFirewallConfig(req.params.name, cfg);
     res.json({ ok: true });
