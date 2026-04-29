@@ -4,7 +4,9 @@ import { config } from '../config.js';
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers['authorization'];
-  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  const headerToken = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
+  const token = headerToken ?? queryToken;
   if (!token) {
     res.status(401).json({ error: 'Unauthorised' });
     return;

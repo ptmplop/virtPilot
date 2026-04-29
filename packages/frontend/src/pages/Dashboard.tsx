@@ -344,7 +344,8 @@ function UpgradeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
   const outputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const es = new EventSource('/api/system/apt/upgrade');
+    const token = localStorage.getItem('virtpilotToken') ?? '';
+    const es = new EventSource(`/api/system/apt/upgrade?token=${encodeURIComponent(token)}`);
 
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data) as { type: string; text: string };

@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.6',
+    date: '2026-04-29',
+    changes: [
+      { type: 'fixed', text: 'APT upgrade streaming broken: EventSource now passes JWT as query param since browser EventSource cannot set headers' },
+    ],
+  },
+  {
     version: '1.0.5',
     date: '2026-04-29',
     changes: [
