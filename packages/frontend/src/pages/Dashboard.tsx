@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Cpu,
   HardDrive,
-  Info,
   MemoryStick,
   PackageOpen,
   RefreshCw,
@@ -207,27 +206,23 @@ function HostConfigSection() {
   ] : [];
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="shrink-0 border-b border-border px-6 py-5">
-        <p className="text-sm font-semibold text-foreground">Host Configuration</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Set via environment variables in the backend{' '}
-          <span className="font-mono">.env</span> file.
+    <div>
+      <div className="mb-4 flex items-baseline gap-2">
+        <p className="text-xs font-semibold text-foreground">Host Configuration</p>
+        <p className="text-xs text-muted-foreground">
+          Set via environment variables in the backend <span className="font-mono">.env</span> file.
         </p>
       </div>
       {isLoading ? (
-        <div className="flex-1 space-y-px p-4">
-          {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
+        <div className="grid grid-cols-2 gap-x-12 gap-y-3">
+          {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-8 rounded-md" />)}
         </div>
       ) : (
-        <dl className="flex-1 divide-y divide-border overflow-y-auto">
+        <dl className="space-y-2.5">
           {rows.map(([label, value]) => (
-            <div
-              key={label}
-              className="px-6 py-3.5 transition-colors hover:bg-muted/20"
-            >
-              <dt className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{label}</dt>
-              <dd className="truncate font-mono text-xs text-foreground" title={value}>{value}</dd>
+            <div key={label} className="flex items-baseline gap-4">
+              <dt className="w-44 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">{label}</dt>
+              <dd className="min-w-0 truncate font-mono text-xs text-foreground" title={value}>{value}</dd>
             </div>
           ))}
         </dl>
@@ -481,9 +476,9 @@ function AptSection() {
 
   return (
     <>
-      <div className="flex flex-col rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
         {/* Header */}
-        <div className="shrink-0 flex items-center justify-between border-b border-border px-6 py-5">
+        <div className="flex items-center justify-between border-b border-border px-6 py-5">
           <div className="flex items-center gap-3">
             <div className={cn(
               'flex h-7 w-7 items-center justify-center rounded-lg',
@@ -518,20 +513,20 @@ function AptSection() {
 
         {/* Package list */}
         {isLoading && (
-          <div className="flex-1 space-y-px p-4">
+          <div className="space-y-px p-4">
             {[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
           </div>
         )}
 
         {upToDate && (
-          <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
             No updates available
           </div>
         )}
 
         {!isLoading && count > 0 && (
-          <div className="flex-1 overflow-y-auto divide-y divide-border/60">
+          <div className="max-h-[320px] overflow-y-auto divide-y divide-border/60">
             {(packages as AptPackage[]).map((pkg) => (
               <div key={pkg.name} className="flex items-center gap-3 px-6 py-3 hover:bg-muted/30 transition-colors">
                 <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-foreground">
@@ -572,8 +567,8 @@ function VmAgentCard() {
   const running = list.filter((v) => v.status === 'running').length;
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="shrink-0 border-b border-border px-6 py-5">
+    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div className="border-b border-border px-6 py-5">
         <p className="text-sm font-semibold text-foreground">Virtual Machines</p>
         <p className="mt-1 text-xs text-muted-foreground">
           {isLoading ? 'Loading…' : `${list.length} total · ${running} running`}
@@ -581,19 +576,19 @@ function VmAgentCard() {
       </div>
 
       {isLoading && (
-        <div className="flex-1 space-y-px p-4">
+        <div className="space-y-px p-4">
           {[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
         </div>
       )}
 
       {!isLoading && list.length === 0 && (
-        <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
+        <div className="flex items-center justify-center py-10 text-xs text-muted-foreground">
           No virtual machines
         </div>
       )}
 
       {!isLoading && list.length > 0 && (
-        <div className="flex-1 divide-y divide-border/60 overflow-y-auto">
+        <div className="divide-y divide-border/60">
           {list.map((vm) => (
             <Link
               key={vm.name}
@@ -637,44 +632,36 @@ function AboutSection() {
   const current = releaseNotes[0];
 
   return (
-    <div className="grid grid-cols-[1fr_2fr] gap-5">
+    <div className="grid grid-cols-[220px_1fr] gap-12">
       {/* Software identity */}
-      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="flex flex-col gap-5 px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-              <Info className="h-4 w-4 text-primary" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">VirtPilot</p>
-              <span className="font-mono text-[10px] text-muted-foreground">v{current.version}</span>
-            </div>
+      <div className="flex flex-col gap-4">
+        <div>
+          <div className="mb-1.5 flex items-baseline gap-2">
+            <span className="text-sm font-semibold text-foreground">VirtPilot</span>
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">v{current.version}</span>
           </div>
-
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Web-based KVM/QEMU manager — create, monitor, and control virtual machines from a browser. Wraps libvirt via virsh with a React frontend.
+            Web-based KVM/QEMU manager — create, monitor, and control virtual machines from a browser.
           </p>
-
-          <div className="flex flex-wrap gap-1.5">
-            {STACK_TAGS.map((tag) => (
-              <span key={tag} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                {tag}
-              </span>
-            ))}
-          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {STACK_TAGS.map((tag) => (
+            <span key={tag} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              {tag}
+            </span>
+          ))}
         </div>
       </div>
 
       {/* Release notes */}
-      <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="shrink-0 border-b border-border px-6 py-5">
-          <p className="text-sm font-semibold text-foreground">Release Notes</p>
-          <p className="mt-1 text-xs text-muted-foreground">See <span className="font-mono">CHANGELOG.md</span> in the repository root for the full history.</p>
-        </div>
-        <div className="flex-1 divide-y divide-border/60 overflow-y-auto">
-          {releaseNotes.map((entry) => (
-            <div key={entry.version} className="px-6 py-4">
-              <div className="mb-3 flex items-center gap-2">
+      <div>
+        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/40 select-none">
+          Release Notes — see <span className="font-mono normal-case tracking-normal">CHANGELOG.md</span> for full history
+        </p>
+        <div className="space-y-5">
+          {releaseNotes.slice(0, 3).map((entry) => (
+            <div key={entry.version}>
+              <div className="mb-2 flex items-center gap-2">
                 <span className="font-mono text-xs font-semibold text-foreground">v{entry.version}</span>
                 <span className="text-[10px] text-muted-foreground">{entry.date}</span>
               </div>
@@ -851,12 +838,14 @@ export function DashboardPage() {
         </section>
 
         {/* ── System ── */}
-        <section className="space-y-3">
+        <section className="space-y-5">
           <SectionLabel label="System" />
-          <div className="grid grid-cols-[3fr_2fr_1.5fr] gap-5">
+          <div className="grid grid-cols-[3fr_2fr] gap-5 items-start">
             <AptSection />
-            <HostConfigSection />
             <VmAgentCard />
+          </div>
+          <div className="border-t border-border/40 pt-5">
+            <HostConfigSection />
           </div>
         </section>
 

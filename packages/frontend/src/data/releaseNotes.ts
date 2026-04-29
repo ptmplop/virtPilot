@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.4',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'Host Configuration displayed as borderless key-value layout below System cards' },
+      { type: 'changed', text: 'About section rendered as borderless text layout, no card chrome' },
+    ],
+  },
+  {
     version: '1.0.3',
     date: '2026-04-29',
     changes: [

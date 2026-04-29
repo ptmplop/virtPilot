@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.4] — 2026-04-29
+
+### Changed
+- Dashboard System section: Host Configuration moved below APT/VM cards as borderless key-value layout
+- Dashboard About section: removed card chrome, now renders as borderless text layout
+
 ## [1.0.3] — 2026-04-29
 
 ### Fixed
