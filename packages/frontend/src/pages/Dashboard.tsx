@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/Button';
 import { AreaChart } from '@/components/ui/AreaChart';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useSystemStats, useAptPackages, useInvalidateApt, type StatsSample, type AptPackage } from '@/hooks/useSystemStats';
+import { useSettings } from '@/hooks/useSettings';
 import { releaseNotes } from '@/data/releaseNotes';
 import { siGithub } from 'simple-icons';
 import { useVms } from '@/hooks/useVms';
