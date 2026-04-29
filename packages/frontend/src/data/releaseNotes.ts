@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.5',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'About section moved below Overview, full-width with expanded detail and GitHub link' },
+      { type: 'changed', text: 'Release notes removed from dashboard in favour of GitHub repo link' },
+    ],
+  },
+  {
     version: '1.0.4',
     date: '2026-04-29',
     changes: [

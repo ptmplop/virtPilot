@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.5] — 2026-04-29
+
+### Changed
+- About section moved below Overview, now full-width with expanded description, feature tags, stack tags, and GitHub link
+- Release notes removed from dashboard; GitHub repo link replaces them
+
 ## [1.0.4] — 2026-04-29
 
 ### Changed
