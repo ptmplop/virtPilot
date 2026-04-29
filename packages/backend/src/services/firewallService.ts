@@ -12,6 +12,8 @@ export interface FirewallRule {
   direction: 'inbound' | 'outbound';
   protocol: 'tcp' | 'udp' | 'icmp' | 'all';
   portRange?: string;
+  source?: string;
+  destination?: string;
   action: 'allow' | 'drop';
   description?: string;
 }
@@ -100,6 +102,8 @@ export async function applyFirewallRules(vmName: string, vmIp: string, cfg: Fire
     const chain = rule.direction === 'inbound' ? inC : outC;
     const target = rule.action === 'allow' ? 'ACCEPT' : 'DROP';
     const parts: string[] = [`iptables -A ${chain}`];
+    if (rule.direction === 'inbound' && rule.source) parts.push(`-s ${rule.source}`);
+    if (rule.direction === 'outbound' && rule.destination) parts.push(`-d ${rule.destination}`);
     if (rule.protocol !== 'all') {
       parts.push(`-p ${rule.protocol}`);
       if (rule.portRange && (rule.protocol === 'tcp' || rule.protocol === 'udp')) {

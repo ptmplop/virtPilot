@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.15',
+    date: '2026-04-29',
+    changes: [
+      { type: 'added', text: 'Firewall rules support source address (inbound) and destination address (outbound)' },
+      { type: 'added', text: 'Edit button on each firewall rule row to modify rules in place' },
+    ],
+  },
+  {
     version: '1.0.14',
     date: '2026-04-29',
     changes: [

@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.15] — 2026-04-29
+
+### Added
+- Firewall rules now support source address (inbound) and destination address (outbound) — accepts IP or CIDR notation
+- Edit button on each firewall rule row; opens a pre-populated dialog to modify any field in place
+
 ## [1.0.14] — 2026-04-29
 
 ### Changed

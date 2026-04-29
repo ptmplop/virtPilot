@@ -138,6 +138,8 @@ export interface FirewallRule {
   direction: 'inbound' | 'outbound';
   protocol: 'tcp' | 'udp' | 'icmp' | 'all';
   portRange?: string;
+  source?: string;
+  destination?: string;
   action: 'allow' | 'drop';
   description?: string;
 }

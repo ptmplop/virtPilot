@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Camera, ChevronDown, ChevronUp, Cpu, Disc, Eye, EyeOff,
-  HardDrive, MemoryStick, Network, Plus, Power, PowerOff, RotateCcw,
+  HardDrive, MemoryStick, Network, Pencil, Plus, Power, PowerOff, RotateCcw,
   Server, Shield, Terminal, Trash2, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -1512,6 +1512,8 @@ const FW_ACTIONS = ['allow', 'drop'] as const;
 interface RuleForm {
   protocol: 'tcp' | 'udp' | 'icmp' | 'all';
   portRange: string;
+  source: string;
+  destination: string;
   action: 'allow' | 'drop';
   description: string;
 }
@@ -1519,6 +1521,8 @@ interface RuleForm {
 const defaultRuleForm: RuleForm = {
   protocol: 'tcp',
   portRange: '',
+  source: '',
+  destination: '',
   action: 'allow',
   description: '',
 };
@@ -1531,11 +1535,13 @@ const emptyFirewallConfig: FirewallConfig = {
 
 function FirewallRulesTable({
   rules,
+  onEdit,
   onDelete,
   isPending,
   emptyLabel,
 }: {
   rules: FirewallRule[];
+  onEdit: (rule: FirewallRule) => void;
   onDelete: (id: string) => void;
   isPending: boolean;
   emptyLabel: string;
@@ -1552,7 +1558,7 @@ function FirewallRulesTable({
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/40">
-            {['#', 'Protocol', 'Port / Range', 'Action', 'Description', ''].map((h) => (
+            {['#', 'Protocol', 'Port / Range', 'Source / Dest', 'Action', 'Description', ''].map((h) => (
               <th
                 key={h}
                 className={cn(
@@ -1571,6 +1577,7 @@ function FirewallRulesTable({
               <td className="px-4 py-3 text-xs text-muted-foreground/50">{idx + 1}</td>
               <td className="px-4 py-3 font-mono text-xs text-foreground uppercase">{rule.protocol}</td>
               <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{rule.portRange ?? '—'}</td>
+              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{rule.source ?? rule.destination ?? '—'}</td>
               <td className="px-4 py-3">
                 <span className={cn(
                   'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase',
@@ -1583,16 +1590,28 @@ function FirewallRulesTable({
               </td>
               <td className="px-4 py-3 text-xs text-muted-foreground">{rule.description ?? '—'}</td>
               <td className="px-4 py-3 text-right">
-                <Tooltip label="Remove rule">
-                  <button
-                    type="button"
-                    onClick={() => onDelete(rule.id)}
-                    disabled={isPending}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </Tooltip>
+                <div className="inline-flex items-center justify-end gap-1">
+                  <Tooltip label="Edit rule">
+                    <button
+                      type="button"
+                      onClick={() => onEdit(rule)}
+                      disabled={isPending}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label="Remove rule">
+                    <button
+                      type="button"
+                      onClick={() => onDelete(rule.id)}
+                      disabled={isPending}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </Tooltip>
+                </div>
               </td>
             </tr>
           ))}
@@ -1604,6 +1623,7 @@ function FirewallRulesTable({
 
 function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }) {
   const [addDirection, setAddDirection] = useState<'inbound' | 'outbound' | null>(null);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleForm>(defaultRuleForm);
   const { data: cfg, isLoading } = useVmFirewall(vmName);
   const saveFirewall = useSaveFirewall(vmName);
@@ -1640,6 +1660,25 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
     }
   };
 
+  const closeDialog = () => {
+    setAddDirection(null);
+    setEditingRuleId(null);
+    setForm(defaultRuleForm);
+  };
+
+  const handleEditOpen = (rule: FirewallRule) => {
+    setForm({
+      protocol: rule.protocol,
+      portRange: rule.portRange ?? '',
+      source: rule.source ?? '',
+      destination: rule.destination ?? '',
+      action: rule.action,
+      description: rule.description ?? '',
+    });
+    setAddDirection(rule.direction);
+    setEditingRuleId(rule.id);
+  };
+
   const handleAddRule = async () => {
     if (!addDirection) return;
     if (!portRangeValid) return;
@@ -1648,14 +1687,43 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
       direction: addDirection,
       protocol: form.protocol,
       portRange: form.portRange.trim() || undefined,
+      source: addDirection === 'inbound' ? (form.source.trim() || undefined) : undefined,
+      destination: addDirection === 'outbound' ? (form.destination.trim() || undefined) : undefined,
       action: form.action,
       description: form.description.trim() || undefined,
     };
     try {
       await saveFirewall.mutateAsync({ ...current, rules: [...current.rules, newRule] });
       toast.success(`${addDirection === 'inbound' ? 'Inbound' : 'Outbound'} rule added`);
-      setAddDirection(null);
-      setForm(defaultRuleForm);
+      closeDialog();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Failed to save rule';
+      toast.error(msg);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingRuleId || !addDirection) return;
+    if (!portRangeValid) return;
+    const updatedRule: FirewallRule = {
+      id: editingRuleId,
+      direction: addDirection,
+      protocol: form.protocol,
+      portRange: form.portRange.trim() || undefined,
+      source: addDirection === 'inbound' ? (form.source.trim() || undefined) : undefined,
+      destination: addDirection === 'outbound' ? (form.destination.trim() || undefined) : undefined,
+      action: form.action,
+      description: form.description.trim() || undefined,
+    };
+    try {
+      await saveFirewall.mutateAsync({
+        ...current,
+        rules: current.rules.map((r) => (r.id === editingRuleId ? updatedRule : r)),
+      });
+      toast.success('Rule updated');
+      closeDialog();
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -1760,7 +1828,7 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
               {inboundRules.length}
             </span>
           </div>
-          <Button size="sm" onClick={() => { setForm(defaultRuleForm); setAddDirection('inbound'); }}>
+          <Button size="sm" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('inbound'); }}>
             <Plus size={13} /> Add Rule
           </Button>
         </div>
@@ -1769,6 +1837,7 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
         ) : (
           <FirewallRulesTable
             rules={inboundRules}
+            onEdit={handleEditOpen}
             onDelete={handleDelete}
             isPending={saveFirewall.isPending}
             emptyLabel="No inbound rules — traffic follows the default inbound policy."
@@ -1785,7 +1854,7 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
               {outboundRules.length}
             </span>
           </div>
-          <Button size="sm" onClick={() => { setForm(defaultRuleForm); setAddDirection('outbound'); }}>
+          <Button size="sm" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('outbound'); }}>
             <Plus size={13} /> Add Rule
           </Button>
         </div>
@@ -1794,6 +1863,7 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
         ) : (
           <FirewallRulesTable
             rules={outboundRules}
+            onEdit={handleEditOpen}
             onDelete={handleDelete}
             isPending={saveFirewall.isPending}
             emptyLabel="No outbound rules — traffic follows the default outbound policy."
@@ -1801,26 +1871,22 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
         )}
       </div>
 
-      {/* Add Rule Dialog */}
+      {/* Add / Edit Rule Dialog */}
       <Dialog
         open={addDirection !== null}
-        onClose={() => { setAddDirection(null); setForm(defaultRuleForm); }}
-        title={`Add ${addDirection === 'inbound' ? 'Inbound' : 'Outbound'} Rule`}
+        onClose={closeDialog}
+        title={`${editingRuleId ? 'Edit' : 'Add'} ${addDirection === 'inbound' ? 'Inbound' : 'Outbound'} Rule`}
         footer={
           <>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => { setAddDirection(null); setForm(defaultRuleForm); }}
-            >
+            <Button variant="secondary" size="sm" onClick={closeDialog}>
               Cancel
             </Button>
             <Button
               size="sm"
-              onClick={handleAddRule}
+              onClick={editingRuleId ? handleSaveEdit : handleAddRule}
               disabled={saveFirewall.isPending || !portRangeValid}
             >
-              {saveFirewall.isPending ? 'Saving…' : 'Add Rule'}
+              {saveFirewall.isPending ? 'Saving…' : editingRuleId ? 'Save Changes' : 'Add Rule'}
             </Button>
           </>
         }
@@ -1849,6 +1915,14 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
             onChange={setField('portRange')}
             disabled={portlessProtocol}
           />
+          {addDirection !== null && (
+            <Input
+              label={addDirection === 'inbound' ? 'Source address (optional)' : 'Destination address (optional)'}
+              placeholder="e.g. 192.168.1.0/24"
+              value={addDirection === 'inbound' ? form.source : form.destination}
+              onChange={setField(addDirection === 'inbound' ? 'source' : 'destination')}
+            />
+          )}
           <Input
             label="Description (optional)"
             placeholder="e.g. Allow SSH"
