@@ -147,14 +147,16 @@ export function VmDetailPage() {
               )}
               {vm.status === 'running' && (
                 <>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => handleAction('reboot')}
-                    disabled={action.isPending}
-                  >
-                    <RotateCcw size={13} /> Reboot
-                  </Button>
+                  <Tooltip label="Reboot (ACPI)">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleAction('reboot')}
+                      disabled={action.isPending}
+                    >
+                      <RotateCcw size={13} /> Reboot
+                    </Button>
+                  </Tooltip>
                   <Tooltip label="Hard reset (immediate)">
                     <Button
                       size="sm"
@@ -165,14 +167,16 @@ export function VmDetailPage() {
                       <Zap size={13} /> Hard Reset
                     </Button>
                   </Tooltip>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => handleAction('stop')}
-                    disabled={action.isPending}
-                  >
-                    <Power size={13} /> Power Off
-                  </Button>
+                  <Tooltip label="Shutdown (ACPI)">
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => handleAction('stop')}
+                      disabled={action.isPending}
+                    >
+                      <Power size={13} /> Power Off
+                    </Button>
+                  </Tooltip>
                   <Tooltip label="Force off (kill immediately)">
                     <Button
                       size="sm"
@@ -294,6 +298,19 @@ function OverviewTab({
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
           <div className="divide-y divide-border">
             <ConfigRow label="UUID" value={vm.id} mono />
+            {vm.status === 'running' && vm.guestAgent !== undefined && (
+              <div className="flex items-center justify-between gap-4 px-5 py-3.5">
+                <span className="text-sm text-muted-foreground">Guest Agent</span>
+                <span className={cn(
+                  'rounded-full px-2 py-0.5 text-xs font-medium',
+                  vm.guestAgent
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-muted text-muted-foreground/60',
+                )}>
+                  {vm.guestAgent ? 'Connected' : 'Not available'}
+                </span>
+              </div>
+            )}
             {vm.vncPort != null && <ConfigRow label="VNC Port" value={String(vm.vncPort)} mono />}
             {vm.vncDisplay && <ConfigRow label="VNC Display" value={vm.vncDisplay} mono />}
           </div>

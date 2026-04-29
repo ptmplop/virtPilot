@@ -382,10 +382,34 @@ const SNAPSHOT_TIMEOUT = 3 * 60_000;
 
 export async function createSnapshot(nameOrId: string, snapshotName: string, description?: string): Promise<string> {
   const trace: TraceEntry[] = [];
-  const args = description
-    ? `snapshot-create-as ${nameOrId} ${snapshotName} "${description}" --atomic`
-    : `snapshot-create-as ${nameOrId} ${snapshotName} --atomic`;
-  await virsh(args, trace, SNAPSHOT_TIMEOUT);
+
+  // Freeze guest filesystems for a consistent snapshot. Falls through silently
+  // if the agent is absent or the VM is stopped.
+  let frozen = false;
+  try {
+    await execAsync(
+      `virsh -c ${config.libvirtUri} qemu-agent-command "${nameOrId}" '{"execute":"guest-fsfreeze-freeze"}' --timeout 5`,
+      { timeout: 10_000 },
+    );
+    frozen = true;
+  } catch { /* agent absent or VM not running — proceed unfrozen */ }
+
+  try {
+    const args = description
+      ? `snapshot-create-as ${nameOrId} ${snapshotName} "${description}" --atomic`
+      : `snapshot-create-as ${nameOrId} ${snapshotName} --atomic`;
+    await virsh(args, trace, SNAPSHOT_TIMEOUT);
+  } finally {
+    if (frozen) {
+      try {
+        await execAsync(
+          `virsh -c ${config.libvirtUri} qemu-agent-command "${nameOrId}" '{"execute":"guest-fsfreeze-thaw"}' --timeout 5`,
+          { timeout: 10_000 },
+        );
+      } catch { /* best-effort */ }
+    }
+  }
+
   return formatTrace(trace);
 }
 
