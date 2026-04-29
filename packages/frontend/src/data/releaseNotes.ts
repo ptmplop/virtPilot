@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.13',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'Sidebar brand area replaced with PNG logo: full wordmark when expanded, icon-only when collapsed' },
+    ],
+  },
+  {
     version: '1.0.12',
     date: '2026-04-29',
     changes: [

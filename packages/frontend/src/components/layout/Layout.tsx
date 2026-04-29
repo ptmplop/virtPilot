@@ -1,7 +1,6 @@
 import { useState, type ReactNode, type ComponentType } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  Cpu,
   Database,
   Disc,
   HardDrive,
@@ -92,19 +91,13 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
     >
       {/* Brand */}
       <div className={cn(
-        'flex items-center gap-2.5 border-b border-sidebar-border py-4',
+        'flex items-center border-b border-sidebar-border py-4',
         collapsed ? 'justify-center px-0' : 'px-5'
       )}>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-          <Cpu size={15} className="text-primary" />
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <span className="block text-sm font-semibold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">VirtPilot</span>
-            <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-              KVM Manager
-            </p>
-          </div>
+        {collapsed ? (
+          <img src="/vlogo-small.png" alt="VirtPilot" className="h-8 w-8 object-contain" />
+        ) : (
+          <img src="/vlogo-big.png" alt="VirtPilot" className="h-8 w-auto object-contain" />
         )}
       </div>
 
@@ -172,7 +165,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           <div className="space-y-1">
             <div className="flex items-center gap-1">
               <ThemeToggle />
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.0.12</span>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.0.13</span>
               <Tooltip label="Sign out" side="top">
                 <button
                   type="button"
