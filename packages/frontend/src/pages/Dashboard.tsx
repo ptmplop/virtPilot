@@ -23,7 +23,6 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useSystemStats, useAptPackages, useInvalidateApt, type StatsSample, type AptPackage } from '@/hooks/useSystemStats';
 import { releaseNotes } from '@/data/releaseNotes';
 import { siGithub } from 'simple-icons';
-import { useSettings } from '@/hooks/useSettings';
 import { useVms } from '@/hooks/useVms';
 import { cn } from '@/lib/cn';
 import type { VmStatus } from '@/types';
@@ -192,45 +191,6 @@ function StatTiles() {
   );
 }
 
-// ─── Host configuration ────────────────────────────────────────────────────────
-
-function HostConfigSection() {
-  const { data: settings, isLoading } = useSettings();
-
-  const rows: [string, string][] = settings ? [
-    ['Storage Root', settings.storageRoot],
-    ['Templates Directory', settings.templatesDir],
-    ['ISOs Directory', settings.isosDir],
-    ['VMs Directory', settings.vmsDir],
-    ['Default Bridge', settings.defaultBridge],
-    ['Libvirt URI', settings.libvirtUri],
-  ] : [];
-
-  return (
-    <div>
-      <div className="mb-4 flex items-baseline gap-2">
-        <p className="text-xs font-semibold text-foreground">Host Configuration</p>
-        <p className="text-xs text-muted-foreground">
-          Set via environment variables in the backend <span className="font-mono">.env</span> file.
-        </p>
-      </div>
-      {isLoading ? (
-        <div className="grid grid-cols-2 gap-x-12 gap-y-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-8 rounded-md" />)}
-        </div>
-      ) : (
-        <dl className="space-y-2.5">
-          {rows.map(([label, value]) => (
-            <div key={label} className="flex items-baseline gap-4">
-              <dt className="w-44 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">{label}</dt>
-              <dd className="min-w-0 truncate font-mono text-xs text-foreground" title={value}>{value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </div>
-  );
-}
 
 // ─── Metric card ───────────────────────────────────────────────────────────────
 
@@ -846,9 +806,6 @@ export function DashboardPage() {
           <div className="grid grid-cols-[3fr_2fr] gap-5 items-start">
             <AptSection />
             <VmAgentCard />
-          </div>
-          <div className="border-t border-border/40 pt-5">
-            <HostConfigSection />
           </div>
         </section>
 

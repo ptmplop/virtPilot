@@ -39,8 +39,44 @@ export function SettingsPage() {
     saveSettings.mutate({ maxLogs: n });
   }
 
+  const configRows: [string, string][] = settings ? [
+    ['Storage Root',        settings.storageRoot],
+    ['Templates Directory', settings.templatesDir],
+    ['ISOs Directory',      settings.isosDir],
+    ['VMs Directory',       settings.vmsDir],
+    ['Default Bridge',      settings.defaultBridge],
+    ['Libvirt URI',         settings.libvirtUri],
+  ] : [];
+
   return (
-    <Layout title="Settings" subtitle="Log retention and host requirements.">
+    <Layout title="Settings" subtitle="Host configuration, log retention, and requirements.">
+      {/* Host configuration */}
+      <section className="mb-5">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-foreground">Host Configuration</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Read-only. Set via environment variables in the backend{' '}
+            <span className="font-mono">.env</span> file.
+          </p>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          {isLoading ? (
+            <div className="space-y-px p-4">
+              {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
+            </div>
+          ) : (
+            <dl className="divide-y divide-border">
+              {configRows.map(([label, value]) => (
+                <div key={label} className="flex items-baseline gap-4 px-5 py-3 hover:bg-muted/20 transition-colors">
+                  <dt className="w-44 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">{label}</dt>
+                  <dd className="min-w-0 truncate font-mono text-xs text-foreground" title={value}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+      </section>
+
       {/* Log retention */}
       <section className="mb-5">
         <div className="mb-3">

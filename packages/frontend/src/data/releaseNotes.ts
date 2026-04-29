@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.7',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'Host Configuration moved from dashboard to Settings page' },
+    ],
+  },
+  {
     version: '1.0.6',
     date: '2026-04-29',
     changes: [

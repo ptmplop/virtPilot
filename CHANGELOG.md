@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.7] — 2026-04-29
+
+### Changed
+- Host Configuration moved from dashboard to Settings page
+
 ## [1.0.6] — 2026-04-29
 
 ### Fixed
