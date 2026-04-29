@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.8] — 2026-04-29
+
+### Changed
+- System Updates card is now full width on the dashboard
+- Virtual Machines card removed from dashboard
+
 ## [1.0.7] — 2026-04-29
 
 ### Changed

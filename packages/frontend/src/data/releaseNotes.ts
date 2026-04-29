@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.8',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'System Updates card is now full width on the dashboard' },
+      { type: 'changed', text: 'Virtual Machines card removed from dashboard' },
+    ],
+  },
+  {
     version: '1.0.7',
     date: '2026-04-29',
     changes: [

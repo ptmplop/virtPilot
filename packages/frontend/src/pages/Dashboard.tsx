@@ -25,7 +25,6 @@ import { releaseNotes } from '@/data/releaseNotes';
 import { siGithub } from 'simple-icons';
 import { useVms } from '@/hooks/useVms';
 import { cn } from '@/lib/cn';
-import type { VmStatus } from '@/types';
 
 // ─── Formatters ────────────────────────────────────────────────────────────────
 
@@ -513,71 +512,6 @@ function AptSection() {
   );
 }
 
-// ─── VM agent card ─────────────────────────────────────────────────────────────
-
-const vmStatusDot: Record<VmStatus, string> = {
-  running: 'bg-emerald-500',
-  stopped: 'bg-slate-400',
-  paused:  'bg-amber-500',
-  crashed: 'bg-red-500',
-  unknown: 'bg-muted-foreground/30',
-};
-
-function VmAgentCard() {
-  const { data: vms, isLoading } = useVms();
-  const list = vms ?? [];
-  const running = list.filter((v) => v.status === 'running').length;
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="border-b border-border px-6 py-5">
-        <p className="text-sm font-semibold text-foreground">Virtual Machines</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {isLoading ? 'Loading…' : `${list.length} total · ${running} running`}
-        </p>
-      </div>
-
-      {isLoading && (
-        <div className="space-y-px p-4">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
-        </div>
-      )}
-
-      {!isLoading && list.length === 0 && (
-        <div className="flex items-center justify-center py-10 text-xs text-muted-foreground">
-          No virtual machines
-        </div>
-      )}
-
-      {!isLoading && list.length > 0 && (
-        <div className="divide-y divide-border/60">
-          {list.map((vm) => (
-            <Link
-              key={vm.name}
-              to={`/vms/${vm.name}`}
-              className="flex items-center gap-2.5 px-5 py-3 transition-colors hover:bg-muted/20"
-            >
-              <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', vmStatusDot[vm.status])} />
-              <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-foreground">
-                {vm.name}
-              </span>
-              {vm.status === 'running' && vm.guestAgent !== undefined && (
-                <span className={cn(
-                  'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium',
-                  vm.guestAgent
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-muted text-muted-foreground/60',
-                )}>
-                  {vm.guestAgent ? 'agent' : 'no agent'}
-                </span>
-              )}
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── About section ─────────────────────────────────────────────────────────────
 
@@ -803,10 +737,7 @@ export function DashboardPage() {
         {/* ── System ── */}
         <section className="space-y-5">
           <SectionLabel label="System" />
-          <div className="grid grid-cols-[3fr_2fr] gap-5 items-start">
-            <AptSection />
-            <VmAgentCard />
-          </div>
+          <AptSection />
         </section>
 
 
