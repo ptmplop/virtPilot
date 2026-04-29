@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.5] — 2026-04-29
+
+### Changed
+- "Add NIC" idle warning now says "Configuration steps will be shown after adding" instead of referencing netplan specifically
+- "Add NIC" success view now clarifies the snippet is an Ubuntu / Debian (netplan) example and instructs the user to adapt it for other distributions or Windows
+
 ## [1.1.4] — 2026-04-29
 
 ### Fixed

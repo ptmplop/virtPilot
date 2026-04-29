@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.1.5',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: '"Add NIC" messaging is now OS-neutral — snippet is labelled as an Ubuntu/Debian (netplan) example with a note to adapt for other distributions or Windows' },
+    ],
+  },
+  {
     version: '1.1.4',
     date: '2026-04-29',
     changes: [

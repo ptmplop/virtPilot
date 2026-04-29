@@ -1506,16 +1506,16 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
         }
       >
         {addedNic ? (
-          // ── Success: show netplan snippet ──────────────────────────────────
+          // ── Success: show config snippet ───────────────────────────────────
           <div className="space-y-3">
             <p className="text-sm text-foreground">
               <span className="font-semibold">{addedNic.network.name}</span> attached with MAC{' '}
               <span className="font-mono text-xs">{addedNic.mac}</span>.
             </p>
             <p className="text-xs text-muted-foreground">
-              Cloud-init will not configure this NIC automatically. Save the snippet below to{' '}
-              <span className="font-mono">/etc/netplan/99-new-nic.yaml</span> inside the VM and run{' '}
-              <span className="font-mono">sudo netplan apply</span>.
+              Cloud-init will not run again for this NIC — configure it inside the VM using your OS's
+              network tools. The example below is for <span className="font-medium text-foreground">Ubuntu / Debian</span> (netplan);
+              adapt as needed for other distributions or Windows.
             </p>
             <div className="relative">
               <pre className="overflow-x-auto rounded-lg bg-muted px-4 py-3 font-mono text-[11px] leading-relaxed text-foreground">
@@ -1579,7 +1579,7 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
               </Select>
             )}
             <p className="rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-500 dark:text-amber-400">
-              Cloud-init will not configure this NIC automatically. A netplan snippet will be shown after adding.
+              Cloud-init will not configure this NIC automatically. Configuration steps will be shown after adding.
             </p>
           </div>
         )}
