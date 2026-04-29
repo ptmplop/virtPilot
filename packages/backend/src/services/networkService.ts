@@ -362,6 +362,11 @@ export async function deallocateVmIps(vmName: string): Promise<void> {
   await writeAllocations(allocations.filter((a) => a.vmName !== vmName));
 }
 
+export async function deallocateByMac(mac: string): Promise<void> {
+  const allocations = await readAllocations();
+  await writeAllocations(allocations.filter((a) => a.mac !== mac));
+}
+
 export async function listPhysicalNics(): Promise<HostNic[]> {
   const entries = await fs.readdir('/sys/class/net');
   const networks = await readNetworks();

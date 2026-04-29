@@ -283,9 +283,10 @@ export async function detachCdrom(nameOrId: string, targetDev = 'sdb'): Promise<
   return formatTrace(trace);
 }
 
-export async function attachNic(nameOrId: string, bridge: string, model = 'virtio'): Promise<string> {
+export async function attachNic(nameOrId: string, bridge: string, model = 'virtio', mac?: string): Promise<string> {
   const trace: TraceEntry[] = [];
-  await virsh(`attach-interface ${nameOrId} bridge ${bridge} --model ${model} --persistent`, trace);
+  const macFlag = mac ? ` --mac ${mac}` : '';
+  await virsh(`attach-interface ${nameOrId} bridge ${bridge} --model ${model}${macFlag} --persistent`, trace);
   return formatTrace(trace);
 }
 

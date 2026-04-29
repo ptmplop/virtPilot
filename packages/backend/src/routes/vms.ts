@@ -474,11 +474,33 @@ vmsRouter.post('/:name/nics', async (req, res) => {
   const start = Date.now();
   const { name } = req.params;
   try {
-    const { bridge, model } = req.body;
-    if (!bridge) return res.status(400).json({ error: 'bridge is required' });
-    const output = await vmService.attachNic(name, bridge, model ?? 'virtio');
+    const { networkId, model, staticIp } = req.body as { networkId: string; model?: string; staticIp?: string };
+    if (!networkId) return res.status(400).json({ error: 'networkId is required' });
+
+    const network = await networkService.getNetwork(networkId);
+    if (!network) return res.status(400).json({ error: `Network ${networkId} not found` });
+
+    const mac = generateMac();
+
+    let allocatedIp: string | undefined;
+    if ((network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static') {
+      if (!staticIp) return res.status(400).json({ error: `staticIp required for static network "${network.name}"` });
+      await networkService.allocateSpecificIp(networkId, name, mac, staticIp);
+      allocatedIp = staticIp;
+    }
+
+    const output = await vmService.attachNic(name, network.bridge, model ?? 'virtio', mac);
+
+    const meta = await vmMetaService.getVmMeta(name);
+    if (meta) {
+      await vmMetaService.saveVmMeta({
+        ...meta,
+        networks: [...(meta.networks ?? []), { networkId, mac, ip: allocatedIp, isPrimary: false }],
+      });
+    }
+
     void logService.appendLog({ type: 'vm.nic.attach', subject: name, status: 'success', output, durationMs: Date.now() - start });
-    res.json({ ok: true });
+    res.json({ ok: true, mac });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.nic.attach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
@@ -490,6 +512,17 @@ vmsRouter.delete('/:name/nics/:mac', async (req, res) => {
   const { name, mac } = req.params;
   try {
     const output = await vmService.detachNic(name, mac);
+
+    const meta = await vmMetaService.getVmMeta(name);
+    if (meta?.networks) {
+      const alloc = meta.networks.find((n) => n.mac === mac);
+      if (alloc?.ip) await networkService.deallocateByMac(mac);
+      await vmMetaService.saveVmMeta({
+        ...meta,
+        networks: meta.networks.filter((n) => n.mac !== mac),
+      });
+    }
+
     void logService.appendLog({ type: 'vm.nic.detach', subject: name, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {

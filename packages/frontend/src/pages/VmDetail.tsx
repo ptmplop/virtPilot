@@ -25,10 +25,10 @@ import {
 } from '@/hooks/useVms';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
-import { useNetworks } from '@/hooks/useNetworks';
+import { useNetworks, useNetwork } from '@/hooks/useNetworks';
 import { formatMemory } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import type { DhcpReservation, FirewallConfig, FirewallRule, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
+import type { DhcpReservation, FirewallConfig, FirewallRule, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
 import { useVmOpsStore } from '@/store/vmOpsStore';
 
@@ -1258,7 +1258,7 @@ function IpCell({
   if (!displayIp) {
     return (
       <span className="text-xs text-muted-foreground/40">
-        {networkType === 'nat' || networkType === 'bridge' ? 'DHCP · unresolved' : '—'}
+        {networkType === 'nat' || networkType === 'bridge' || networkType === 'existing-bridge' ? 'DHCP · unresolved' : '—'}
       </span>
     );
   }
@@ -1287,9 +1287,36 @@ function IpCell({
   );
 }
 
+function buildNetplanSnippet(mac: string, network: NetworkConfig, staticIp?: string): string {
+  const prefix = network.cidr.split('/')[1];
+  const isStatic = (network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static' && staticIp;
+  const lines = [
+    'network:',
+    '  version: 2',
+    '  ethernets:',
+    '    new-nic:',
+    `      match:`,
+    `        macaddress: "${mac}"`,
+    `      set-name: eth1  # rename as needed`,
+  ];
+  if (isStatic) {
+    lines.push(`      addresses:`);
+    lines.push(`        - ${staticIp}/${prefix}`);
+    if (network.dns.length > 0) {
+      lines.push(`      nameservers:`);
+      lines.push(`        addresses: [${network.dns.map((d) => `"${d}"`).join(', ')}]`);
+    }
+  } else {
+    lines.push(`      dhcp4: true`);
+  }
+  return lines.join('\n');
+}
+
 function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; meta: VmMeta | null }) {
   const [addOpen, setAddOpen] = useState(false);
   const [selectedNetworkId, setSelectedNetworkId] = useState('');
+  const [selectedStaticIp, setSelectedStaticIp] = useState('');
+  const [addedNic, setAddedNic] = useState<{ mac: string; network: NetworkConfig; staticIp?: string } | null>(null);
   const { data: networks } = useNetworks();
   const { data: ifAddrs = {} } = useVmIfAddrs(vmName);
   const { data: reservations = [] } = useVmReservations(vmName);
@@ -1299,25 +1326,44 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
   const attachedBridges = new Set(nics.map((n) => n.source));
   const availableNetworks = (networks ?? []).filter((n) => !attachedBridges.has(n.bridge));
   const selectedNetwork = availableNetworks.find((n) => n.id === selectedNetworkId);
+  const isStaticNetwork = selectedNetwork &&
+    (selectedNetwork.type === 'bridge' || selectedNetwork.type === 'existing-bridge') &&
+    selectedNetwork.ipMode === 'static';
+
+  // Fetch available IPs only when a static network is selected
+  const { data: networkDetail } = useNetwork(isStaticNetwork ? selectedNetworkId : '');
+  const availableIps = (networkDetail?.ips ?? []).filter((ip) => !ip.allocated);
 
   const primaryMacs = new Set((meta?.networks ?? []).filter((n) => n.isPrimary).map((n) => n.mac));
 
   const handleOpen = () => {
-    setSelectedNetworkId(availableNetworks[0]?.id ?? '');
+    const first = availableNetworks[0];
+    setSelectedNetworkId(first?.id ?? '');
+    setSelectedStaticIp('');
+    setAddedNic(null);
     setAddOpen(true);
   };
 
   const handleClose = () => {
     setAddOpen(false);
     setSelectedNetworkId('');
+    setSelectedStaticIp('');
+    setAddedNic(null);
+  };
+
+  const handleNetworkSelect = (id: string) => {
+    setSelectedNetworkId(id);
+    setSelectedStaticIp('');
   };
 
   const handleAddNic = async () => {
     if (!selectedNetwork) return;
     try {
-      await addNic.mutateAsync({ bridge: selectedNetwork.bridge });
-      toast.success('NIC attached — configure networking inside the VM to activate it');
-      handleClose();
+      const result = await addNic.mutateAsync({
+        networkId: selectedNetworkId,
+        staticIp: isStaticNetwork ? selectedStaticIp : undefined,
+      });
+      setAddedNic({ mac: result.mac, network: selectedNetwork, staticIp: isStaticNetwork ? selectedStaticIp : undefined });
     } catch {
       toast.error('Failed to add NIC');
     }
@@ -1440,28 +1486,63 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
       <Dialog
         open={addOpen}
         onClose={handleClose}
-        title="Add Network Interface"
+        title={addedNic ? 'NIC Attached' : 'Add Network Interface'}
         footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={handleClose}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={handleAddNic} disabled={!selectedNetworkId || addNic.isPending}>
-              {addNic.isPending ? 'Adding…' : 'Add NIC'}
-            </Button>
-          </>
+          addedNic ? (
+            <Button size="sm" onClick={handleClose}>Done</Button>
+          ) : (
+            <>
+              <Button variant="secondary" size="sm" onClick={handleClose}>Cancel</Button>
+              <Button
+                size="sm"
+                onClick={handleAddNic}
+                disabled={!selectedNetworkId || addNic.isPending || (!!isStaticNetwork && !selectedStaticIp)}
+              >
+                {addNic.isPending ? 'Adding…' : 'Add NIC'}
+              </Button>
+            </>
+          )
         }
       >
-        {availableNetworks.length === 0 ? (
+        {addedNic ? (
+          // ── Success: show netplan snippet ──────────────────────────────────
+          <div className="space-y-3">
+            <p className="text-sm text-foreground">
+              <span className="font-semibold">{addedNic.network.name}</span> attached with MAC{' '}
+              <span className="font-mono text-xs">{addedNic.mac}</span>.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Cloud-init will not configure this NIC automatically. Save the snippet below to{' '}
+              <span className="font-mono">/etc/netplan/99-new-nic.yaml</span> inside the VM and run{' '}
+              <span className="font-mono">sudo netplan apply</span>.
+            </p>
+            <div className="relative">
+              <pre className="overflow-x-auto rounded-lg bg-muted px-4 py-3 font-mono text-[11px] leading-relaxed text-foreground">
+                {buildNetplanSnippet(addedNic.mac, addedNic.network, addedNic.staticIp)}
+              </pre>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(buildNetplanSnippet(addedNic.mac, addedNic.network, addedNic.staticIp));
+                  toast.success('Copied to clipboard');
+                }}
+                className="absolute right-2 top-2 rounded border border-border bg-card px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        ) : availableNetworks.length === 0 ? (
           <p className="text-sm text-muted-foreground">All configured networks are already attached to this VM.</p>
         ) : (
+          // ── Idle: network + IP picker ──────────────────────────────────────
           <div className="space-y-3">
             <div className="space-y-2">
               {availableNetworks.map((n) => (
                 <button
                   key={n.id}
                   type="button"
-                  onClick={() => setSelectedNetworkId(n.id)}
+                  onClick={() => handleNetworkSelect(n.id)}
                   className={cn(
                     'flex w-full items-center gap-3 rounded-lg border p-3.5 text-left transition-colors',
                     selectedNetworkId === n.id
@@ -1484,9 +1565,20 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
                 </button>
               ))}
             </div>
+            {isStaticNetwork && (
+              <Select
+                label="IP address"
+                value={selectedStaticIp}
+                onChange={(e) => setSelectedStaticIp(e.target.value)}
+              >
+                <option value="">— select an IP —</option>
+                {availableIps.map((ip) => (
+                  <option key={ip.ip} value={ip.ip}>{ip.ip}</option>
+                ))}
+              </Select>
+            )}
             <p className="rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-500 dark:text-amber-400">
-              This NIC will be attached immediately but cloud-init will not configure it. You will need to
-              configure the network interface manually inside the VM.
+              Cloud-init will not configure this NIC automatically. A netplan snippet will be shown after adding.
             </p>
           </div>
         )}

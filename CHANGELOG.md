@@ -3,6 +3,19 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.3] — 2026-04-29
+
+### Fixed
+- "Add NIC" now tracks the new interface in VM metadata (networkId, MAC, allocated IP) so the network tab reflects it correctly across reboots and detail loads
+- Removing a NIC now also cleans up its entry in VM metadata and releases any static IP allocation back to the pool
+- `IpCell` now shows "DHCP · unresolved" for `existing-bridge` DHCP NICs instead of "—"
+
+### Changed
+- "Add NIC" backend now generates and pins the MAC address (passed as `--mac` to `virsh`) so the allocated MAC matches what is recorded in metadata
+- `POST /api/vms/:name/nics` now requires `networkId`; for static networks it also requires `staticIp` and allocates it from the pool
+- After adding a NIC, the dialog transitions to a success view showing a ready-to-paste netplan snippet (with correct MAC and IP config) for manual configuration inside the VM
+- Static network IP picker shown in the "Add NIC" dialog when the selected network uses static allocation
+
 ## [1.1.2] — 2026-04-29
 
 ### Changed

@@ -140,8 +140,9 @@ export function useDetachCdrom(name: string) {
 export function useAddNic(name: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { bridge: string; model?: string }) => {
-      await api.post(`/api/vms/${name}/nics`, payload);
+    mutationFn: async (payload: { networkId: string; model?: string; staticIp?: string }) => {
+      const { data } = await api.post<{ ok: boolean; mac: string }>(`/api/vms/${name}/nics`, payload);
+      return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.vm(name) }),
   });
