@@ -47,7 +47,7 @@ function fmtBps(bps: number): string {
 
 function SectionLabel({ label }: { label: string }) {
   return (
-    <h2 className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/40 select-none">
+    <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/30 select-none border-l-2 border-primary/30 pl-2">
       {label}
     </h2>
   );
@@ -64,22 +64,31 @@ interface StatTileProps {
   secondary: string;
   accent?: TileAccent;
   href?: string;
+  delay?: number;
 }
 
-function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', href }: StatTileProps) {
+function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', href, delay = 0 }: StatTileProps) {
   const isWarn = accent === 'warn';
   const isOk   = accent === 'ok';
 
   const inner = (
-    <div className={cn(
-      'flex flex-col justify-between overflow-hidden rounded-xl border px-5 py-4 shadow-sm transition-all duration-150',
-      href && 'cursor-pointer hover:shadow-md hover:-translate-y-px',
-      isWarn ? 'border-amber-500/25 bg-amber-500/5' : 'border-border bg-card',
-    )}>
+    <div
+      className={cn(
+        'group flex flex-col justify-between overflow-hidden rounded-xl border bg-gradient-to-b from-white/60 dark:from-white/[0.03] to-transparent px-5 py-4 shadow-airy animate-fade-up',
+        'transition-all duration-200 ease-out',
+        href && 'cursor-pointer hover:-translate-y-px',
+        isWarn
+          ? 'border-amber-500/25 bg-amber-500/5 hover:shadow-[0_0_24px_-4px_rgb(245_158_11_/_0.15)]'
+          : isOk
+          ? 'border-border bg-card hover:shadow-[0_0_24px_-4px_rgb(52_211_153_/_0.15)]'
+          : 'border-border bg-card',
+      )}
+      style={{ animationDelay: `${delay}ms` }}
+    >
       {/* Top row: icon badge + label + status dot */}
       <div className="flex items-center gap-2.5">
         <div className={cn(
-          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg badge-radial-hover',
           isWarn ? 'bg-amber-500/15' : isOk ? 'bg-emerald-500/10' : 'bg-muted',
         )}>
           <Icon className={cn(
@@ -95,7 +104,7 @@ function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', h
         </span>
         {(isOk || isWarn) && (
           <span className={cn(
-            'ml-auto h-1.5 w-1.5 shrink-0 rounded-full',
+            'ml-auto h-1.5 w-1.5 shrink-0 rounded-full animate-glow-pulse',
             isOk
               ? 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]'
               : 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
@@ -149,6 +158,7 @@ function StatTiles() {
         primary={settings.kvmAvailable ? 'KVM' : 'TCG'}
         secondary={settings.kvmAvailable ? 'Hardware acceleration' : 'Software emulation — slower'}
         accent={settings.kvmAvailable ? 'ok' : 'warn'}
+        delay={0}
       />
 
       {/* libvirt */}
@@ -158,6 +168,7 @@ function StatTiles() {
         primary="Connected"
         secondary={settings.libvirtUri}
         accent="ok"
+        delay={60}
       />
 
       {/* Virtual machines */}
@@ -168,6 +179,7 @@ function StatTiles() {
         secondary={`${running} running · ${stopped} stopped`}
         accent="neutral"
         href="/vms"
+        delay={120}
       />
 
       {/* Disk space */}
@@ -177,6 +189,7 @@ function StatTiles() {
         primary={current ? `${current.diskUsedGb.toFixed(1)} GB` : '—'}
         secondary={current ? `${diskPct}% of ${current.diskTotalGb.toFixed(0)} GB` : 'Loading…'}
         accent={diskPct >= 75 ? 'warn' : 'ok'}
+        delay={180}
       />
 
       {/* System updates */}
@@ -186,6 +199,7 @@ function StatTiles() {
         primary={updates > 0 ? String(updates) : 'Up to date'}
         secondary={updates > 0 ? 'Packages ready to upgrade' : 'No updates available'}
         accent={updates > 0 ? 'warn' : 'ok'}
+        delay={240}
       />
     </div>
   );
@@ -207,15 +221,21 @@ interface MetricCardProps {
   chartData2?: number[];
   chartColor2?: string;
   loading?: boolean;
+  delay?: number;
+  chartBgClass?: string;
 }
 
 function MetricCard({
   id, icon: Icon, label, color, accentBg,
   primaryValue, secondaryValue, detail,
   chartData, chartData2, chartColor2, loading,
+  delay = 0, chartBgClass,
 }: MetricCardProps) {
   return (
-    <div className="flex h-[220px] overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div
+      className="flex h-[220px] overflow-hidden rounded-xl border border-border bg-card shadow-airy animate-fade-up transition-all duration-200 ease-out hover:-translate-y-px hover:shadow-[0_4px_20px_rgb(0_0_0_/_0.1)]"
+      style={{ animationDelay: `${delay}ms` }}
+    >
       {/* Left: label + value + detail — fixed width */}
       <div className="flex w-56 shrink-0 flex-col justify-center gap-3 px-6">
         <div className="flex items-center gap-2.5">
@@ -235,7 +255,9 @@ function MetricCard({
         ) : (
           <div>
             <div className="flex items-baseline gap-2 overflow-hidden">
-              <span className="whitespace-nowrap text-3xl font-bold tracking-tight text-foreground tabular-nums">
+              <span
+                className="whitespace-nowrap text-3xl font-bold tracking-tight tabular-nums bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent"
+              >
                 {primaryValue}
               </span>
               {secondaryValue && (
@@ -248,10 +270,10 @@ function MetricCard({
       </div>
 
       {/* Divider */}
-      <div className="w-px shrink-0 bg-border/60 my-5" />
+      <div className="w-px shrink-0 bg-gradient-to-b from-transparent via-border to-transparent my-5" />
 
       {/* Right: chart — fills remaining width, always full height */}
-      <div className="min-w-0 flex-1">
+      <div className={cn('min-w-0 flex-1', chartBgClass)}>
         {loading ? (
           <div className="h-full w-full bg-muted/20" />
         ) : (
@@ -354,7 +376,7 @@ function UpgradeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
           {done && (
             <button
               onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/60 transition-colors"
+              className="flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/60 transition-all duration-200 ease-out"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -532,7 +554,7 @@ function AboutSection() {
 
         <div className="min-w-0">
           <div className="mb-2 flex items-baseline gap-2.5">
-            <span className="text-base font-bold text-foreground">VirtPilot</span>
+            <span className="text-base font-bold bg-gradient-to-r from-foreground via-foreground/90 to-foreground/60 bg-clip-text text-transparent">VirtPilot</span>
             <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">v{version}</span>
           </div>
 
@@ -567,7 +589,7 @@ function AboutSection() {
         href="https://github.com/ptmplop/virtPilot"
         target="_blank"
         rel="noopener noreferrer"
-        className="shrink-0 flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        className="shrink-0 flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-xs font-medium text-foreground transition-all duration-200 ease-out hover:bg-muted hover:-translate-y-px hover:shadow-sm"
       >
         <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden>
           <path d={siGithub.path} />
@@ -641,6 +663,8 @@ export function DashboardPage() {
             }
             chartData={cpuHistory.length ? cpuHistory : [0]}
             loading={isLoading}
+            delay={0}
+            chartBgClass="bg-gradient-to-r from-blue-500/[0.04] dark:from-blue-500/[0.03] to-transparent"
           />
         </section>
 
@@ -668,6 +692,8 @@ export function DashboardPage() {
             }
             chartData={ramHistory.length ? ramHistory : [0]}
             loading={isLoading}
+            delay={60}
+            chartBgClass="bg-gradient-to-r from-violet-500/[0.04] dark:from-violet-500/[0.03] to-transparent"
           />
         </section>
 
@@ -698,6 +724,8 @@ export function DashboardPage() {
             chartData2={diskWriteHistory.length ? diskWriteHistory : [0]}
             chartColor2="#f97316"
             loading={isLoading}
+            delay={120}
+            chartBgClass="bg-gradient-to-r from-amber-500/[0.04] dark:from-amber-500/[0.03] to-transparent"
           />
           {!isLoading && (
             <div className="flex items-center gap-6 px-1">
@@ -734,6 +762,8 @@ export function DashboardPage() {
             chartData2={netTxHistory.length ? netTxHistory : [0]}
             chartColor2="#06b6d4"
             loading={isLoading}
+            delay={180}
+            chartBgClass="bg-gradient-to-r from-emerald-500/[0.04] dark:from-emerald-500/[0.03] to-transparent"
           />
           {!isLoading && (
             <div className="flex items-center gap-6 px-1">

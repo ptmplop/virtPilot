@@ -86,7 +86,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   return (
     <aside
       className={cn(
-        'dark flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-[max-width] duration-200',
+        'flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-[max-width] duration-200',
         collapsed ? 'max-w-[56px]' : 'max-w-[240px]'
       )}
     >
@@ -100,7 +100,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <span className="block text-sm font-semibold tracking-tight text-foreground">VirtPilot</span>
+            <span className="block text-sm font-semibold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">VirtPilot</span>
             <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
               KVM Manager
             </p>
@@ -154,7 +154,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
               >
                 <LogOut size={13} />
               </button>
@@ -163,7 +163,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               type="button"
               onClick={onToggle}
               title="Expand sidebar"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
             >
               <PanelLeftOpen size={14} />
             </button>
@@ -172,12 +172,12 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           <div className="space-y-1">
             <div className="flex items-center gap-1">
               <ThemeToggle />
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.0.11</span>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.0.12</span>
               <Tooltip label="Sign out" side="top">
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="ml-1 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                  className="ml-1 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
                 >
                   <LogOut size={13} />
                 </button>
@@ -187,7 +187,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               type="button"
               onClick={onToggle}
               title="Collapse sidebar"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
             >
               <PanelLeftClose size={14} />
               <span className="text-[11px]">Collapse</span>
@@ -231,9 +231,9 @@ function NavItem({
       end={end}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out',
           isActive
-            ? 'border-l-2 border-primary bg-accent pl-[10px] text-accent-foreground'
+            ? 'border-l-2 border-primary bg-gradient-to-r from-primary/10 to-transparent pl-[10px] text-accent-foreground'
             : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
         )
       }
@@ -265,9 +265,9 @@ function CollapsedNavItem({
         end={end}
         className={({ isActive }) =>
           cn(
-            'relative flex h-9 w-9 items-center justify-center rounded-md transition-colors',
+            'relative flex h-9 w-9 items-center justify-center rounded-md transition-all duration-200 ease-out',
             isActive
-              ? 'bg-accent text-accent-foreground'
+              ? 'bg-primary/10 text-accent-foreground'
               : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           )
         }

@@ -3,6 +3,22 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.12] — 2026-04-29
+
+### Changed
+- Radial blue bloom background on body (light: top-right, dark: top-left)
+- Airy card shadows in light mode; weighted in dark mode
+- Status dots breathe with `glow-pulse` animation (2 s ease-in-out)
+- Cards fade up on page load with staggered 60 ms delays
+- Sidebar uses cool off-white (`hsl(220 20% 97%)`) in light mode with hairline border
+- Light mode is now the default theme (was dark)
+- Active nav item uses `from-primary/10` gradient fill; collapsed active state updated to match
+- Dashboard SectionLabel: wider letter-spacing, left accent bar, reduced opacity
+- StatTile: per-accent glow on hover (emerald/amber), glossy top-edge sheen, badge radial highlight
+- MetricCard: per-chart colour wash behind SVG, gradient metric value, gradient divider
+- AboutSection app name and sidebar brand text both use gradient `bg-clip-text` treatment
+- Interactive elements upgraded to `transition-all duration-200 ease-out`
+
 ## [1.0.11] — 2026-04-29
 
 ### Changed

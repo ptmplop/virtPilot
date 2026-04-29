@@ -13,6 +13,16 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.12',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'Visual polish pass: radial bloom background, airy card shadows, staggered fade-up entrance, glow-pulse status dots' },
+      { type: 'changed', text: 'Sidebar switches to cool off-white in light mode; light mode is now the default theme' },
+      { type: 'changed', text: 'Dashboard: MetricCard gradient divider, gradient metric values, per-card chart colour wash' },
+      { type: 'changed', text: 'SectionLabel, StatTile, AboutSection, NavItem all receive premium gradient and motion treatments' },
+    ],
+  },
+  {
     version: '1.0.11',
     date: '2026-04-29',
     changes: [

@@ -11,7 +11,7 @@ function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle('dark', theme === 'dark');
 }
 
-const stored = (localStorage.getItem('virtpilotTheme') as Theme | null) ?? 'dark';
+const stored = (localStorage.getItem('virtpilotTheme') as Theme | null) ?? 'light';
 applyTheme(stored);
 
 export const useThemeStore = create<ThemeStore>((set) => ({
