@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.9',
+    date: '2026-04-29',
+    changes: [
+      { type: 'changed', text: 'Dashboard metric graphs each full width in their own section (CPU, Memory, Disk I/O, Network)' },
+    ],
+  },
+  {
     version: '1.0.8',
     date: '2026-04-29',
     changes: [

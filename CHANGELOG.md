@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.9] — 2026-04-29
+
+### Changed
+- Dashboard metric graphs (CPU, Memory, Disk I/O, Network) are now each full width in their own section
+
 ## [1.0.8] — 2026-04-29
 
 ### Changed

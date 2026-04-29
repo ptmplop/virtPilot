@@ -215,7 +215,7 @@ function MetricCard({
   chartData, chartData2, chartColor2, loading,
 }: MetricCardProps) {
   return (
-    <div className="flex h-[168px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div className="flex h-[220px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
       {/* Left: label + value + detail — fixed width */}
       <div className="flex w-56 shrink-0 flex-col justify-center gap-3 px-6">
         <div className="flex items-center gap-2.5">
@@ -616,118 +616,129 @@ export function DashboardPage() {
           <AboutSection />
         </section>
 
-        {/* ── Live metrics ── */}
-        <section className="space-y-4">
-          <SectionLabel label="Live Metrics" />
-
-          <div className="grid grid-cols-2 gap-4">
-            <MetricCard
-              id="cpu"
-              icon={Cpu}
-              label="CPU Usage"
-              color="#3b82f6"
-              accentBg="bg-blue-500/10"
-              primaryValue={current ? fmtPct(current.cpuPercent) : '—'}
-              detail={
-                <div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-blue-500/70 transition-all duration-700"
-                      style={{ width: `${current?.cpuPercent ?? 0}%` }}
-                    />
-                  </div>
-                  <span className="font-mono text-[10px] text-muted-foreground">
-                    {current ? fmtPct(current.cpuPercent) : '—'} of capacity
-                  </span>
-                </div>
-              }
-              chartData={cpuHistory.length ? cpuHistory : [0]}
-              loading={isLoading}
-            />
-
-            <MetricCard
-              id="ram"
-              icon={MemoryStick}
-              label="Memory"
-              color="#8b5cf6"
-              accentBg="bg-violet-500/10"
-              primaryValue={current ? fmtMb(current.memUsedMb) : '—'}
-              secondaryValue={current ? `/ ${fmtMb(current.memTotalMb)}` : undefined}
-              detail={
-                <div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-violet-500/70 transition-all duration-700"
-                      style={{ width: `${ramPct}%` }}
-                    />
-                  </div>
-                  <span className="font-mono text-[10px] text-muted-foreground">{ramPct}% used</span>
-                </div>
-              }
-              chartData={ramHistory.length ? ramHistory : [0]}
-              loading={isLoading}
-            />
-
-            <MetricCard
-              id="disk"
-              icon={HardDrive}
-              label="Disk I/O"
-              color="#f59e0b"
-              accentBg="bg-amber-500/10"
-              primaryValue={current ? fmtBps(current.diskReadBps + current.diskWriteBps) : '—'}
-              secondaryValue="total"
-              detail={
-                current ? (
-                  <BiValue
-                    upLabel="R"
-                    upValue={fmtBps(current.diskReadBps)}
-                    downLabel="W"
-                    downValue={fmtBps(current.diskWriteBps)}
-                    upColor="#f59e0b"
-                    downColor="#f97316"
+        {/* ── CPU ── */}
+        <section className="space-y-3">
+          <SectionLabel label="CPU" />
+          <MetricCard
+            id="cpu"
+            icon={Cpu}
+            label="CPU Usage"
+            color="#3b82f6"
+            accentBg="bg-blue-500/10"
+            primaryValue={current ? fmtPct(current.cpuPercent) : '—'}
+            detail={
+              <div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-blue-500/70 transition-all duration-700"
+                    style={{ width: `${current?.cpuPercent ?? 0}%` }}
                   />
-                ) : null
-              }
-              chartData={diskReadHistory.length ? diskReadHistory : [0]}
-              chartData2={diskWriteHistory.length ? diskWriteHistory : [0]}
-              chartColor2="#f97316"
-              loading={isLoading}
-            />
+                </div>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {current ? fmtPct(current.cpuPercent) : '—'} of capacity
+                </span>
+              </div>
+            }
+            chartData={cpuHistory.length ? cpuHistory : [0]}
+            loading={isLoading}
+          />
+        </section>
 
-            <MetricCard
-              id="net"
-              icon={Activity}
-              label="Network"
-              color="#10b981"
-              accentBg="bg-emerald-500/10"
-              primaryValue={current ? fmtBps(current.netRxBps + current.netTxBps) : '—'}
-              secondaryValue="total"
-              detail={
-                current ? (
-                  <BiValue
-                    upLabel="↑"
-                    upValue={fmtBps(current.netTxBps)}
-                    downLabel="↓"
-                    downValue={fmtBps(current.netRxBps)}
-                    upColor="#06b6d4"
-                    downColor="#10b981"
+        {/* ── Memory ── */}
+        <section className="space-y-3">
+          <SectionLabel label="Memory" />
+          <MetricCard
+            id="ram"
+            icon={MemoryStick}
+            label="Memory"
+            color="#8b5cf6"
+            accentBg="bg-violet-500/10"
+            primaryValue={current ? fmtMb(current.memUsedMb) : '—'}
+            secondaryValue={current ? `/ ${fmtMb(current.memTotalMb)}` : undefined}
+            detail={
+              <div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-violet-500/70 transition-all duration-700"
+                    style={{ width: `${ramPct}%` }}
                   />
-                ) : null
-              }
-              chartData={netRxHistory.length ? netRxHistory : [0]}
-              chartData2={netTxHistory.length ? netTxHistory : [0]}
-              chartColor2="#06b6d4"
-              loading={isLoading}
-            />
-          </div>
+                </div>
+                <span className="font-mono text-[10px] text-muted-foreground">{ramPct}% used</span>
+              </div>
+            }
+            chartData={ramHistory.length ? ramHistory : [0]}
+            loading={isLoading}
+          />
+        </section>
 
-          {/* Chart legend */}
+        {/* ── Disk I/O ── */}
+        <section className="space-y-3">
+          <SectionLabel label="Disk I/O" />
+          <MetricCard
+            id="disk"
+            icon={HardDrive}
+            label="Disk I/O"
+            color="#f59e0b"
+            accentBg="bg-amber-500/10"
+            primaryValue={current ? fmtBps(current.diskReadBps + current.diskWriteBps) : '—'}
+            secondaryValue="total"
+            detail={
+              current ? (
+                <BiValue
+                  upLabel="R"
+                  upValue={fmtBps(current.diskReadBps)}
+                  downLabel="W"
+                  downValue={fmtBps(current.diskWriteBps)}
+                  upColor="#f59e0b"
+                  downColor="#f97316"
+                />
+              ) : null
+            }
+            chartData={diskReadHistory.length ? diskReadHistory : [0]}
+            chartData2={diskWriteHistory.length ? diskWriteHistory : [0]}
+            chartColor2="#f97316"
+            loading={isLoading}
+          />
           {!isLoading && (
             <div className="flex items-center gap-6 px-1">
-              <LegendItem color="#f59e0b" label="Disk read" />
-              <LegendItem color="#f97316" label="Disk write" dashed />
-              <LegendItem color="#10b981" label="Net RX" />
-              <LegendItem color="#06b6d4" label="Net TX" dashed />
+              <LegendItem color="#f59e0b" label="Read" />
+              <LegendItem color="#f97316" label="Write" dashed />
+            </div>
+          )}
+        </section>
+
+        {/* ── Network ── */}
+        <section className="space-y-3">
+          <SectionLabel label="Network" />
+          <MetricCard
+            id="net"
+            icon={Activity}
+            label="Network"
+            color="#10b981"
+            accentBg="bg-emerald-500/10"
+            primaryValue={current ? fmtBps(current.netRxBps + current.netTxBps) : '—'}
+            secondaryValue="total"
+            detail={
+              current ? (
+                <BiValue
+                  upLabel="↑"
+                  upValue={fmtBps(current.netTxBps)}
+                  downLabel="↓"
+                  downValue={fmtBps(current.netRxBps)}
+                  upColor="#06b6d4"
+                  downColor="#10b981"
+                />
+              ) : null
+            }
+            chartData={netRxHistory.length ? netRxHistory : [0]}
+            chartData2={netTxHistory.length ? netTxHistory : [0]}
+            chartColor2="#06b6d4"
+            loading={isLoading}
+          />
+          {!isLoading && (
+            <div className="flex items-center gap-6 px-1">
+              <LegendItem color="#10b981" label="RX" />
+              <LegendItem color="#06b6d4" label="TX" dashed />
               <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">
                 2 s interval · {history.length} samples
               </span>
