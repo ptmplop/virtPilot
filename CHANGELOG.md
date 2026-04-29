@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.3] — 2026-04-29
+
+### Fixed
+- Dashboard section cards now match height within each row
+
 ## [1.0.2] — 2026-04-29
 
 ### Added

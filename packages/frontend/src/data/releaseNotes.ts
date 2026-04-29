@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.0.3',
+    date: '2026-04-29',
+    changes: [
+      { type: 'fixed', text: 'Dashboard section cards now match height within each row' },
+    ],
+  },
+  {
     version: '1.0.2',
     date: '2026-04-29',
     changes: [

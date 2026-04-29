@@ -207,8 +207,8 @@ function HostConfigSection() {
   ] : [];
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="border-b border-border px-6 py-5">
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div className="shrink-0 border-b border-border px-6 py-5">
         <p className="text-sm font-semibold text-foreground">Host Configuration</p>
         <p className="mt-1 text-xs text-muted-foreground">
           Set via environment variables in the backend{' '}
@@ -216,11 +216,11 @@ function HostConfigSection() {
         </p>
       </div>
       {isLoading ? (
-        <div className="space-y-px p-4">
+        <div className="flex-1 space-y-px p-4">
           {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
         </div>
       ) : (
-        <dl className="divide-y divide-border">
+        <dl className="flex-1 divide-y divide-border overflow-y-auto">
           {rows.map(([label, value]) => (
             <div
               key={label}
@@ -481,9 +481,9 @@ function AptSection() {
 
   return (
     <>
-      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="flex flex-col rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-5">
+        <div className="shrink-0 flex items-center justify-between border-b border-border px-6 py-5">
           <div className="flex items-center gap-3">
             <div className={cn(
               'flex h-7 w-7 items-center justify-center rounded-lg',
@@ -518,20 +518,20 @@ function AptSection() {
 
         {/* Package list */}
         {isLoading && (
-          <div className="space-y-px p-4">
+          <div className="flex-1 space-y-px p-4">
             {[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
           </div>
         )}
 
         {upToDate && (
-          <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+          <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
             No updates available
           </div>
         )}
 
         {!isLoading && count > 0 && (
-          <div className="max-h-[280px] overflow-y-auto divide-y divide-border/60">
+          <div className="flex-1 overflow-y-auto divide-y divide-border/60">
             {(packages as AptPackage[]).map((pkg) => (
               <div key={pkg.name} className="flex items-center gap-3 px-6 py-3 hover:bg-muted/30 transition-colors">
                 <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-foreground">
@@ -572,8 +572,8 @@ function VmAgentCard() {
   const running = list.filter((v) => v.status === 'running').length;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="border-b border-border px-6 py-5">
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div className="shrink-0 border-b border-border px-6 py-5">
         <p className="text-sm font-semibold text-foreground">Virtual Machines</p>
         <p className="mt-1 text-xs text-muted-foreground">
           {isLoading ? 'Loading…' : `${list.length} total · ${running} running`}
@@ -581,19 +581,19 @@ function VmAgentCard() {
       </div>
 
       {isLoading && (
-        <div className="space-y-px p-4">
+        <div className="flex-1 space-y-px p-4">
           {[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
         </div>
       )}
 
       {!isLoading && list.length === 0 && (
-        <div className="flex items-center justify-center py-10 text-xs text-muted-foreground">
+        <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
           No virtual machines
         </div>
       )}
 
       {!isLoading && list.length > 0 && (
-        <div className="divide-y divide-border/60">
+        <div className="flex-1 divide-y divide-border/60 overflow-y-auto">
           {list.map((vm) => (
             <Link
               key={vm.name}
@@ -637,7 +637,7 @@ function AboutSection() {
   const current = releaseNotes[0];
 
   return (
-    <div className="grid grid-cols-[1fr_2fr] gap-5 items-start">
+    <div className="grid grid-cols-[1fr_2fr] gap-5">
       {/* Software identity */}
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="flex flex-col gap-5 px-6 py-5">
@@ -666,12 +666,12 @@ function AboutSection() {
       </div>
 
       {/* Release notes */}
-      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="border-b border-border px-6 py-5">
+      <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="shrink-0 border-b border-border px-6 py-5">
           <p className="text-sm font-semibold text-foreground">Release Notes</p>
           <p className="mt-1 text-xs text-muted-foreground">See <span className="font-mono">CHANGELOG.md</span> in the repository root for the full history.</p>
         </div>
-        <div className="max-h-[380px] divide-y divide-border/60 overflow-y-auto">
+        <div className="flex-1 divide-y divide-border/60 overflow-y-auto">
           {releaseNotes.map((entry) => (
             <div key={entry.version} className="px-6 py-4">
               <div className="mb-3 flex items-center gap-2">
@@ -853,7 +853,7 @@ export function DashboardPage() {
         {/* ── System ── */}
         <section className="space-y-3">
           <SectionLabel label="System" />
-          <div className="grid grid-cols-[3fr_2fr_1.5fr] gap-5 items-start">
+          <div className="grid grid-cols-[3fr_2fr_1.5fr] gap-5">
             <AptSection />
             <HostConfigSection />
             <VmAgentCard />

@@ -170,7 +170,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
         ) : (
           <div className="flex items-center gap-1">
             <ThemeToggle />
-            <span className="ml-auto font-mono text-[10px] text-white/45">v1.0.2</span>
+            <span className="ml-auto font-mono text-[10px] text-white/45">v1.0.3</span>
             <Tooltip label="Sign out" side="top">
               <button
                 type="button"
