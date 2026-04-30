@@ -151,6 +151,21 @@ export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
       const source = parts[3] === '-' ? '' : parts[3];
       disks.push({ target, source, type, bus });
     }
+
+    // Fetch capacity for each disk in parallel via domblkinfo
+    await Promise.all(
+      disks.map(async (disk) => {
+        try {
+          const info = await virsh(`domblkinfo ${nameOrId} ${disk.target}`);
+          const m = info.match(/Capacity:\s+(\d+)/);
+          if (m) {
+            const bytes = parseInt(m[1], 10);
+            disk.sizeGb = Math.round((bytes / (1024 ** 3)) * 10) / 10;
+          }
+        } catch { /* non-fatal — size stays undefined */ }
+      }),
+    );
+
     return disks;
   } catch {
     return [];

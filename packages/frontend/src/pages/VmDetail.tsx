@@ -30,7 +30,7 @@ import { useHostDevices, useAttachDevice, useDetachDevice } from '@/hooks/useDev
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
-import { formatMemory } from '@/lib/format';
+import { formatMemory, formatDisk } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
@@ -619,7 +619,7 @@ function DisksTab({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  {['Device', 'Type', 'Bus', 'Source', ''].map((h) => (
+                  {['Device', 'Type', 'Bus', 'Size', 'Source', ''].map((h) => (
                     <th
                       key={h}
                       className={cn(
@@ -636,8 +636,17 @@ function DisksTab({
                 {disks.filter((d) => !isSeedIso(d) && !(d.type === 'cdrom' && !d.source)).map((d) => (
                   <tr key={d.target} className="transition-colors hover:bg-muted/30">
                     <td className="px-5 py-3.5 font-mono text-xs text-foreground">{d.target}</td>
-                    <td className="px-5 py-3.5 text-xs capitalize text-muted-foreground">{d.type}</td>
+                    <td className="px-5 py-3.5 text-muted-foreground">
+                      <Tooltip label={d.type === 'cdrom' ? 'CD-ROM' : 'Disk'}>
+                        {d.type === 'cdrom'
+                          ? <Disc size={14} className="text-muted-foreground" />
+                          : <HardDrive size={14} className="text-muted-foreground" />}
+                      </Tooltip>
+                    </td>
                     <td className="px-5 py-3.5 text-xs text-muted-foreground">{d.bus}</td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground">
+                      {d.sizeGb != null && d.sizeGb > 0 ? formatDisk(d.sizeGb) : '—'}
+                    </td>
                     <td
                       className="max-w-xs truncate px-5 py-3.5 font-mono text-xs text-muted-foreground"
                       title={d.source}

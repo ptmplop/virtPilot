@@ -4,5 +4,6 @@ export function formatMemory(mb: number): string {
 }
 
 export function formatDisk(gb: number): string {
+  if (gb < 1) return `${Math.round(gb * 1024)} MB`;
   return `${gb} GB`;
 }
