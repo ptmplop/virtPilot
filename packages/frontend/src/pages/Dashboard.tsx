@@ -414,7 +414,7 @@ function MetricCard({
       style={{ animationDelay: `${delay}ms` }}
     >
       {/* Left panel */}
-      <div className="flex w-48 shrink-0 flex-col px-5 py-5">
+      <div className="flex w-56 shrink-0 flex-col px-5 py-5">
         <div className="flex items-center gap-2.5">
           <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg', accentBg)}>
             <Icon className="h-3.5 w-3.5" style={{ color }} />
