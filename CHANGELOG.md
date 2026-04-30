@@ -3,6 +3,13 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.1] — 2026-04-30
+
+### Changed
+- VM Overview: resource cards now have colour-coded icon accents (blue/violet/amber/teal) and larger value text
+- VM Overview: copy-to-clipboard buttons added for IP address, username, password, SSH command, and UUID
+- VM Overview: section headings changed to compact uppercase tracking style
+
 ## [1.5.0] — 2026-04-30
 
 ### Added

@@ -13,6 +13,15 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.5.1',
+    date: '2026-04-30',
+    changes: [
+      { type: 'changed', text: 'VM Overview resource cards now have colour-coded icon accents (blue/violet/amber/teal) and larger value numerals' },
+      { type: 'added', text: 'Copy-to-clipboard buttons on VM Overview for IP address, username, password, SSH command, and UUID — icon flips to a green check on success' },
+      { type: 'changed', text: 'VM Overview section headings changed to compact uppercase tracking style' },
+    ],
+  },
+  {
     version: '1.5.0',
     date: '2026-04-30',
     changes: [

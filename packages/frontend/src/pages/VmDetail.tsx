@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
-  Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, ChevronDown, ChevronUp,
-  Cpu, Disc, Eye, EyeOff, HardDrive, MemoryStick, Network, Pencil, Plus,
+  Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
+  Copy, Cpu, Disc, Eye, EyeOff, HardDrive, MemoryStick, Network, Pencil, Plus,
   Power, PowerOff, RotateCcw, Server, Shield, Terminal, Trash2, Usb, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -363,10 +363,10 @@ function OverviewTab({
           )}
         </div>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <ResourceCard label="vCPUs" value={String(vm.cpus)} icon={Cpu} />
-          <ResourceCard label="Memory" value={formatMemory(vm.memoryMb)} icon={MemoryStick} />
-          <ResourceCard label="Disks" value={String(vm.disks.filter((d) => !isSeedIso(d)).length)} icon={HardDrive} />
-          <ResourceCard label="NICs" value={String(vm.nics.length)} icon={Network} />
+          <ResourceCard label="vCPUs" value={String(vm.cpus)} icon={Cpu} iconBg="bg-blue-500/10" iconColor="text-blue-600 dark:text-blue-400" />
+          <ResourceCard label="Memory" value={formatMemory(vm.memoryMb)} icon={MemoryStick} iconBg="bg-violet-500/10" iconColor="text-violet-600 dark:text-violet-400" />
+          <ResourceCard label="Disks" value={String(vm.disks.filter((d) => !isSeedIso(d)).length)} icon={HardDrive} iconBg="bg-amber-500/10" iconColor="text-amber-600 dark:text-amber-400" />
+          <ResourceCard label="NICs" value={String(vm.nics.length)} icon={Network} iconBg="bg-teal-500/10" iconColor="text-teal-600 dark:text-teal-400" />
         </div>
         {vm.status !== 'stopped' && (
           <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -425,12 +425,18 @@ function OverviewTab({
           <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
             <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               <InfoField label="IP Address">
-                <span className="font-mono text-sm text-foreground">
-                  {ip ?? <span className="text-xs text-muted-foreground">Start VM to resolve</span>}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm text-foreground">
+                    {ip ?? <span className="text-xs text-muted-foreground">Start VM to resolve</span>}
+                  </span>
+                  {ip && <CopyButton text={ip} />}
+                </div>
               </InfoField>
               <InfoField label="Username">
-                <span className="font-mono text-sm text-foreground">{meta.username}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm text-foreground">{meta.username}</span>
+                  <CopyButton text={meta.username} />
+                </div>
               </InfoField>
               <InfoField label="Password">
                 <div className="flex items-center gap-2">
@@ -440,18 +446,20 @@ function OverviewTab({
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
-                    className="text-muted-foreground transition-colors hover:text-foreground"
+                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
                   >
                     {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </button>
+                  <CopyButton text={meta.password} />
                 </div>
               </InfoField>
             </div>
             {ip && (
-              <div className="border-t border-border bg-[hsl(var(--surface))] px-5 py-3">
+              <div className="flex items-center justify-between gap-3 border-t border-border bg-[hsl(var(--surface))] px-5 py-3">
                 <p className="select-all font-mono text-xs text-muted-foreground">
                   ssh {meta.username}@{ip}
                 </p>
+                <CopyButton text={`ssh ${meta.username}@${ip}`} />
               </div>
             )}
           </div>
@@ -463,7 +471,7 @@ function OverviewTab({
         <SectionHeading>Configuration</SectionHeading>
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
           <div className="divide-y divide-border">
-            <ConfigRow label="UUID" value={vm.id} mono />
+            <ConfigRow label="UUID" value={vm.id} mono copy />
             {/* Autostart toggle */}
             <div className="flex items-center justify-between gap-4 px-5 py-3.5">
               <div>
@@ -510,26 +518,50 @@ function OverviewTab({
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+      aria-label="Copy to clipboard"
+    >
+      {copied
+        ? <Check className="h-3.5 w-3.5 text-emerald-500" />
+        : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
 function ResourceCard({
   label,
   value,
   icon: Icon,
+  iconBg = 'bg-muted',
+  iconColor = 'text-muted-foreground',
 }: {
   label: string;
   value: string;
   icon: typeof Cpu;
+  iconBg?: string;
+  iconColor?: string;
 }) {
   return (
     <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-card">
-      <div className="mb-3 flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted">
-          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+      <div className="mb-3 flex items-center gap-2.5">
+        <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', iconBg)}>
+          <Icon className={cn('h-3.5 w-3.5', iconColor)} />
         </div>
-        <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
           {label}
         </span>
       </div>
-      <p className="font-mono text-xl font-bold text-foreground">{value}</p>
+      <p className="font-mono text-2xl font-bold tracking-tight text-foreground">{value}</p>
     </div>
   );
 }
@@ -545,17 +577,20 @@ function InfoField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-function ConfigRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function ConfigRow({ label, value, mono, copy }: { label: string; value: string; mono?: boolean; copy?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-4 px-5 py-3.5">
       <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={cn('text-sm text-foreground', mono && 'font-mono text-xs')}>{value}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={cn('truncate text-sm text-foreground', mono && 'font-mono text-xs')}>{value}</span>
+        {copy && <CopyButton text={value} />}
+      </div>
     </div>
   );
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <h2 className="mb-3 text-sm font-semibold text-foreground">{children}</h2>;
+  return <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</h2>;
 }
 
 // ─── Disks ────────────────────────────────────────────────────────────────────
