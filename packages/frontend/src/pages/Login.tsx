@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Cpu, Eye, EyeOff, Loader2, Lock } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { Input } from '@/components/ui/Input';
@@ -31,29 +31,90 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm">
-        {/* Brand */}
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div
-            className="flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ring-primary/25"
-            style={{ background: 'linear-gradient(135deg, hsl(214 100% 62% / 0.3), hsl(214 100% 62% / 0.08))' }}
-          >
-            <Cpu size={22} className="text-primary" />
-          </div>
-          <div className="text-center">
-            <h1 className="text-xl font-bold tracking-tight text-foreground">VirtPilot</h1>
-            <p className="mt-0.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+    <div
+      className="dark relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4"
+      style={{ backgroundColor: 'hsl(222 28% 5%)' }}
+    >
+      {/* Dot grid */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle, hsl(214 100% 62% / 0.12) 1px, transparent 1px)',
+          backgroundSize: '28px 28px',
+        }}
+      />
+
+      {/* Blue bloom from top */}
+      <div
+        className="pointer-events-none absolute left-1/2 top-0 h-[520px] w-[900px] -translate-x-1/2"
+        style={{
+          background:
+            'radial-gradient(ellipse at 50% 0%, hsl(214 100% 62% / 0.18) 0%, transparent 65%)',
+        }}
+      />
+
+      {/* Hairline top edge glow */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+
+      {/* Corner brackets */}
+      <div className="pointer-events-none absolute inset-6 sm:inset-10">
+        <div className="absolute left-0 top-0 h-8 w-8 border-l border-t border-primary/15" />
+        <div className="absolute right-0 top-0 h-8 w-8 border-r border-t border-primary/15" />
+        <div className="absolute bottom-0 left-0 h-8 w-8 border-b border-l border-primary/15" />
+        <div className="absolute bottom-0 right-0 h-8 w-8 border-b border-r border-primary/15" />
+      </div>
+
+      {/* Content */}
+      <div className="relative z-10 w-full max-w-[340px] animate-slide-up">
+
+        {/* Logo + tagline */}
+        <div className="mb-10 flex flex-col items-center gap-3">
+          <img src="/vlogo-big.png" alt="VirtPilot" className="h-9 w-auto drop-shadow-lg" />
+          <div className="flex items-center gap-2.5">
+            <div className="h-px w-10 bg-gradient-to-r from-transparent to-white/10" />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/50">
               KVM Manager
             </p>
+            <div className="h-px w-10 bg-gradient-to-l from-transparent to-white/10" />
           </div>
         </div>
 
         {/* Card */}
-        <div className="rounded-xl border border-border/60 bg-card/60 p-6 shadow-lg backdrop-blur-sm">
-          <div className="mb-5 flex items-center gap-2">
-            <Lock size={14} className="text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">Sign in</h2>
+        <div
+          className="relative overflow-hidden rounded-2xl border border-white/[0.07] bg-card/70 p-7 backdrop-blur-md"
+          style={{
+            boxShadow:
+              '0 0 0 1px hsl(214 100% 62% / 0.1), 0 32px 80px hsl(222 28% 3% / 0.7), 0 8px 24px hsl(222 28% 3% / 0.4)',
+          }}
+        >
+          {/* Top inset glow line */}
+          <div
+            className="absolute inset-x-0 top-0 h-px"
+            style={{
+              background:
+                'linear-gradient(90deg, transparent 0%, hsl(214 100% 62% / 0.5) 50%, transparent 100%)',
+            }}
+          />
+
+          {/* Heading */}
+          <div className="mb-6 flex items-center gap-3">
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+              style={{
+                background:
+                  'linear-gradient(135deg, hsl(214 100% 62% / 0.2), hsl(214 100% 62% / 0.06))',
+                boxShadow: 'inset 0 0 0 1px hsl(214 100% 62% / 0.2)',
+              }}
+            >
+              <Lock size={13} className="text-primary" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Authenticate</h2>
+              <p className="text-[11px] leading-tight text-muted-foreground/50">
+                Enter your admin password
+              </p>
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -63,7 +124,7 @@ export function LoginPage() {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
+                placeholder="••••••••••••"
                 error={error}
                 autoFocus
                 required
@@ -71,18 +132,31 @@ export function LoginPage() {
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-[26px] text-muted-foreground hover:text-foreground transition-colors"
                 tabIndex={-1}
+                className="absolute right-3 top-[26px] text-muted-foreground transition-colors hover:text-foreground"
               >
                 {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
 
             <Button type="submit" disabled={loading} className="w-full">
-              {loading ? <Loader2 size={14} className="animate-spin" /> : null}
+              {loading && <Loader2 size={14} className="animate-spin" />}
               {loading ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
+        </div>
+
+        {/* Footer */}
+        <div className="mt-7 flex items-center justify-center gap-3">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground/30">
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-emerald-400"
+              style={{ boxShadow: '0 0 6px 1px rgb(52 211 153 / 0.45)' }}
+            />
+            System online
+          </span>
+          <span className="text-muted-foreground/20">·</span>
+          <span className="font-mono text-[10px] text-muted-foreground/30">v1.3.0</span>
         </div>
       </div>
     </div>
