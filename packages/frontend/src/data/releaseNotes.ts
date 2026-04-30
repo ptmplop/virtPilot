@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.1.6',
+    date: '2026-04-30',
+    changes: [
+      { type: 'added', text: 'PCI and USB device passthrough — new Devices tab on VM detail page lets you attach and detach host devices to VMs; devices in use by another VM are shown but cannot be claimed' },
+      { type: 'added', text: 'PCI devices show address (DDDD:BB:SS.F), class, IOMMU group, and current driver; USB devices show bus and device number' },
+    ],
+  },
+  {
     version: '1.1.5',
     date: '2026-04-29',
     changes: [

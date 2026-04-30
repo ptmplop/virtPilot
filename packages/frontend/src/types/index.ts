@@ -171,6 +171,33 @@ export interface VmDiskFile {
   vmExists: boolean;
 }
 
+export interface PciAddress {
+  domain: number;
+  bus: number;
+  slot: number;
+  function: number;
+}
+
+export interface UsbAddress {
+  bus: number;
+  device: number;
+}
+
+export interface HostDevice {
+  id: string;
+  type: 'pci' | 'usb';
+  vendor: string;
+  vendorId: string;
+  product: string;
+  productId: string;
+  driver?: string;
+  iommuGroup?: number;
+  pciClass?: string;
+  pciAddress?: PciAddress;
+  usbAddress?: UsbAddress;
+  assignedTo?: string;
+}
+
 export interface LogEntry {
   id: string;
   timestamp: string;

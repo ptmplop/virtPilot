@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Camera, ChevronDown, ChevronUp, Cpu, Disc, Eye, EyeOff,
   HardDrive, MemoryStick, Network, Pencil, Plus, Power, PowerOff, RotateCcw,
-  Server, Shield, Terminal, Trash2, Zap,
+  Server, Shield, Terminal, Trash2, Usb, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
@@ -23,16 +23,17 @@ import {
   useVmIfAddrs, useVmReservations,
   useVmFirewall, useSaveFirewall, useApplyFirewall,
 } from '@/hooks/useVms';
+import { useHostDevices, useAttachDevice, useDetachDevice } from '@/hooks/useDevices';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
 import { formatMemory } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import type { DhcpReservation, FirewallConfig, FirewallRule, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
+import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
 import { useVmOpsStore } from '@/store/vmOpsStore';
 
-type Tab = 'overview' | 'disks' | 'network' | 'snapshots' | 'firewall';
+type Tab = 'overview' | 'disks' | 'network' | 'snapshots' | 'firewall' | 'devices';
 
 const isSeedIso = (d: VmDisk): boolean => !!d.source?.endsWith('-seed.iso');
 
@@ -199,7 +200,7 @@ export function VmDetailPage() {
 
           {/* Tab bar */}
           <div className="mb-7 flex items-center gap-1 border-b border-border">
-            {(['overview', 'disks', 'network', 'snapshots', 'firewall'] as Tab[]).map((t) => (
+            {(['overview', 'disks', 'network', 'snapshots', 'firewall', 'devices'] as Tab[]).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -222,6 +223,7 @@ export function VmDetailPage() {
           <div className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmName={name!} nics={vm.nics} meta={vmMeta} /></div>
           <div className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmName={name!} vmStatus={vm.status} /></div>
           <div className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmName={name!} vmStatus={vm.status} /></div>
+          <div className={tab !== 'devices' ? 'hidden' : undefined}><DevicesTab vmName={name!} /></div>
         </>
       )}
     </Layout>
@@ -2148,6 +2150,266 @@ function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus 
           )}
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+// ─── Devices ──────────────────────────────────────────────────────────────────
+
+function pciAddrStr(a: NonNullable<HostDevice['pciAddress']>): string {
+  return `${a.domain.toString(16).padStart(4, '0')}:${a.bus.toString(16).padStart(2, '0')}:${a.slot.toString(16).padStart(2, '0')}.${a.function.toString(16)}`;
+}
+
+const PCI_CLASS_NAMES: Record<string, string> = {
+  '01': 'Storage', '02': 'Network', '03': 'Display', '04': 'Multimedia',
+  '05': 'Memory', '06': 'Bridge', '07': 'Comms', '08': 'System',
+  '09': 'Input', '0a': 'Docking', '0b': 'Processor', '0c': 'Serial Bus',
+  '0d': 'Wireless', '10': 'Encryption', '11': 'Signal Proc',
+};
+
+function DeviceRow({
+  device,
+  action,
+  dimmed = false,
+}: {
+  device: HostDevice;
+  action?: React.ReactNode;
+  dimmed?: boolean;
+}) {
+  return (
+    <tr className={cn('transition-colors hover:bg-muted/30', dimmed && 'opacity-55')}>
+      <td className="px-5 py-3.5">
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase',
+            device.type === 'pci'
+              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+              : 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
+          )}
+        >
+          {device.type === 'pci' ? <Cpu size={10} /> : <Usb size={10} />}
+          {device.type.toUpperCase()}
+        </span>
+      </td>
+      <td className="px-5 py-3.5">
+        <div className="text-xs font-medium text-foreground">{device.product}</div>
+        <div className="text-xs text-muted-foreground">{device.vendor}</div>
+      </td>
+      <td className="px-5 py-3.5 text-xs text-muted-foreground">
+        {device.type === 'pci' && device.pciAddress ? (
+          <div className="space-y-0.5">
+            <div className="font-mono">{pciAddrStr(device.pciAddress)}</div>
+            <div className="flex flex-wrap items-center gap-x-2">
+              {device.pciClass && (
+                <span>
+                  {PCI_CLASS_NAMES[device.pciClass.slice(0, 2).toLowerCase()] ?? device.pciClass}
+                </span>
+              )}
+              {device.iommuGroup !== undefined && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  IOMMU {device.iommuGroup}
+                </span>
+              )}
+              {device.driver && (
+                <span className="font-mono">{device.driver}</span>
+              )}
+            </div>
+          </div>
+        ) : device.type === 'usb' && device.usbAddress ? (
+          <span className="font-mono">
+            Bus {String(device.usbAddress.bus).padStart(3, '0')} Dev{' '}
+            {String(device.usbAddress.device).padStart(3, '0')}
+          </span>
+        ) : null}
+      </td>
+      <td className="px-5 py-3.5 text-right">{action}</td>
+    </tr>
+  );
+}
+
+function DevicesTab({ vmName }: { vmName: string }) {
+  const { data: allDevices = [], isLoading } = useHostDevices();
+  const attach = useAttachDevice(vmName);
+  const detach = useDetachDevice(vmName);
+  const [typeFilter, setTypeFilter] = useState<'all' | 'pci' | 'usb'>('all');
+
+  const filterFn = (d: HostDevice) => typeFilter === 'all' || d.type === typeFilter;
+
+  const attached = allDevices.filter((d) => d.assignedTo === vmName && filterFn(d));
+  const available = allDevices.filter((d) => !d.assignedTo && filterFn(d));
+  const inUse = allDevices.filter((d) => d.assignedTo && d.assignedTo !== vmName && filterFn(d));
+
+  const handleAttach = async (deviceId: string) => {
+    try {
+      await attach.mutateAsync(deviceId);
+      toast.success('Device attached');
+    } catch {
+      toast.error('Failed to attach device');
+    }
+  };
+
+  const handleDetach = async (deviceId: string) => {
+    try {
+      await detach.mutateAsync(deviceId);
+      toast.success('Device detached');
+    } catch {
+      toast.error('Failed to detach device');
+    }
+  };
+
+  const tableHeaders = (
+    <tr className="border-b border-border bg-muted/40">
+      {['Type', 'Device', 'Details', ''].map((h) => (
+        <th
+          key={h}
+          className={cn(
+            'px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
+            h === '' ? 'text-right' : 'text-left',
+          )}
+        >
+          {h}
+        </th>
+      ))}
+    </tr>
+  );
+
+  return (
+    <div className="space-y-7">
+      {/* Filter pills */}
+      <div className="flex items-center gap-1.5">
+        {(['all', 'pci', 'usb'] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setTypeFilter(f)}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors',
+              typeFilter === f
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {f === 'all' ? 'All' : f.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-16 rounded-xl" />
+          <Skeleton className="h-16 rounded-xl" />
+          <Skeleton className="h-16 rounded-xl" />
+        </div>
+      ) : (
+        <>
+          {/* Attached */}
+          <div>
+            <SectionHeading>Attached to this VM</SectionHeading>
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+              {attached.length === 0 ? (
+                <div className="px-6 py-10 text-center text-sm text-muted-foreground">
+                  No devices attached to this VM.
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>{tableHeaders}</thead>
+                  <tbody className="divide-y divide-border">
+                    {attached.map((d) => (
+                      <DeviceRow
+                        key={d.id}
+                        device={d}
+                        action={
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() => handleDetach(d.id)}
+                            disabled={detach.isPending}
+                          >
+                            Detach
+                          </Button>
+                        }
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          {/* Available */}
+          <div>
+            <SectionHeading>Available Devices</SectionHeading>
+            <p className="mb-3 text-xs text-muted-foreground">
+              PCI passthrough requires IOMMU support (intel_iommu=on / amd_iommu=on) and the{' '}
+              <span className="font-mono">vfio-pci</span> kernel module. Devices sharing an IOMMU
+              group must all be passed through together or left entirely on the host.
+            </p>
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+              {available.length === 0 ? (
+                <div className="px-6 py-10 text-center text-sm text-muted-foreground">
+                  No devices available — all host devices are either in use or filtered out.
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>{tableHeaders}</thead>
+                  <tbody className="divide-y divide-border">
+                    {available.map((d) => (
+                      <DeviceRow
+                        key={d.id}
+                        device={d}
+                        action={
+                          <Button
+                            size="sm"
+                            onClick={() => handleAttach(d.id)}
+                            disabled={attach.isPending}
+                          >
+                            Attach
+                          </Button>
+                        }
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          {/* In use by other VMs */}
+          {inUse.length > 0 && (
+            <div>
+              <SectionHeading>In Use by Other VMs</SectionHeading>
+              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40">
+                      {['Type', 'Device', 'Details', 'Assigned To'].map((h) => (
+                        <th
+                          key={h}
+                          className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {inUse.map((d) => (
+                      <DeviceRow
+                        key={d.id}
+                        device={d}
+                        dimmed
+                        action={
+                          <span className="text-xs text-muted-foreground">{d.assignedTo}</span>
+                        }
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

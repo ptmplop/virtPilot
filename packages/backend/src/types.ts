@@ -68,6 +68,33 @@ export interface VmSnapshot {
   vmState: string;
 }
 
+export interface PciAddress {
+  domain: number;
+  bus: number;
+  slot: number;
+  function: number;
+}
+
+export interface UsbAddress {
+  bus: number;
+  device: number;
+}
+
+export interface HostDevice {
+  id: string;           // nodedev name: 'pci_0000_01_00_0' or 'usb_1_2'
+  type: 'pci' | 'usb';
+  vendor: string;
+  vendorId: string;
+  product: string;
+  productId: string;
+  driver?: string;
+  iommuGroup?: number;
+  pciClass?: string;    // 6-char hex class code, e.g. '030200'
+  pciAddress?: PciAddress;
+  usbAddress?: UsbAddress;
+  assignedTo?: string;  // VM name if currently passed through to a VM
+}
+
 export interface CreateVmRequest {
   name: string;
   cpus: number;

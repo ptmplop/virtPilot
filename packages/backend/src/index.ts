@@ -13,6 +13,7 @@ import { isosRouter } from './routes/isos.js';
 import { settingsRouter } from './routes/settings.js';
 import { systemRouter } from './routes/system.js';
 import { logsRouter } from './routes/logs.js';
+import { devicesRouter } from './routes/devices.js';
 import { requireAuth, verifyWsToken } from './middleware/auth.js';
 import { createConsoleWss } from './console.js';
 import { createSshWss } from './ssh.js';
@@ -40,6 +41,7 @@ app.use('/api/isos', requireAuth, isosRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
 app.use('/api/system', requireAuth, systemRouter);
 app.use('/api/logs', requireAuth, logsRouter);
+app.use('/api/devices', requireAuth, devicesRouter);
 
 // Serve built frontend in production
 const frontendDist = path.resolve(__dirname, '../../frontend/dist');

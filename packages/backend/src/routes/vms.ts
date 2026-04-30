@@ -7,6 +7,7 @@ import { config } from '../config.js';
 
 const execAsync = promisify(exec);
 import * as vmService from '../services/vmService.js';
+import * as deviceService from '../services/deviceService.js';
 import * as storageService from '../services/storageService.js';
 import * as networkService from '../services/networkService.js';
 import * as vmMetaService from '../services/vmMetaService.js';
@@ -672,6 +673,39 @@ vmsRouter.post('/:name/firewall/apply', async (req, res) => {
     res.json({ ok: true });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.firewall.apply', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Device passthrough ───────────────────────────────────────────────────────
+
+vmsRouter.post('/:name/devices', async (req, res) => {
+  const { name } = req.params;
+  const { deviceId } = req.body as { deviceId?: string };
+  if (!deviceId) return res.status(400).json({ error: 'deviceId is required' });
+
+  const start = Date.now();
+  const trace: TraceEntry[] = [];
+  try {
+    await deviceService.attachDevice(name, deviceId, trace);
+    void logService.appendLog({ type: 'vm.device.attach', subject: name, status: 'success', output: formatTrace(trace), durationMs: Date.now() - start });
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.device.attach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+vmsRouter.delete('/:name/devices/:deviceId', async (req, res) => {
+  const { name, deviceId } = req.params;
+  const start = Date.now();
+  const trace: TraceEntry[] = [];
+  try {
+    await deviceService.detachDevice(name, deviceId, trace);
+    void logService.appendLog({ type: 'vm.device.detach', subject: name, status: 'success', output: formatTrace(trace), durationMs: Date.now() - start });
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.device.detach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
