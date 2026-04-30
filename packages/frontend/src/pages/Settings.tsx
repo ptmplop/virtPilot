@@ -146,7 +146,7 @@ export function SettingsPage() {
   ] : [];
 
   return (
-    <Layout title="Settings" subtitle="Host configuration, log retention, and requirements.">
+    <Layout title="Settings" subtitle="Host configuration, log retention, and access control.">
       {/* Host configuration */}
       <section className="mb-5">
         <div className="mb-3">
@@ -387,33 +387,6 @@ export function SettingsPage() {
         </div>
       </section>
 
-      {/* Requirements */}
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-foreground">Host Requirements</h2>
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="divide-y divide-border">
-            <div className="px-5 py-4">
-              <p className="mb-3 text-xs text-muted-foreground">
-                The following packages must be installed on the host (Debian/Ubuntu):
-              </p>
-              <ul className="space-y-1.5">
-                {['libvirt-daemon-system', 'libvirt-clients', 'qemu-system-x86', 'qemu-utils', 'genisoimage'].map((pkg) => (
-                  <li key={pkg} className="flex items-center gap-2.5">
-                    <span className="flex h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                    <span className="font-mono text-xs text-foreground">{pkg}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="px-5 py-4 text-xs text-muted-foreground">
-              For KVM acceleration, ensure the host CPU supports virtualisation and{' '}
-              <span className="font-mono text-foreground">/dev/kvm</span> is present.
-              The backend process user must be in the{' '}
-              <span className="font-mono text-foreground">libvirt</span> group.
-            </div>
-          </div>
-        </div>
-      </section>
     </Layout>
   );
 }
