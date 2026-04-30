@@ -264,6 +264,13 @@ export async function getReservationsForVm(vmName: string): Promise<DhcpReservat
   return reservations.filter((r) => r.vmName === vmName);
 }
 
+export async function renameVmReferences(oldName: string, newName: string): Promise<void> {
+  const [forwards, reservations] = await Promise.all([readForwards(), readReservations()]);
+  const updatedForwards = forwards.map((f) => f.vmName === oldName ? { ...f, vmName: newName } : f);
+  const updatedReservations = reservations.map((r) => r.vmName === oldName ? { ...r, vmName: newName } : r);
+  await Promise.all([writeForwards(updatedForwards), writeReservations(updatedReservations)]);
+}
+
 export async function applyAllRules(): Promise<void> {
   const forwards = await readForwards();
   for (const fwd of forwards) {

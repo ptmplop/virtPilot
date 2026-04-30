@@ -302,6 +302,20 @@ export function useUpdateVmResources(name: string) {
   });
 }
 
+export function useRenameVm(name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (newName: string) => {
+      const { data } = await api.put<{ ok: boolean; newName: string }>(`/api/vms/${name}/rename`, { newName });
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.vms });
+      qc.removeQueries({ queryKey: KEYS.vm(name) });
+    },
+  });
+}
+
 export function useVmStats(name: string, enabled = true) {
   return useQuery({
     queryKey: [...KEYS.vm(name), 'stats'] as const,

@@ -2,7 +2,9 @@ import { Router } from 'express';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 
 const execAsync = promisify(exec);
@@ -307,6 +309,65 @@ vmsRouter.post('/', async (req, res) => {
       output: String(err),
       durationMs: Date.now() - start,
     });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Rename VM
+vmsRouter.put('/:name/rename', async (req, res) => {
+  const start = Date.now();
+  const { name } = req.params;
+  const { newName } = req.body as { newName?: string };
+
+  if (!newName || typeof newName !== 'string') return res.status(400).json({ error: 'newName is required' });
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(newName)) {
+    return res.status(400).json({ error: 'VM name must be 1–80 characters: letters, numbers, hyphens, underscores only' });
+  }
+  if (newName === name) return res.status(400).json({ error: 'New name is the same as the current name' });
+
+  try {
+    const vm = await vmService.getVmInfo(name);
+    if (vm.status !== 'stopped') return res.status(400).json({ error: 'VM must be stopped before renaming' });
+
+    // Check new name is not already taken
+    try {
+      await vmService.getVmInfo(newName);
+      return res.status(409).json({ error: `A VM named "${newName}" already exists` });
+    } catch { /* expected */ }
+
+    // Dump current XML, replace <name> element, write to tmpfile
+    const { stdout: xml } = await execAsync(`virsh -c qemu:///system dumpxml "${name}"`);
+    const updatedXml = xml.replace(/<name>[^<]*<\/name>/, `<name>${newName}</name>`);
+    const tmpFile = path.join(os.tmpdir(), `virtpilot-rename-${randomUUID()}.xml`);
+    await fs.writeFile(tmpFile, updatedXml, 'utf8');
+
+    try {
+      // Undefine the old domain (keep NVRAM for UEFI VMs; keep snapshots metadata)
+      try {
+        await execAsync(`virsh -c qemu:///system undefine "${name}" --keep-nvram --snapshots-metadata`);
+      } catch {
+        await execAsync(`virsh -c qemu:///system undefine "${name}" --snapshots-metadata`);
+      }
+
+      // Define new domain with updated name
+      await execAsync(`virsh -c qemu:///system define "${tmpFile}"`);
+    } finally {
+      await fs.unlink(tmpFile).catch(() => {});
+    }
+
+    // Update all persistent stores
+    const meta = await vmMetaService.getVmMeta(name);
+    if (meta) {
+      await vmMetaService.saveVmMeta({ ...meta, vmName: newName });
+      await vmMetaService.deleteVmMeta(name);
+    }
+    await portForwardService.renameVmReferences(name, newName);
+    await firewallService.renameFirewallConfig(name, newName);
+
+    void logService.appendLog({ type: 'vm.rename', subject: name, status: 'success', output: `Renamed to ${newName}`, durationMs: Date.now() - start });
+    res.json({ ok: true, newName });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.rename', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });

@@ -70,6 +70,14 @@ export async function deleteFirewallConfig(vmName: string): Promise<void> {
   await fs.unlink(firewallPath(vmName)).catch(() => {});
 }
 
+export async function renameFirewallConfig(oldName: string, newName: string): Promise<void> {
+  try {
+    const content = await fs.readFile(firewallPath(oldName), 'utf8');
+    await fs.writeFile(firewallPath(newName), content, 'utf8');
+    await fs.unlink(firewallPath(oldName));
+  } catch { /* no firewall config for this VM */ }
+}
+
 async function chainExists(chain: string): Promise<boolean> {
   try {
     await execAsync(`iptables -L ${chain} -n`);

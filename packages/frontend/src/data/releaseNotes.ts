@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.5.0',
+    date: '2026-04-30',
+    changes: [
+      { type: 'added', text: 'VM rename — pencil icon next to the VM name on the detail page (stopped VMs only); renames the libvirt domain and updates all associated metadata, port forwards, DHCP reservations, and firewall config' },
+    ],
+  },
+  {
     version: '1.4.3',
     date: '2026-04-30',
     changes: [

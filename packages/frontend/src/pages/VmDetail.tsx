@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, ChevronDown, ChevronUp,
   Cpu, Disc, Eye, EyeOff, HardDrive, MemoryStick, Network, Pencil, Plus,
@@ -23,6 +23,7 @@ import {
   useVmIfAddrs, useVmReservations,
   useVmFirewall, useSaveFirewall, useApplyFirewall,
   useSetAutostart, useResizeDisk, useUpdateVmResources, useVmStats,
+  useRenameVm,
 } from '@/hooks/useVms';
 import { useEffect, useRef } from 'react';
 import type { VmStatsSample } from '@/types';
@@ -58,11 +59,33 @@ const statusTextColour: Record<VmStatus, string> = {
 
 export function VmDetailPage() {
   const { name } = useParams<{ name: string }>();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
   const { data: vm, isLoading } = useVm(name!);
   const { data: metaData } = useVmMeta(name!);
   const vmMeta = metaData?.meta ?? null;
   const action = useVmAction(name!);
+
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const rename = useRenameVm(name!);
+
+  const handleRenameStart = () => {
+    setRenameValue(name!);
+    setRenaming(true);
+  };
+  const handleRenameCancel = () => setRenaming(false);
+  const handleRenameSubmit = async () => {
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === name) { setRenaming(false); return; }
+    try {
+      await rename.mutateAsync(trimmed);
+      setRenaming(false);
+      navigate(`/vms/${trimmed}`, { replace: true });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to rename VM');
+    }
+  };
 
   const handleAction = async (a: 'start' | 'stop' | 'reboot', force?: boolean) => {
     try {
@@ -129,7 +152,41 @@ export function VmDetailPage() {
                 />
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-foreground">{name}</h1>
+                {renaming ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRenameSubmit();
+                        if (e.key === 'Escape') handleRenameCancel();
+                      }}
+                      className="h-8 w-52 text-sm font-bold"
+                    />
+                    <Button size="sm" onClick={handleRenameSubmit} disabled={rename.isPending}>
+                      {rename.isPending ? <Spinner size={13} /> : 'Save'}
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={handleRenameCancel} disabled={rename.isPending}>
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-bold tracking-tight text-foreground">{name}</h1>
+                    {vm.status === 'stopped' && (
+                      <Tooltip label="Rename VM">
+                        <button
+                          type="button"
+                          onClick={handleRenameStart}
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      </Tooltip>
+                    )}
+                  </div>
+                )}
                 <div className="mt-1 flex items-center gap-2">
                   <StatusDot status={vm.status} />
                   <span className={cn('text-sm font-medium', statusTextColour[vm.status])}>
