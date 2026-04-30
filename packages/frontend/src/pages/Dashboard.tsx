@@ -576,7 +576,6 @@ function UpgradeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
               key={i}
               className={cn(
                 'whitespace-pre-wrap',
-                l.type === 'err' ? 'text-red-400/80' :
                 l.type === 'meta' ? 'text-white/30' :
                 'text-white/75'
               )}

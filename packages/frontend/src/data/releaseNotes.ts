@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.4.2',
+    date: '2026-04-30',
+    changes: [
+      { type: 'fixed', text: 'APT upgrade terminal no longer colours stderr red — apt-get uses stderr for normal progress output; failure is indicated by the footer exit-code status instead' },
+    ],
+  },
+  {
     version: '1.4.1',
     date: '2026-04-30',
     changes: [
