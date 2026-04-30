@@ -50,6 +50,9 @@ apt-get install -y -qq \
   libvirt-daemon-system \
   libvirt-clients \
   virtinst \
+  ovmf \
+  swtpm \
+  swtpm-tools \
   genisoimage \
   bridge-utils \
   iptables \

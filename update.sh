@@ -50,6 +50,14 @@ log "Updated $(git rev-parse --short "$BEFORE") → $(git rev-parse --short "$AF
 git log --oneline "${BEFORE}..${AFTER}"
 echo ""
 
+# ─── APT packages ─────────────────────────────────────────────────────────────
+info "Ensuring system packages are present..."
+apt-get install -y -qq \
+  ovmf \
+  swtpm \
+  swtpm-tools
+log "System packages verified"
+
 # ─── Dependencies ─────────────────────────────────────────────────────────────
 info "Installing npm dependencies..."
 npm install --no-fund --no-audit

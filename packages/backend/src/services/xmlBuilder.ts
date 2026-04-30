@@ -75,6 +75,7 @@ interface DomainXmlOptions {
   firmware?: FirmwareMode;
   secureBoot?: boolean;
   nvramPath?: string;
+  vtpm?: boolean;
 }
 
 export function buildDomainXml(opts: DomainXmlOptions): string {
@@ -203,6 +204,9 @@ ${nicsXml}
     <channel type="unix">
       <target type="virtio" name="org.qemu.guest_agent.0"/>
     </channel>
+    ${opts.vtpm ? `<tpm model="tpm-tis">
+      <backend type="emulator" version="2.0"/>
+    </tpm>` : ''}
   </devices>
 </domain>`;
 }

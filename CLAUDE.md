@@ -62,3 +62,4 @@ usermod -aG libvirt $USER
 - camelCase TypeScript throughout
 - Tailwind CSS v3 with `darkMode: 'class'` — same CSS variable palette as hostedai-launchpad
 - Dark mode stored in `localStorage` key `virtpilotTheme`
+- **When a feature requires a new host package**, always update **both** `install.sh` (apt-get install block) and `update.sh` (apt packages section) in the same commit.

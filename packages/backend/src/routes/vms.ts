@@ -145,7 +145,7 @@ vmsRouter.post('/', async (req, res) => {
     const {
       name, cpus, memoryMb, diskGb,
       templateFilename, isoFilename,
-      networks, cloudInit, cpuMode, nicModel, firmware, secureBoot,
+      networks, cloudInit, cpuMode, nicModel, firmware, secureBoot, vtpm,
     } = req.body as {
       name: string;
       cpus: number;
@@ -159,6 +159,7 @@ vmsRouter.post('/', async (req, res) => {
       nicModel?: string;
       firmware?: FirmwareMode;
       secureBoot?: boolean;
+      vtpm?: boolean;
     };
 
     const isIsoInstall = !!isoFilename && !templateFilename;
@@ -261,7 +262,7 @@ vmsRouter.post('/', async (req, res) => {
     let domainXml: string;
 
     const nvramPath = path.join(config.vmsDir, name, `${name}-nvram.fd`);
-    const firmwareOpts = { firmware, secureBoot, nvramPath };
+    const firmwareOpts = { firmware, secureBoot, nvramPath, vtpm };
 
     if (isIsoInstall) {
       diskPath = await storageService.createBlankPrimaryDisk(name, diskGb, trace);

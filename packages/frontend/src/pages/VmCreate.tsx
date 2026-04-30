@@ -62,6 +62,7 @@ interface FormData {
   nicModel: NicModel;
   firmware: FirmwareMode;
   secureBoot: boolean;
+  vtpm: boolean;
 }
 
 const defaults: FormData = {
@@ -81,6 +82,7 @@ const defaults: FormData = {
   nicModel: 'virtio',
   firmware: 'uefi',
   secureBoot: false,
+  vtpm: false,
 };
 
 const SIZE_PRESETS = [
@@ -636,32 +638,61 @@ function ResourcesStep({
           })}
         </div>
         {form.firmware === 'uefi' && (
-          <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
-            <div>
-              <p className="text-xs font-semibold text-foreground">Secure Boot</p>
-              <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-                Enforces signed bootloaders. Required for Windows 11; disable for most Linux guests.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={form.secureBoot}
-              onClick={() => setForm((f) => ({ ...f, secureBoot: !f.secureBoot }))}
-              className={cn(
-                'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent',
-                'transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-card',
-                form.secureBoot ? 'bg-primary' : 'bg-muted'
-              )}
-            >
-              <span
-                aria-hidden="true"
+          <div className="space-y-2">
+            <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
+              <div>
+                <p className="text-xs font-semibold text-foreground">Secure Boot</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                  Enforces signed bootloaders. Required for Windows 11; disable for most Linux guests.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.secureBoot}
+                onClick={() => setForm((f) => ({ ...f, secureBoot: !f.secureBoot, vtpm: !f.secureBoot ? true : f.vtpm }))}
                 className={cn(
-                  'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
-                  form.secureBoot ? 'translate-x-4' : 'translate-x-0'
+                  'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent',
+                  'transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-card',
+                  form.secureBoot ? 'bg-primary' : 'bg-muted'
                 )}
-              />
-            </button>
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
+                    form.secureBoot ? 'translate-x-4' : 'translate-x-0'
+                  )}
+                />
+              </button>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
+              <div>
+                <p className="text-xs font-semibold text-foreground">Virtual TPM 2.0</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                  Emulated TPM chip via swtpm. Required for Windows 11; optional for other guests.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.vtpm}
+                onClick={() => setForm((f) => ({ ...f, vtpm: !f.vtpm }))}
+                className={cn(
+                  'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent',
+                  'transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-card',
+                  form.vtpm ? 'bg-primary' : 'bg-muted'
+                )}
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
+                    form.vtpm ? 'translate-x-4' : 'translate-x-0'
+                  )}
+                />
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -1201,6 +1232,7 @@ function ReviewStep({
         <ReviewRow label="Memory"   value={mbToDisplay(form.memoryMb)} />
         <ReviewRow label="Disk"     value={`${form.diskGb} GB (blank)`} />
         <ReviewRow label="Firmware" value={form.firmware === 'uefi' ? (form.secureBoot ? 'UEFI + Secure Boot' : 'UEFI') : 'SeaBIOS'} mono={false} />
+        {form.vtpm && <ReviewRow label="Virtual TPM" value="TPM 2.0 (emulated)" mono={false} />}
       </ReviewSection>
 
       <ReviewSection title="Network" icon={Network}>
@@ -1334,6 +1366,7 @@ export function VmCreatePage() {
           nicModel: form.nicModel,
           firmware: form.firmware,
           secureBoot: form.secureBoot,
+          vtpm: form.vtpm,
           networks: form.networks.map((s) => ({
             networkId: s.networkId,
             staticIp: s.staticIp || undefined,
@@ -1351,6 +1384,7 @@ export function VmCreatePage() {
           nicModel: form.nicModel,
           firmware: form.firmware,
           secureBoot: form.secureBoot,
+          vtpm: form.vtpm,
           networks: form.networks.map((s) => ({
             networkId: s.networkId,
             staticIp: s.staticIp || undefined,
