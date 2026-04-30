@@ -469,14 +469,18 @@ export async function resizeDisk(nameOrId: string, target: string, addGb: number
   const disk = disks.find((d) => d.target === target);
   if (!disk?.source) throw new Error(`Disk ${target} not found or has no source path`);
 
-  await execTraced(`qemu-img resize "${disk.source}" +${addGb}G`, trace, { timeout: 120_000 });
-
-  // If the VM is running, notify the hypervisor of the new size so the guest sees it immediately
   const state = await virsh(`domstate ${nameOrId}`);
-  if (parseStatus(state) === 'running') {
+  const running = parseStatus(state) === 'running';
+
+  if (running) {
+    // QEMU holds a write lock on the image while running — qemu-img resize would fail.
+    // virsh blockresize talks directly to QEMU, resizes the image, and notifies the guest.
     const { stdout } = await execAsync(`qemu-img info --output=json "${disk.source}"`);
     const info = JSON.parse(stdout) as { 'virtual-size': number };
-    await virsh(`blockresize ${nameOrId} ${target} ${info['virtual-size']}`, trace);
+    const newSizeBytes = info['virtual-size'] + addGb * 1024 * 1024 * 1024;
+    await virsh(`blockresize ${nameOrId} ${target} ${newSizeBytes}`, trace);
+  } else {
+    await execTraced(`qemu-img resize "${disk.source}" +${addGb}G`, trace, { timeout: 120_000 });
   }
 
   return formatTrace(trace);
