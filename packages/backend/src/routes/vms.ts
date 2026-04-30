@@ -16,7 +16,7 @@ import * as firewallService from '../services/firewallService.js';
 import * as logService from '../services/logService.js';
 import { type TraceEntry, formatTrace } from '../services/traceService.js';
 import { buildCloudInitIso, getHostSshPublicKey, type NicCloudInit } from '../services/cloudInitService.js';
-import { buildDomainXml, generateMac, type NicDefinition, type CpuMode } from '../services/xmlBuilder.js';
+import { buildDomainXml, generateMac, type NicDefinition, type CpuMode, type FirmwareMode } from '../services/xmlBuilder.js';
 
 export const vmsRouter = Router();
 
@@ -145,7 +145,7 @@ vmsRouter.post('/', async (req, res) => {
     const {
       name, cpus, memoryMb, diskGb,
       templateFilename, isoFilename,
-      networks, cloudInit, cpuMode, nicModel,
+      networks, cloudInit, cpuMode, nicModel, firmware, secureBoot,
     } = req.body as {
       name: string;
       cpus: number;
@@ -157,6 +157,8 @@ vmsRouter.post('/', async (req, res) => {
       cloudInit?: { hostname: string; username: string; password: string; sshKeys?: string[] };
       cpuMode?: CpuMode;
       nicModel?: string;
+      firmware?: FirmwareMode;
+      secureBoot?: boolean;
     };
 
     const isIsoInstall = !!isoFilename && !templateFilename;
@@ -258,17 +260,20 @@ vmsRouter.post('/', async (req, res) => {
     let diskPath: string;
     let domainXml: string;
 
+    const nvramPath = path.join(config.vmsDir, name, `${name}-nvram.fd`);
+    const firmwareOpts = { firmware, secureBoot, nvramPath };
+
     if (isIsoInstall) {
       diskPath = await storageService.createBlankPrimaryDisk(name, diskGb, trace);
       const installIsoPath = path.join(config.isosDir, isoFilename!);
-      domainXml = buildDomainXml({ name, cpus, memoryMb, diskPath, installIsoPath, nics: nicDefinitions, cpuMode });
+      domainXml = buildDomainXml({ name, cpus, memoryMb, diskPath, installIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
     } else {
       diskPath = await storageService.createVmDisk(name, templateFilename!, diskGb, trace);
       const hostPubKey = await getHostSshPublicKey();
       const sshKeys = [...(cloudInit!.sshKeys ?? [])];
       if (hostPubKey && !sshKeys.includes(hostPubKey)) sshKeys.push(hostPubKey);
       const cloudInitIsoPath = await buildCloudInitIso(name, { ...cloudInit!, sshKeys, nics: nicCloudInit }, trace);
-      domainXml = buildDomainXml({ name, cpus, memoryMb, diskPath, cloudInitIsoPath, nics: nicDefinitions, cpuMode });
+      domainXml = buildDomainXml({ name, cpus, memoryMb, diskPath, cloudInitIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
     }
 
     const xmlPath = path.join(config.cloudInitDir, `${name}-domain.xml`);

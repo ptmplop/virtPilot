@@ -20,9 +20,41 @@ function findEmulator(): string {
   }
 }
 
+interface OvmfPaths {
+  code: string;
+  codeSecboot: string;
+  vars: string;
+}
+
+function findOvmfPaths(): OvmfPaths | null {
+  const candidates: OvmfPaths[] = [
+    {
+      code:        '/usr/share/OVMF/OVMF_CODE.fd',
+      codeSecboot: '/usr/share/OVMF/OVMF_CODE.secboot.fd',
+      vars:        '/usr/share/OVMF/OVMF_VARS.fd',
+    },
+    {
+      code:        '/usr/share/OVMF/OVMF_CODE_4M.fd',
+      codeSecboot: '/usr/share/OVMF/OVMF_CODE_4M.secboot.fd',
+      vars:        '/usr/share/OVMF/OVMF_VARS_4M.fd',
+    },
+    {
+      code:        '/usr/share/edk2-ovmf/x64/OVMF_CODE.fd',
+      codeSecboot: '/usr/share/edk2-ovmf/x64/OVMF_CODE.secboot.fd',
+      vars:        '/usr/share/edk2-ovmf/x64/OVMF_VARS.fd',
+    },
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c.code) && fs.existsSync(c.vars)) return c;
+  }
+  return null;
+}
+
 const EMULATOR = findEmulator();
+const OVMF = findOvmfPaths();
 
 export type CpuMode = 'host-passthrough' | 'host-model' | 'maximum';
+export type FirmwareMode = 'uefi' | 'bios';
 
 export interface NicDefinition {
   bridge: string;
@@ -40,6 +72,9 @@ interface DomainXmlOptions {
   nics: NicDefinition[];
   useKvm?: boolean;
   cpuMode?: CpuMode;
+  firmware?: FirmwareMode;
+  secureBoot?: boolean;
+  nvramPath?: string;
 }
 
 export function buildDomainXml(opts: DomainXmlOptions): string {
@@ -54,6 +89,20 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
         ? `<cpu mode="maximum" check="none" migratable="on"/>`
         : `<cpu mode="host-passthrough" check="none" migratable="on"/>`
     : `<cpu mode="custom" match="exact"><model fallback="allow">qemu64</model></cpu>`;
+
+  const useUefi = (opts.firmware ?? 'uefi') === 'uefi';
+  const useSecureBoot = useUefi && (opts.secureBoot ?? false);
+
+  let loaderXml = '';
+  if (useUefi && OVMF) {
+    const loaderPath = useSecureBoot && fs.existsSync(OVMF.codeSecboot)
+      ? OVMF.codeSecboot
+      : OVMF.code;
+    const secureAttr = useSecureBoot ? ' secure="yes"' : '';
+    loaderXml = `
+    <loader readonly="yes"${secureAttr} type="pflash">${loaderPath}</loader>
+    <nvram template="${OVMF.vars}">${opts.nvramPath ?? `/var/lib/libvirt/qemu/nvram/${opts.name}_VARS.fd`}</nvram>`;
+  }
 
   const nicsXml = opts.nics
     .map((nic) =>
@@ -74,13 +123,14 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
   <currentMemory unit="KiB">${memKb}</currentMemory>
   <vcpu placement="static">${opts.cpus}</vcpu>
   <os>
-    <type arch="x86_64" machine="q35">hvm</type>
+    <type arch="x86_64" machine="q35">hvm</type>${loaderXml}
     ${isIsoInstall ? '<boot dev="cdrom"/>' : ''}
     <boot dev="hd"/>
   </os>
   <features>
     <acpi/>
     <apic/>
+    ${useSecureBoot ? '<smm state="on"/>' : ''}
     ${kvm ? '<vmport state="off"/>' : ''}
   </features>
   ${cpuXml}

@@ -43,6 +43,7 @@ interface NetworkSelection {
 
 type CpuMode = 'host-passthrough' | 'host-model' | 'maximum';
 type NicModel = 'virtio' | 'e1000e' | 'rtl8139';
+type FirmwareMode = 'uefi' | 'bios';
 
 interface FormData {
   name: string;
@@ -59,6 +60,8 @@ interface FormData {
   sshKeys: string;
   cpuMode: CpuMode;
   nicModel: NicModel;
+  firmware: FirmwareMode;
+  secureBoot: boolean;
 }
 
 const defaults: FormData = {
@@ -76,6 +79,8 @@ const defaults: FormData = {
   sshKeys: '',
   cpuMode: 'host-passthrough',
   nicModel: 'virtio',
+  firmware: 'uefi',
+  secureBoot: false,
 };
 
 const SIZE_PRESETS = [
@@ -97,6 +102,11 @@ const NIC_MODELS: Array<{ id: NicModel; label: string; desc: string }> = [
   { id: 'virtio',  label: 'VirtIO',        desc: 'Best performance. Requires guest drivers (standard on Linux).' },
   { id: 'e1000e',  label: 'Intel e1000e',  desc: 'Good compatibility. Works out of the box on Windows and bare-metal images.' },
   { id: 'rtl8139', label: 'RTL8139',       desc: 'Legacy fallback. Use only if other models are unsupported by the guest.' },
+];
+
+const FIRMWARE_MODES: Array<{ id: FirmwareMode; label: string; desc: string }> = [
+  { id: 'uefi', label: 'UEFI (OVMF)', desc: 'Modern firmware. Required for Windows 11, ARM images, and Secure Boot. Recommended for all new VMs.' },
+  { id: 'bios', label: 'SeaBIOS',     desc: 'Legacy BIOS firmware. Use only for older guests or images that do not support UEFI.' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -590,6 +600,70 @@ function ResourcesStep({
             );
           })}
         </div>
+      </div>
+
+      {/* Firmware */}
+      <div className="space-y-3">
+        <FieldLabel icon={Shield} hint="— affects OS compatibility and Secure Boot">Firmware</FieldLabel>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {FIRMWARE_MODES.map((m) => {
+            const sel = form.firmware === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, firmware: m.id, ...(m.id === 'bios' ? { secureBoot: false } : {}) }))}
+                className={cn(
+                  'flex flex-col items-start rounded-lg border p-3.5 text-left transition-all duration-150',
+                  sel
+                    ? 'border-primary bg-primary/[0.07] ring-1 ring-primary/20'
+                    : 'border-border bg-card/50 hover:border-border/80 hover:bg-muted/25'
+                )}
+              >
+                <div className="mb-1.5 flex items-center gap-1.5">
+                  <span className={cn('text-xs font-semibold', sel ? 'text-foreground' : 'text-muted-foreground')}>
+                    {m.label}
+                  </span>
+                  {m.id === 'uefi' && (
+                    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                      default
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] leading-relaxed text-muted-foreground/60">{m.desc}</span>
+              </button>
+            );
+          })}
+        </div>
+        {form.firmware === 'uefi' && (
+          <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
+            <div>
+              <p className="text-xs font-semibold text-foreground">Secure Boot</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                Enforces signed bootloaders. Required for Windows 11; disable for most Linux guests.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.secureBoot}
+              onClick={() => setForm((f) => ({ ...f, secureBoot: !f.secureBoot }))}
+              className={cn(
+                'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent',
+                'transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-card',
+                form.secureBoot ? 'bg-primary' : 'bg-muted'
+              )}
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
+                  form.secureBoot ? 'translate-x-4' : 'translate-x-0'
+                )}
+              />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Boot Source */}
@@ -1126,6 +1200,7 @@ function ReviewStep({
         <ReviewRow label="vCPU"     value={`${form.cpus} vCPU${parseInt(form.cpus) !== 1 ? 's' : ''}`} />
         <ReviewRow label="Memory"   value={mbToDisplay(form.memoryMb)} />
         <ReviewRow label="Disk"     value={`${form.diskGb} GB (blank)`} />
+        <ReviewRow label="Firmware" value={form.firmware === 'uefi' ? (form.secureBoot ? 'UEFI + Secure Boot' : 'UEFI') : 'SeaBIOS'} mono={false} />
       </ReviewSection>
 
       <ReviewSection title="Network" icon={Network}>
@@ -1257,6 +1332,8 @@ export function VmCreatePage() {
           isoFilename: form.isoFilename,
           cpuMode: form.cpuMode,
           nicModel: form.nicModel,
+          firmware: form.firmware,
+          secureBoot: form.secureBoot,
           networks: form.networks.map((s) => ({
             networkId: s.networkId,
             staticIp: s.staticIp || undefined,
@@ -1272,6 +1349,8 @@ export function VmCreatePage() {
           templateFilename: form.templateFilename,
           cpuMode: form.cpuMode,
           nicModel: form.nicModel,
+          firmware: form.firmware,
+          secureBoot: form.secureBoot,
           networks: form.networks.map((s) => ({
             networkId: s.networkId,
             staticIp: s.staticIp || undefined,
