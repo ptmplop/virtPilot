@@ -73,7 +73,7 @@ export function LoginPage() {
           <img src="/vlogo-big.png" alt="VirtPilot" className="h-9 w-auto drop-shadow-lg" />
           <div className="flex items-center gap-2.5">
             <div className="h-px w-10 bg-gradient-to-r from-transparent to-white/10" />
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/50">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/70">
               KVM Manager
             </p>
             <div className="h-px w-10 bg-gradient-to-l from-transparent to-white/10" />
@@ -111,32 +111,35 @@ export function LoginPage() {
             </div>
             <div>
               <h2 className="text-sm font-semibold text-foreground">Authenticate</h2>
-              <p className="text-[11px] leading-tight text-muted-foreground/50">
+              <p className="text-[11px] leading-tight text-muted-foreground">
                 Enter your admin password
               </p>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="relative">
-              <Input
-                label="Password"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                error={error}
-                autoFocus
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                tabIndex={-1}
-                className="absolute right-3 top-[26px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-foreground">Password</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  autoFocus
+                  required
+                  className="block w-full rounded-lg border border-input bg-background py-2 pl-3 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  tabIndex={-1}
+                  className="absolute inset-y-0 right-3 flex items-center text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              {error && <p className="text-xs text-destructive">{error}</p>}
             </div>
 
             <Button type="submit" disabled={loading} className="w-full">
@@ -148,15 +151,15 @@ export function LoginPage() {
 
         {/* Footer */}
         <div className="mt-7 flex items-center justify-center gap-3">
-          <span className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground/30">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground/60">
             <span
               className="h-1.5 w-1.5 rounded-full bg-emerald-400"
               style={{ boxShadow: '0 0 6px 1px rgb(52 211 153 / 0.45)' }}
             />
             System online
           </span>
-          <span className="text-muted-foreground/20">·</span>
-          <span className="font-mono text-[10px] text-muted-foreground/30">v1.3.0</span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="font-mono text-[10px] text-muted-foreground/60">v1.3.0</span>
         </div>
       </div>
     </div>
