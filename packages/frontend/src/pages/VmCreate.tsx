@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, Check, ChevronDown, Copy, Cpu, Database, Disc, Eye, EyeOff, Globe,
-  HardDrive, KeyRound, Network, Power, RefreshCw, Server, Shield, User,
+  GripVertical, HardDrive, KeyRound, Network, Power, RefreshCw, Server, Shield, User, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
@@ -1074,78 +1074,141 @@ function SshKeyPicker({
   form: FormData;
   setForm: React.Dispatch<React.SetStateAction<FormData>>;
 }) {
-  const { data: keys, isLoading } = useSshKeys();
+  const { data: keys = [], isLoading } = useSshKeys();
+  const [dropActive, setDropActive] = useState(false);
+  const dragId = useRef<string | null>(null);
 
-  const toggle = (id: string) => {
-    setForm((f) => {
-      const already = f.selectedSshKeyIds.includes(id);
-      return {
-        ...f,
-        selectedSshKeyIds: already
-          ? f.selectedSshKeyIds.filter((k) => k !== id)
-          : [...f.selectedSshKeyIds, id],
-      };
-    });
+  const selected = keys.filter((k) => form.selectedSshKeyIds.includes(k.id));
+  const available = keys.filter((k) => !form.selectedSshKeyIds.includes(k.id));
+
+  const addKey = (id: string) =>
+    setForm((f) => ({ ...f, selectedSshKeyIds: [...f.selectedSshKeyIds, id] }));
+  const removeKey = (id: string) =>
+    setForm((f) => ({ ...f, selectedSshKeyIds: f.selectedSshKeyIds.filter((k) => k !== id) }));
+
+  const onDragStart = (e: React.DragEvent, id: string) => {
+    dragId.current = id;
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropActive(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropActive(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDropActive(false);
+    if (dragId.current) { addKey(dragId.current); dragId.current = null; }
   };
 
   return (
     <div className="space-y-3">
       <FieldLabel icon={KeyRound} hint="— optional">SSH Keys</FieldLabel>
+
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="h-3.5 w-3.5" /> Loading keys…
         </div>
-      ) : !keys?.length ? (
+      ) : !keys.length ? (
         <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center">
           <p className="text-xs text-muted-foreground/60">No SSH keys saved.</p>
-          <Link
-            to="/ssh-keys"
-            className="mt-1 inline-block text-xs text-primary hover:underline"
-          >
+          <Link to="/ssh-keys" className="mt-1 inline-block text-xs text-primary hover:underline">
             Add keys in SSH Keys settings →
           </Link>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          {keys.map((key, i) => {
-            const selected = form.selectedSshKeyIds.includes(key.id);
-            return (
-              <button
-                key={key.id}
-                type="button"
-                onClick={() => toggle(key.id)}
-                className={cn(
-                  'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors',
-                  i > 0 && 'border-t border-border/60',
-                  selected ? 'bg-primary/5' : 'hover:bg-muted/40'
-                )}
-              >
-                <div
-                  className={cn(
-                    'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors',
-                    selected
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-input bg-background'
-                  )}
-                >
-                  {selected && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Available */}
+          <div className="space-y-1.5">
+            <p className="px-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">
+              Available
+            </p>
+            <div className="min-h-[88px] overflow-hidden rounded-lg border border-border">
+              {available.length === 0 ? (
+                <div className="flex min-h-[88px] items-center justify-center">
+                  <p className="text-xs text-muted-foreground/30">All keys added</p>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">{key.name}</p>
-                  <p className="truncate font-mono text-[10px] text-muted-foreground/50">
-                    {key.publicKey.slice(0, 48)}…
+              ) : (
+                <div className="divide-y divide-border/60">
+                  {available.map((key) => (
+                    <div
+                      key={key.id}
+                      draggable
+                      onDragStart={(e) => onDragStart(e, key.id)}
+                      onClick={() => addKey(key.id)}
+                      className="flex cursor-grab items-center gap-2 px-3 py-2.5 hover:bg-muted/40 active:cursor-grabbing select-none"
+                      title="Drag or click to add"
+                    >
+                      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/25" />
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-foreground">{key.name}</p>
+                        <p className="truncate font-mono text-[10px] text-muted-foreground/40">
+                          {key.publicKey.slice(0, 30)}…
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Drop target */}
+          <div className="space-y-1.5">
+            <p className="px-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">
+              Added
+            </p>
+            <div
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              className={cn(
+                'min-h-[88px] overflow-hidden rounded-lg border transition-colors duration-150',
+                dropActive
+                  ? 'border-primary/60 bg-primary/5'
+                  : selected.length === 0
+                  ? 'border-dashed border-border/70'
+                  : 'border-border'
+              )}
+            >
+              {selected.length === 0 ? (
+                <div className="flex min-h-[88px] flex-col items-center justify-center gap-1 pointer-events-none">
+                  <p className="text-xs text-muted-foreground/30">
+                    {dropActive ? 'Release to add' : 'Drag keys here'}
                   </p>
                 </div>
-              </button>
-            );
-          })}
+              ) : (
+                <div className="divide-y divide-border/60">
+                  {selected.map((key) => (
+                    <div key={key.id} className="flex items-center gap-2 px-3 py-2.5">
+                      <Check className="h-3 w-3 shrink-0 text-primary" />
+                      <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+                        {key.name}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => removeKey(key.id)}
+                        className="shrink-0 rounded p-0.5 text-muted-foreground/30 hover:bg-muted hover:text-foreground"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
-      {!!keys?.length && (
+
+      {keys.length > 0 && (
         <p className="text-xs text-muted-foreground/50">
-          {form.selectedSshKeyIds.length === 0
-            ? 'No keys selected — password-only access.'
-            : `${form.selectedSshKeyIds.length} key${form.selectedSshKeyIds.length !== 1 ? 's' : ''} will be authorised on this VM.`}
+          {selected.length === 0
+            ? 'No keys added — password-only access.'
+            : `${selected.length} key${selected.length !== 1 ? 's' : ''} will be authorised on this VM.`}
         </p>
       )}
     </div>
