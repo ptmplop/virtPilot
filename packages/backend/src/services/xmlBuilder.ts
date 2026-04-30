@@ -24,6 +24,7 @@ interface OvmfPaths {
   code: string;
   codeSecboot: string;
   vars: string;
+  varsMs: string;
 }
 
 function findOvmfPaths(): OvmfPaths | null {
@@ -32,16 +33,19 @@ function findOvmfPaths(): OvmfPaths | null {
       code:        '/usr/share/OVMF/OVMF_CODE.fd',
       codeSecboot: '/usr/share/OVMF/OVMF_CODE.secboot.fd',
       vars:        '/usr/share/OVMF/OVMF_VARS.fd',
+      varsMs:      '/usr/share/OVMF/OVMF_VARS.ms.fd',
     },
     {
       code:        '/usr/share/OVMF/OVMF_CODE_4M.fd',
       codeSecboot: '/usr/share/OVMF/OVMF_CODE_4M.secboot.fd',
       vars:        '/usr/share/OVMF/OVMF_VARS_4M.fd',
+      varsMs:      '/usr/share/OVMF/OVMF_VARS_4M.ms.fd',
     },
     {
       code:        '/usr/share/edk2-ovmf/x64/OVMF_CODE.fd',
       codeSecboot: '/usr/share/edk2-ovmf/x64/OVMF_CODE.secboot.fd',
       vars:        '/usr/share/edk2-ovmf/x64/OVMF_VARS.fd',
+      varsMs:      '/usr/share/edk2-ovmf/x64/OVMF_VARS.ms.fd',
     },
   ];
   for (const c of candidates) {
@@ -100,9 +104,13 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
       ? OVMF.codeSecboot
       : OVMF.code;
     const secureAttr = useSecureBoot ? ' secure="yes"' : '';
+    // Secure Boot requires pre-enrolled MS keys; fall back to empty vars if .ms.fd absent
+    const varsTemplate = useSecureBoot && fs.existsSync(OVMF.varsMs)
+      ? OVMF.varsMs
+      : OVMF.vars;
     loaderXml = `
     <loader readonly="yes"${secureAttr} type="pflash">${loaderPath}</loader>
-    <nvram template="${OVMF.vars}">${opts.nvramPath ?? `/var/lib/libvirt/qemu/nvram/${opts.name}_VARS.fd`}</nvram>`;
+    <nvram template="${varsTemplate}">${opts.nvramPath ?? `/var/lib/libvirt/qemu/nvram/${opts.name}_VARS.fd`}</nvram>`;
   }
 
   const nicsXml = opts.nics

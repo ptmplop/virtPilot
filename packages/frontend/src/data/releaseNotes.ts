@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.2.4',
+    date: '2026-04-30',
+    changes: [
+      { type: 'fixed', text: 'Secure Boot VMs now boot with Microsoft keys pre-enrolled (OVMF_VARS.ms.fd template) — previously the firmware started in Setup Mode so Secure Boot was always disabled inside the guest' },
+    ],
+  },
+  {
     version: '1.2.3',
     date: '2026-04-30',
     changes: [
