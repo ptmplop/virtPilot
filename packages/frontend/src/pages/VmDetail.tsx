@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  ArrowLeft, Camera, ChevronDown, ChevronUp, Cpu, Disc, Eye, EyeOff,
+  AlertTriangle, ArrowLeft, Camera, ChevronDown, ChevronUp, Cpu, Disc, Eye, EyeOff,
   HardDrive, MemoryStick, Network, Pencil, Plus, Power, PowerOff, RotateCcw,
   Server, Shield, Terminal, Trash2, Usb, Zap,
 } from 'lucide-react';
@@ -2171,10 +2171,12 @@ function DeviceRow({
   device,
   action,
   dimmed = false,
+  warn = false,
 }: {
   device: HostDevice;
   action?: React.ReactNode;
   dimmed?: boolean;
+  warn?: boolean;
 }) {
   return (
     <tr className={cn('transition-colors hover:bg-muted/30', dimmed && 'opacity-55')}>
@@ -2211,7 +2213,16 @@ function DeviceRow({
                 </span>
               )}
               {device.driver && (
-                <span className="font-mono">{device.driver}</span>
+                warn ? (
+                  <Tooltip label="Host is currently using this device — attaching it will unbind it from the host and may disrupt host functionality">
+                    <span className="inline-flex cursor-help items-center gap-1 font-mono text-amber-600 dark:text-amber-400">
+                      <AlertTriangle size={11} />
+                      {device.driver}
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <span className="font-mono">{device.driver}</span>
+                )
               )}
             </div>
           </div>
@@ -2357,6 +2368,7 @@ function DevicesTab({ vmName }: { vmName: string }) {
                       <DeviceRow
                         key={d.id}
                         device={d}
+                        warn={d.type === 'pci' && !!d.driver && d.driver !== 'vfio-pci'}
                         action={
                           <Button
                             size="sm"

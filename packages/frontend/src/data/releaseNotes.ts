@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.1.7',
+    date: '2026-04-30',
+    changes: [
+      { type: 'changed', text: 'Available PCI devices whose kernel driver is not vfio-pci now show an amber warning icon next to the driver name — tooltip warns that attaching will unbind the device from the host' },
+    ],
+  },
+  {
     version: '1.1.6',
     date: '2026-04-30',
     changes: [
