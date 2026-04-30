@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.4.1',
+    date: '2026-04-30',
+    changes: [
+      { type: 'fixed', text: 'Metric card left panel widened so long values like "159.98 B/s" no longer overflow in the two-column grid' },
+    ],
+  },
+  {
     version: '1.4.0',
     date: '2026-04-30',
     changes: [
