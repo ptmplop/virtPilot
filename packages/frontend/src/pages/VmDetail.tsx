@@ -285,7 +285,13 @@ function OverviewTab({
       <div>
         <div className="mb-3 flex items-center justify-between">
           <SectionHeading>Resources</SectionHeading>
-          {vm.status === 'stopped' && (
+          {vm.status !== 'stopped' ? (
+            <Tooltip label="Stop the VM to resize CPU or memory" side="left">
+              <Button size="sm" variant="secondary" disabled>
+                <Pencil size={13} /> Edit
+              </Button>
+            </Tooltip>
+          ) : (
             <Button
               size="sm"
               variant="secondary"

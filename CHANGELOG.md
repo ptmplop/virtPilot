@@ -3,6 +3,21 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.3] — 2026-04-30
+
+### Changed
+- Resource Edit button on the Overview tab is now always visible; it is disabled and shows a tooltip ("Stop the VM to resize CPU or memory") when the VM is running, rather than being hidden entirely
+
+## [1.2.2] — 2026-04-30
+
+### Added
+- Virtual TPM 2.0 support — enables full Windows 11 compatibility; added to the VM definition via libvirt's emulated TPM backend
+
+## [1.2.1] — 2026-04-30
+
+### Added
+- UEFI/OVMF firmware support with optional Secure Boot — selectable per-VM at creation time; stored in the domain XML loader configuration
+
 ## [1.1.8] — 2026-04-30
 
 ### Changed

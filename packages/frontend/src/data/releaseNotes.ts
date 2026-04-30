@@ -13,6 +13,27 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.2.3',
+    date: '2026-04-30',
+    changes: [
+      { type: 'changed', text: 'Resource Edit button is now always visible on the Overview tab — disabled with a tooltip when the VM is running, rather than hidden' },
+    ],
+  },
+  {
+    version: '1.2.2',
+    date: '2026-04-30',
+    changes: [
+      { type: 'added', text: 'Virtual TPM 2.0 — enables full Windows 11 compatibility; emulated via libvirt\'s TPM backend' },
+    ],
+  },
+  {
+    version: '1.2.1',
+    date: '2026-04-30',
+    changes: [
+      { type: 'added', text: 'UEFI/OVMF firmware support with optional Secure Boot — selectable at VM creation time' },
+    ],
+  },
+  {
     version: '1.2.0',
     date: '2026-04-30',
     changes: [
