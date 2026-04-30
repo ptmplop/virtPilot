@@ -3,6 +3,19 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.4.0] — 2026-04-30
+
+### Changed
+- Dashboard layout redesigned: five-tile row and four full-width metric sections replaced with a host identity card + 2×2 stat grid and a single 2×2 live metrics grid, greatly reducing scroll and visual repetition
+- Host identity card now shows hostname, CPU model and core count, libvirt driver URI, colour-coded load averages (scaled to core count), and live network RX/TX rates
+- Metric card legends (Read/Write, RX/TX) moved inside the left panel; secondary value stacked below primary to prevent overflow in the narrower grid layout
+- About section removed from the dashboard
+
+### Added
+- `GET /api/system/info` backend endpoint exposing hostname, CPU model/cores, load averages (1 m, 5 m, 15 m), and kernel version via `/proc/cpuinfo`, `/proc/loadavg`, and `uname -r`
+- Progress bars on Disk Space and Memory stat tiles showing fill level at a glance
+- VM status dots on the Virtual Machines tile — glowing emerald dots for running VMs, muted dots for stopped
+
 ## [1.3.0] — 2026-04-30
 
 ### Added

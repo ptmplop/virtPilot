@@ -13,6 +13,16 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.4.0',
+    date: '2026-04-30',
+    changes: [
+      { type: 'changed', text: 'Dashboard redesigned — host identity card + 2×2 stat grid replaces the five-tile row; four metric sections collapsed into a 2×2 live metrics grid' },
+      { type: 'added',   text: 'Host card shows hostname, CPU model and core count, colour-coded load averages, and live network RX/TX from a new /api/system/info endpoint' },
+      { type: 'added',   text: 'Progress bars on Disk Space and Memory tiles; VM status dots on the Virtual Machines tile' },
+      { type: 'changed', text: 'About section removed from the dashboard' },
+    ],
+  },
+  {
     version: '1.3.0',
     date: '2026-04-30',
     changes: [
