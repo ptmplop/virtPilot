@@ -21,6 +21,21 @@ async function virsh(args: string, trace?: TraceEntry[], timeout = 60_000): Prom
 
 // ─── XML parsers ──────────────────────────────────────────────────────────────
 
+// PCI class prefixes (first 2 hex chars of the 6-char class code) that are
+// meaningful passthrough targets. Everything else — bridges, processor
+// sub-functions, memory controllers, system peripherals — is filtered out.
+const PASSTHROUGH_CLASSES = new Set([
+  '01', // Storage (NVMe, SATA, RAID)
+  '02', // Network
+  '03', // Display / GPU
+  '04', // Multimedia (audio, video capture)
+  '09', // Input devices
+  '0c', // Serial Bus (USB controllers, FireWire, Thunderbolt)
+  '0d', // Wireless
+  '10', // Encryption / crypto accelerators
+  '11', // Signal processing (DSPs, FPGAs)
+]);
+
 function parsePciXml(xml: string): Omit<HostDevice, 'assignedTo'> | null {
   const nameMatch = xml.match(/<name>(pci_[^<]+)<\/name>/);
   if (!nameMatch) return null;
@@ -34,6 +49,7 @@ function parsePciXml(xml: string): Omit<HostDevice, 'assignedTo'> | null {
   const slotMatch = xml.match(/<slot>(\d+)<\/slot>/);
   const funcMatch = xml.match(/<function>(\d+)<\/function>/);
   const classMatch = xml.match(/<class>0x([0-9a-fA-F]+)<\/class>/);
+  if (!classMatch || !PASSTHROUGH_CLASSES.has(classMatch[1].slice(0, 2).toLowerCase())) return null;
 
   return {
     id: nameMatch[1],
