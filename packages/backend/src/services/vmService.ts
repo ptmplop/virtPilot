@@ -478,7 +478,8 @@ export async function resizeDisk(nameOrId: string, target: string, addGb: number
     const { stdout } = await execAsync(`qemu-img info -U --output=json "${disk.source}"`);
     const info = JSON.parse(stdout) as { 'virtual-size': number };
     const newSizeBytes = info['virtual-size'] + addGb * 1024 * 1024 * 1024;
-    await virsh(`blockresize ${nameOrId} ${target} ${newSizeBytes}`, trace);
+    // Append 'b' to force bytes — virsh 10 defaults to KiB for bare numbers
+    await virsh(`blockresize ${nameOrId} ${target} ${newSizeBytes}b`, trace);
   } else {
     await execTraced(`qemu-img resize "${disk.source}" +${addGb}G`, trace, { timeout: 120_000 });
   }
