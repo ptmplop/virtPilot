@@ -9,7 +9,6 @@ import {
   MemoryStick,
   PackageOpen,
   RefreshCw,
-  Server,
   X,
   Zap,
   ZapOff,
@@ -22,8 +21,6 @@ import { AreaChart } from '@/components/ui/AreaChart';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useSystemStats, useAptPackages, useInvalidateApt, type StatsSample, type AptPackage } from '@/hooks/useSystemStats';
 import { useSettings } from '@/hooks/useSettings';
-import { releaseNotes } from '@/data/releaseNotes';
-import { siGithub } from 'simple-icons';
 import { useVms } from '@/hooks/useVms';
 import { cn } from '@/lib/cn';
 
@@ -53,28 +50,49 @@ function SectionLabel({ label }: { label: string }) {
   );
 }
 
-// ─── Overview stat tiles ───────────────────────────────────────────────────────
+// ─── Legend item ───────────────────────────────────────────────────────────────
+
+function LegendItem({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <svg width="18" height="8" aria-hidden>
+        <line
+          x1="0" y1="4" x2="18" y2="4"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeDasharray={dashed ? '4 2' : undefined}
+        />
+      </svg>
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+    </div>
+  );
+}
+
+// ─── Stat tile ─────────────────────────────────────────────────────────────────
 
 type TileAccent = 'ok' | 'warn' | 'neutral';
 
 interface StatTileProps {
-  icon: typeof Server;
+  icon: typeof Cpu;
   label: string;
   primary: React.ReactNode;
   secondary: string;
   accent?: TileAccent;
+  bar?: number;
+  extra?: React.ReactNode;
   href?: string;
   delay?: number;
 }
 
-function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', href, delay = 0 }: StatTileProps) {
+function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', bar, extra, href, delay = 0 }: StatTileProps) {
   const isWarn = accent === 'warn';
   const isOk   = accent === 'ok';
 
   const inner = (
     <div
       className={cn(
-        'group flex flex-col justify-between overflow-hidden rounded-xl border bg-gradient-to-b from-white/60 dark:from-white/[0.03] to-transparent px-5 py-4 shadow-airy animate-fade-up',
+        'group flex h-full flex-col overflow-hidden rounded-xl border bg-gradient-to-b from-white/60 dark:from-white/[0.03] to-transparent shadow-airy animate-fade-up',
         'transition-all duration-200 ease-out',
         href && 'cursor-pointer hover:-translate-y-px',
         isWarn
@@ -85,47 +103,73 @@ function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', h
       )}
       style={{ animationDelay: `${delay}ms` }}
     >
-      {/* Top row: icon badge + label + status dot */}
-      <div className="flex items-center gap-2.5">
-        <div className={cn(
-          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg badge-radial-hover',
-          isWarn ? 'bg-amber-500/15' : isOk ? 'bg-emerald-500/10' : 'bg-muted',
-        )}>
-          <Icon className={cn(
-            'h-3.5 w-3.5',
-            isWarn ? 'text-amber-500' : isOk ? 'text-emerald-500' : 'text-muted-foreground',
-          )} />
-        </div>
-        <span className={cn(
-          'truncate text-[10px] font-semibold uppercase tracking-widest',
-          isWarn ? 'text-amber-500 dark:text-amber-400' : 'text-muted-foreground',
-        )}>
-          {label}
-        </span>
-        {(isOk || isWarn) && (
+      <div className="flex flex-1 flex-col justify-between px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <div className={cn(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg badge-radial-hover',
+            isWarn ? 'bg-amber-500/15' : isOk ? 'bg-emerald-500/10' : 'bg-muted',
+          )}>
+            <Icon className={cn(
+              'h-3.5 w-3.5',
+              isWarn ? 'text-amber-500' : isOk ? 'text-emerald-500' : 'text-muted-foreground',
+            )} />
+          </div>
           <span className={cn(
-            'ml-auto h-1.5 w-1.5 shrink-0 rounded-full animate-glow-pulse',
-            isOk
-              ? 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]'
-              : 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
-          )} />
-        )}
+            'truncate text-[10px] font-semibold uppercase tracking-widest',
+            isWarn ? 'text-amber-500 dark:text-amber-400' : 'text-muted-foreground',
+          )}>
+            {label}
+          </span>
+          {(isOk || isWarn) && (
+            <span className={cn(
+              'ml-auto h-1.5 w-1.5 shrink-0 rounded-full animate-glow-pulse',
+              isOk
+                ? 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]'
+                : 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
+            )} />
+          )}
+        </div>
+
+        <div className="mt-3.5 min-w-0">
+          <div className="truncate text-2xl font-bold leading-tight text-foreground">
+            {primary}
+          </div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">{secondary}</div>
+          {extra && <div className="mt-2">{extra}</div>}
+        </div>
       </div>
 
-      {/* Value block */}
-      <div className="mt-3.5 min-w-0">
-        <div className="truncate text-2xl font-bold leading-tight text-foreground">
-          {primary}
+      {bar !== undefined && (
+        <div className="h-0.5 w-full bg-border/50">
+          <div
+            className={cn(
+              'h-full transition-all duration-700',
+              isWarn ? 'bg-amber-500/60' : 'bg-emerald-500/50',
+            )}
+            style={{ width: `${Math.min(bar, 100)}%` }}
+          />
         </div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">{secondary}</div>
-      </div>
+      )}
     </div>
   );
 
-  return href ? <Link to={href}>{inner}</Link> : inner;
+  return href ? <Link to={href} className="block h-full">{inner}</Link> : inner;
 }
 
-function StatTiles() {
+// ─── Host overview ─────────────────────────────────────────────────────────────
+
+function HostDetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
+      <span className={cn('truncate text-right text-xs font-medium text-foreground', mono && 'font-mono text-[11px]')}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function HostOverview() {
   const { data: settings } = useSettings();
   const { data: vms } = useVms();
   const { data: packages } = useAptPackages();
@@ -134,8 +178,11 @@ function StatTiles() {
 
   if (!settings) {
     return (
-      <div className="grid grid-cols-5 gap-4">
-        {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-[108px] rounded-xl" />)}
+      <div className="grid grid-cols-[1fr_1.5fr] gap-4">
+        <Skeleton className="h-[210px] rounded-xl" />
+        <div className="grid grid-cols-2 gap-4">
+          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[97px] rounded-xl" />)}
+        </div>
       </div>
     );
   }
@@ -146,65 +193,116 @@ function StatTiles() {
   const updates = packages?.length ?? 0;
 
   const diskPct = current && current.diskTotalGb > 0
-    ? Math.round((current.diskUsedGb / current.diskTotalGb) * 100)
-    : 0;
+    ? Math.round((current.diskUsedGb / current.diskTotalGb) * 100) : 0;
+  const ramPct = current
+    ? Math.round((current.memUsedMb / Math.max(current.memTotalMb, 1)) * 100) : 0;
+
+  const isKvm    = settings.kvmAvailable;
+  const VirtIcon = isKvm ? Zap : ZapOff;
 
   return (
-    <div className="grid grid-cols-5 gap-4">
-      {/* Virtualisation */}
-      <StatTile
-        icon={settings.kvmAvailable ? Zap : ZapOff}
-        label="Virtualisation"
-        primary={settings.kvmAvailable ? 'KVM' : 'TCG'}
-        secondary={settings.kvmAvailable ? 'Hardware acceleration' : 'Software emulation — slower'}
-        accent={settings.kvmAvailable ? 'ok' : 'warn'}
-        delay={0}
-      />
+    <div className="grid grid-cols-[1fr_1.5fr] gap-4">
+      {/* Host identity card */}
+      <div className="animate-fade-up overflow-hidden rounded-xl border border-border bg-card shadow-airy">
+        <div className={cn(
+          'h-0.5 w-full',
+          isKvm
+            ? 'bg-gradient-to-r from-emerald-500/60 via-emerald-500/20 to-transparent'
+            : 'bg-gradient-to-r from-amber-500/60 via-amber-500/20 to-transparent',
+        )} />
+        <div className="p-5">
+          {/* KVM / TCG mode */}
+          <div className="mb-5 flex items-center gap-3">
+            <div className={cn(
+              'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+              isKvm ? 'bg-emerald-500/10' : 'bg-amber-500/10',
+            )}>
+              <VirtIcon className={cn('h-5 w-5', isKvm ? 'text-emerald-500' : 'text-amber-500')} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-bold text-foreground">{isKvm ? 'KVM' : 'TCG'}</span>
+                <span className={cn(
+                  'h-1.5 w-1.5 rounded-full animate-glow-pulse',
+                  isKvm
+                    ? 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]'
+                    : 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
+                )} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {isKvm ? 'Hardware-accelerated virtualisation' : 'Software emulation — reduced performance'}
+              </p>
+            </div>
+          </div>
 
-      {/* libvirt */}
-      <StatTile
-        icon={Server}
-        label="Hypervisor"
-        primary="Connected"
-        secondary={settings.libvirtUri}
-        accent="ok"
-        delay={60}
-      />
+          {/* Detail rows */}
+          <div className="space-y-2.5">
+            <HostDetailRow label="Hypervisor" value="Connected" />
+            <HostDetailRow label="Driver" value={settings.libvirtUri} mono />
+            <HostDetailRow
+              label="Total RAM"
+              value={current ? fmtMb(current.memTotalMb) : '—'}
+            />
+            <HostDetailRow
+              label="Total Disk"
+              value={current ? `${current.diskTotalGb.toFixed(0)} GB` : '—'}
+            />
+          </div>
+        </div>
+      </div>
 
-      {/* Virtual machines */}
-      <StatTile
-        icon={Cpu}
-        label="Virtual Machines"
-        primary={String(total)}
-        secondary={`${running} running · ${stopped} stopped`}
-        accent="neutral"
-        href="/vms"
-        delay={120}
-      />
-
-      {/* Disk space */}
-      <StatTile
-        icon={HardDrive}
-        label="Disk Space"
-        primary={current ? `${current.diskUsedGb.toFixed(1)} GB` : '—'}
-        secondary={current ? `${diskPct}% of ${current.diskTotalGb.toFixed(0)} GB` : 'Loading…'}
-        accent={diskPct >= 75 ? 'warn' : 'ok'}
-        delay={180}
-      />
-
-      {/* System updates */}
-      <StatTile
-        icon={PackageOpen}
-        label="System Updates"
-        primary={updates > 0 ? String(updates) : 'Up to date'}
-        secondary={updates > 0 ? 'Packages ready to upgrade' : 'No updates available'}
-        accent={updates > 0 ? 'warn' : 'ok'}
-        delay={240}
-      />
+      {/* 2×2 stat tiles */}
+      <div className="grid grid-cols-2 gap-4">
+        <StatTile
+          icon={Cpu}
+          label="Virtual Machines"
+          primary={String(total)}
+          secondary={`${running} running · ${stopped} stopped`}
+          accent="neutral"
+          href="/vms"
+          delay={60}
+          extra={total > 0 ? (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {Array.from({ length: Math.min(running, 8) }).map((_, i) => (
+                <span key={`r${i}`} className="h-1.5 w-1.5 rounded-full bg-emerald-500/70 shadow-[0_0_4px_1px_rgb(52_211_153_/_0.4)]" />
+              ))}
+              {Array.from({ length: Math.min(stopped, 8 - Math.min(running, 8)) }).map((_, i) => (
+                <span key={`s${i}`} className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
+              ))}
+              {total > 16 && <span className="text-[9px] text-muted-foreground/50">+{total - 16}</span>}
+            </div>
+          ) : undefined}
+        />
+        <StatTile
+          icon={HardDrive}
+          label="Disk Space"
+          primary={current ? `${current.diskUsedGb.toFixed(1)} GB` : '—'}
+          secondary={current ? `${diskPct}% of ${current.diskTotalGb.toFixed(0)} GB` : 'Loading…'}
+          accent={diskPct >= 75 ? 'warn' : 'ok'}
+          bar={diskPct}
+          delay={120}
+        />
+        <StatTile
+          icon={MemoryStick}
+          label="Memory"
+          primary={current ? fmtMb(current.memUsedMb) : '—'}
+          secondary={current ? `${ramPct}% of ${fmtMb(current.memTotalMb)}` : 'Loading…'}
+          accent={ramPct >= 90 ? 'warn' : 'ok'}
+          bar={ramPct}
+          delay={180}
+        />
+        <StatTile
+          icon={PackageOpen}
+          label="System Updates"
+          primary={updates > 0 ? String(updates) : 'Up to date'}
+          secondary={updates > 0 ? 'Packages ready to upgrade' : 'No updates available'}
+          accent={updates > 0 ? 'warn' : 'ok'}
+          delay={240}
+        />
+      </div>
     </div>
   );
 }
-
 
 // ─── Metric card ───────────────────────────────────────────────────────────────
 
@@ -217,6 +315,7 @@ interface MetricCardProps {
   primaryValue: string;
   secondaryValue?: string;
   detail?: React.ReactNode;
+  legend?: React.ReactNode;
   chartData: number[];
   chartData2?: number[];
   chartColor2?: string;
@@ -227,7 +326,7 @@ interface MetricCardProps {
 
 function MetricCard({
   id, icon: Icon, label, color, accentBg,
-  primaryValue, secondaryValue, detail,
+  primaryValue, secondaryValue, detail, legend,
   chartData, chartData2, chartColor2, loading,
   delay = 0, chartBgClass,
 }: MetricCardProps) {
@@ -236,8 +335,8 @@ function MetricCard({
       className="flex h-[220px] overflow-hidden rounded-xl border border-border bg-card shadow-airy animate-fade-up transition-all duration-200 ease-out hover:-translate-y-px hover:shadow-[0_4px_20px_rgb(0_0_0_/_0.1)]"
       style={{ animationDelay: `${delay}ms` }}
     >
-      {/* Left: label + value + detail — fixed width */}
-      <div className="flex w-56 shrink-0 flex-col justify-center gap-3 px-6">
+      {/* Left panel */}
+      <div className="flex w-48 shrink-0 flex-col px-5 py-5">
         <div className="flex items-center gap-2.5">
           <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg', accentBg)}>
             <Icon className="h-3.5 w-3.5" style={{ color }} />
@@ -247,32 +346,38 @@ function MetricCard({
           </span>
         </div>
 
-        {loading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-24 rounded-lg" />
-            <Skeleton className="h-3.5 w-32 rounded" />
-          </div>
-        ) : (
-          <div>
-            <div className="flex items-baseline gap-2 overflow-hidden">
-              <span
-                className="whitespace-nowrap text-3xl font-bold tracking-tight tabular-nums bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent"
-              >
-                {primaryValue}
-              </span>
-              {secondaryValue && (
-                <span className="shrink-0 text-sm text-muted-foreground">{secondaryValue}</span>
-              )}
+        <div className="mt-4 flex-1">
+          {loading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-24 rounded-lg" />
+              <Skeleton className="h-3.5 w-32 rounded" />
             </div>
-            {detail && <div className="mt-1">{detail}</div>}
+          ) : (
+            <>
+              <div className="flex items-baseline gap-2 overflow-hidden">
+                <span className="whitespace-nowrap text-3xl font-bold tracking-tight tabular-nums bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
+                  {primaryValue}
+                </span>
+                {secondaryValue && (
+                  <span className="shrink-0 text-sm text-muted-foreground">{secondaryValue}</span>
+                )}
+              </div>
+              {detail && <div className="mt-1.5">{detail}</div>}
+            </>
+          )}
+        </div>
+
+        {legend && !loading && (
+          <div className="mt-auto border-t border-border/40 pt-3">
+            {legend}
           </div>
         )}
       </div>
 
       {/* Divider */}
-      <div className="w-px shrink-0 bg-gradient-to-b from-transparent via-border to-transparent my-5" />
+      <div className="my-5 w-px shrink-0 bg-gradient-to-b from-transparent via-border to-transparent" />
 
-      {/* Right: chart — fills remaining width, always full height */}
+      {/* Chart */}
       <div className={cn('min-w-0 flex-1', chartBgClass)}>
         {loading ? (
           <div className="h-full w-full bg-muted/20" />
@@ -535,71 +640,6 @@ function AptSection() {
   );
 }
 
-
-// ─── About section ─────────────────────────────────────────────────────────────
-
-const FEATURES = ['VM Lifecycle', 'Cloud-init', 'Console & VNC', 'Networking', 'Firewall', 'Live Metrics', 'Templates & ISOs'];
-const STACK    = ['Express', 'React 18', 'TypeScript', 'Vite', 'Tailwind CSS', 'libvirt', 'KVM/QEMU'];
-
-function AboutSection() {
-  const { version } = releaseNotes[0];
-
-  return (
-    <div className="flex items-start justify-between gap-10">
-      {/* Identity + detail */}
-      <div className="flex min-w-0 flex-1 gap-5">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-          <Cpu className="h-5 w-5 text-primary" />
-        </div>
-
-        <div className="min-w-0">
-          <div className="mb-2 flex items-baseline gap-2.5">
-            <span className="text-base font-bold bg-gradient-to-r from-foreground via-foreground/90 to-foreground/60 bg-clip-text text-transparent">VirtPilot</span>
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">v{version}</span>
-          </div>
-
-          <p className="mb-5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Web-based KVM/QEMU virtual machine manager. Provision, monitor, and control VMs from
-            a browser using <span className="font-mono text-foreground/70">libvirt</span>. Supports
-            cloud-init provisioning, VNC and serial console access, bridged and NAT networking,
-            iptables firewall rules, and live system metrics — no database required.
-          </p>
-
-          <div className="space-y-2.5">
-            <div className="flex flex-wrap gap-1.5">
-              {FEATURES.map((f) => (
-                <span key={f} className="rounded-full border border-border px-2.5 py-0.5 text-[11px] text-muted-foreground">
-                  {f}
-                </span>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {STACK.map((t) => (
-                <span key={t} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                  {t}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* GitHub */}
-      <a
-        href="https://github.com/ptmplop/virtPilot"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="shrink-0 flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-xs font-medium text-foreground transition-all duration-200 ease-out hover:bg-muted hover:-translate-y-px hover:shadow-sm"
-      >
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden>
-          <path d={siGithub.path} />
-        </svg>
-        ptmplop/virtPilot
-      </a>
-    </div>
-  );
-}
-
 // ─── Dashboard page ────────────────────────────────────────────────────────────
 
 function extract(history: StatsSample[], key: keyof StatsSample): number[] {
@@ -611,12 +651,12 @@ export function DashboardPage() {
   const history = data?.history ?? [];
   const current = data?.current;
 
-  const cpuHistory      = extract(history, 'cpuPercent');
-  const ramHistory      = extract(history, 'memUsedMb');
-  const diskReadHistory = extract(history, 'diskReadBps');
-  const diskWriteHistory= extract(history, 'diskWriteBps');
-  const netRxHistory    = extract(history, 'netRxBps');
-  const netTxHistory    = extract(history, 'netTxBps');
+  const cpuHistory       = extract(history, 'cpuPercent');
+  const ramHistory       = extract(history, 'memUsedMb');
+  const diskReadHistory  = extract(history, 'diskReadBps');
+  const diskWriteHistory = extract(history, 'diskWriteBps');
+  const netRxHistory     = extract(history, 'netRxBps');
+  const netTxHistory     = extract(history, 'netTxBps');
 
   const ramPct = current
     ? Math.round((current.memUsedMb / Math.max(current.memTotalMb, 1)) * 100)
@@ -629,151 +669,134 @@ export function DashboardPage() {
         {/* ── Overview ── */}
         <section className="space-y-3">
           <SectionLabel label="Overview" />
-          <StatTiles />
+          <HostOverview />
         </section>
 
-        {/* ── About ── */}
+        {/* ── Live Metrics ── */}
         <section className="space-y-3">
-          <SectionLabel label="About" />
-          <AboutSection />
-        </section>
-
-        {/* ── CPU ── */}
-        <section className="space-y-3">
-          <SectionLabel label="CPU" />
-          <MetricCard
-            id="cpu"
-            icon={Cpu}
-            label="CPU Usage"
-            color="#3b82f6"
-            accentBg="bg-blue-500/10"
-            primaryValue={current ? fmtPct(current.cpuPercent) : '—'}
-            detail={
-              <div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-blue-500/70 transition-all duration-700"
-                    style={{ width: `${current?.cpuPercent ?? 0}%` }}
-                  />
+          <SectionLabel label="Live Metrics" />
+          <div className="grid grid-cols-2 gap-4">
+            <MetricCard
+              id="cpu"
+              icon={Cpu}
+              label="CPU Usage"
+              color="#3b82f6"
+              accentBg="bg-blue-500/10"
+              primaryValue={current ? fmtPct(current.cpuPercent) : '—'}
+              detail={
+                <div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-blue-500/70 transition-all duration-700"
+                      style={{ width: `${current?.cpuPercent ?? 0}%` }}
+                    />
+                  </div>
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {current ? fmtPct(current.cpuPercent) : '—'} of capacity
+                  </span>
                 </div>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {current ? fmtPct(current.cpuPercent) : '—'} of capacity
-                </span>
-              </div>
-            }
-            chartData={cpuHistory.length ? cpuHistory : [0]}
-            loading={isLoading}
-            delay={0}
-            chartBgClass="bg-gradient-to-r from-blue-500/[0.04] dark:from-blue-500/[0.03] to-transparent"
-          />
-        </section>
-
-        {/* ── Memory ── */}
-        <section className="space-y-3">
-          <SectionLabel label="Memory" />
-          <MetricCard
-            id="ram"
-            icon={MemoryStick}
-            label="Memory"
-            color="#8b5cf6"
-            accentBg="bg-violet-500/10"
-            primaryValue={current ? fmtMb(current.memUsedMb) : '—'}
-            secondaryValue={current ? `/ ${fmtMb(current.memTotalMb)}` : undefined}
-            detail={
-              <div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-violet-500/70 transition-all duration-700"
-                    style={{ width: `${ramPct}%` }}
-                  />
+              }
+              chartData={cpuHistory.length ? cpuHistory : [0]}
+              loading={isLoading}
+              delay={0}
+              chartBgClass="bg-gradient-to-r from-blue-500/[0.04] dark:from-blue-500/[0.03] to-transparent"
+            />
+            <MetricCard
+              id="ram"
+              icon={MemoryStick}
+              label="Memory"
+              color="#8b5cf6"
+              accentBg="bg-violet-500/10"
+              primaryValue={current ? fmtMb(current.memUsedMb) : '—'}
+              secondaryValue={current ? `/ ${fmtMb(current.memTotalMb)}` : undefined}
+              detail={
+                <div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-violet-500/70 transition-all duration-700"
+                      style={{ width: `${ramPct}%` }}
+                    />
+                  </div>
+                  <span className="font-mono text-[10px] text-muted-foreground">{ramPct}% used</span>
                 </div>
-                <span className="font-mono text-[10px] text-muted-foreground">{ramPct}% used</span>
-              </div>
-            }
-            chartData={ramHistory.length ? ramHistory : [0]}
-            loading={isLoading}
-            delay={60}
-            chartBgClass="bg-gradient-to-r from-violet-500/[0.04] dark:from-violet-500/[0.03] to-transparent"
-          />
-        </section>
-
-        {/* ── Disk I/O ── */}
-        <section className="space-y-3">
-          <SectionLabel label="Disk I/O" />
-          <MetricCard
-            id="disk"
-            icon={HardDrive}
-            label="Disk I/O"
-            color="#f59e0b"
-            accentBg="bg-amber-500/10"
-            primaryValue={current ? fmtBps(current.diskReadBps + current.diskWriteBps) : '—'}
-            secondaryValue="total"
-            detail={
-              current ? (
-                <BiValue
-                  upLabel="R"
-                  upValue={fmtBps(current.diskReadBps)}
-                  downLabel="W"
-                  downValue={fmtBps(current.diskWriteBps)}
-                  upColor="#f59e0b"
-                  downColor="#f97316"
-                />
-              ) : null
-            }
-            chartData={diskReadHistory.length ? diskReadHistory : [0]}
-            chartData2={diskWriteHistory.length ? diskWriteHistory : [0]}
-            chartColor2="#f97316"
-            loading={isLoading}
-            delay={120}
-            chartBgClass="bg-gradient-to-r from-amber-500/[0.04] dark:from-amber-500/[0.03] to-transparent"
-          />
-          {!isLoading && (
-            <div className="flex items-center gap-6 px-1">
-              <LegendItem color="#f59e0b" label="Read" />
-              <LegendItem color="#f97316" label="Write" dashed />
-            </div>
-          )}
-        </section>
-
-        {/* ── Network ── */}
-        <section className="space-y-3">
-          <SectionLabel label="Network" />
-          <MetricCard
-            id="net"
-            icon={Activity}
-            label="Network"
-            color="#10b981"
-            accentBg="bg-emerald-500/10"
-            primaryValue={current ? fmtBps(current.netRxBps + current.netTxBps) : '—'}
-            secondaryValue="total"
-            detail={
-              current ? (
-                <BiValue
-                  upLabel="↑"
-                  upValue={fmtBps(current.netTxBps)}
-                  downLabel="↓"
-                  downValue={fmtBps(current.netRxBps)}
-                  upColor="#06b6d4"
-                  downColor="#10b981"
-                />
-              ) : null
-            }
-            chartData={netRxHistory.length ? netRxHistory : [0]}
-            chartData2={netTxHistory.length ? netTxHistory : [0]}
-            chartColor2="#06b6d4"
-            loading={isLoading}
-            delay={180}
-            chartBgClass="bg-gradient-to-r from-emerald-500/[0.04] dark:from-emerald-500/[0.03] to-transparent"
-          />
-          {!isLoading && (
-            <div className="flex items-center gap-6 px-1">
-              <LegendItem color="#10b981" label="RX" />
-              <LegendItem color="#06b6d4" label="TX" dashed />
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">
-                2 s interval · {history.length} samples
-              </span>
-            </div>
-          )}
+              }
+              chartData={ramHistory.length ? ramHistory : [0]}
+              loading={isLoading}
+              delay={60}
+              chartBgClass="bg-gradient-to-r from-violet-500/[0.04] dark:from-violet-500/[0.03] to-transparent"
+            />
+            <MetricCard
+              id="disk"
+              icon={HardDrive}
+              label="Disk I/O"
+              color="#f59e0b"
+              accentBg="bg-amber-500/10"
+              primaryValue={current ? fmtBps(current.diskReadBps + current.diskWriteBps) : '—'}
+              secondaryValue="total"
+              detail={
+                current ? (
+                  <BiValue
+                    upLabel="R"
+                    upValue={fmtBps(current.diskReadBps)}
+                    downLabel="W"
+                    downValue={fmtBps(current.diskWriteBps)}
+                    upColor="#f59e0b"
+                    downColor="#f97316"
+                  />
+                ) : null
+              }
+              legend={
+                <div className="flex items-center gap-3">
+                  <LegendItem color="#f59e0b" label="Read" />
+                  <LegendItem color="#f97316" label="Write" dashed />
+                </div>
+              }
+              chartData={diskReadHistory.length ? diskReadHistory : [0]}
+              chartData2={diskWriteHistory.length ? diskWriteHistory : [0]}
+              chartColor2="#f97316"
+              loading={isLoading}
+              delay={120}
+              chartBgClass="bg-gradient-to-r from-amber-500/[0.04] dark:from-amber-500/[0.03] to-transparent"
+            />
+            <MetricCard
+              id="net"
+              icon={Activity}
+              label="Network"
+              color="#10b981"
+              accentBg="bg-emerald-500/10"
+              primaryValue={current ? fmtBps(current.netRxBps + current.netTxBps) : '—'}
+              secondaryValue="total"
+              detail={
+                current ? (
+                  <BiValue
+                    upLabel="↑"
+                    upValue={fmtBps(current.netTxBps)}
+                    downLabel="↓"
+                    downValue={fmtBps(current.netRxBps)}
+                    upColor="#06b6d4"
+                    downColor="#10b981"
+                  />
+                ) : null
+              }
+              legend={
+                <div className="space-y-1">
+                  <div className="flex items-center gap-3">
+                    <LegendItem color="#10b981" label="RX" />
+                    <LegendItem color="#06b6d4" label="TX" dashed />
+                  </div>
+                  <span className="font-mono text-[10px] text-muted-foreground/50">
+                    2 s · {history.length} samples
+                  </span>
+                </div>
+              }
+              chartData={netRxHistory.length ? netRxHistory : [0]}
+              chartData2={netTxHistory.length ? netTxHistory : [0]}
+              chartColor2="#06b6d4"
+              loading={isLoading}
+              delay={180}
+              chartBgClass="bg-gradient-to-r from-emerald-500/[0.04] dark:from-emerald-500/[0.03] to-transparent"
+            />
+          </div>
         </section>
 
         {/* ── System ── */}
@@ -782,25 +805,7 @@ export function DashboardPage() {
           <AptSection />
         </section>
 
-
       </div>
     </Layout>
-  );
-}
-
-function LegendItem({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <svg width="18" height="8" aria-hidden>
-        <line
-          x1="0" y1="4" x2="18" y2="4"
-          stroke={color}
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeDasharray={dashed ? '4 2' : undefined}
-        />
-      </svg>
-      <span className="text-[10px] text-muted-foreground">{label}</span>
-    </div>
   );
 }
