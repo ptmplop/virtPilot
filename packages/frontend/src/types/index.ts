@@ -27,6 +27,7 @@ export interface Vm {
   vncDisplay?: string;
   vncPort?: number;
   guestAgent?: boolean;
+  autostart?: boolean;
 }
 
 export interface VmSummary {
@@ -36,6 +37,24 @@ export interface VmSummary {
   cpus: number;
   memoryMb: number;
   guestAgent?: boolean;
+  autostart?: boolean;
+}
+
+export interface VmStatsSample {
+  timestamp: number;
+  cpuPercent: number;
+  memUsedMb: number;
+  memTotalMb: number;
+  diskReadBps: number;
+  diskWriteBps: number;
+  netRxBps: number;
+  netTxBps: number;
+  vcpuCount: number;
+}
+
+export interface VmStatsResponse {
+  current: VmStatsSample;
+  history: VmStatsSample[];
 }
 
 export interface Template {

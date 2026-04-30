@@ -677,6 +677,68 @@ vmsRouter.post('/:name/firewall/apply', async (req, res) => {
   }
 });
 
+// Autostart
+vmsRouter.put('/:name/autostart', async (req, res) => {
+  const start = Date.now();
+  const { name } = req.params;
+  try {
+    const { enabled } = req.body as { enabled: boolean };
+    if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+    const output = await vmService.setAutostart(name, enabled);
+    void logService.appendLog({ type: 'vm.autostart.set', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.autostart.set', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Disk resize
+vmsRouter.post('/:name/disks/:target/resize', async (req, res) => {
+  const start = Date.now();
+  const { name, target } = req.params;
+  try {
+    const { addGb } = req.body as { addGb: number };
+    if (!addGb || addGb <= 0) return res.status(400).json({ error: 'addGb must be a positive number' });
+    const output = await vmService.resizeDisk(name, target, addGb);
+    void logService.appendLog({ type: 'vm.disk.resize', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.disk.resize', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Resource editing
+vmsRouter.put('/:name/resources', async (req, res) => {
+  const start = Date.now();
+  const { name } = req.params;
+  try {
+    const { cpus, memoryMb } = req.body as { cpus: number; memoryMb: number };
+    if (!cpus || cpus < 1) return res.status(400).json({ error: 'cpus must be ≥ 1' });
+    if (!memoryMb || memoryMb < 128) return res.status(400).json({ error: 'memoryMb must be ≥ 128' });
+    const vm = await vmService.getVmInfo(name);
+    if (vm.status !== 'stopped') return res.status(400).json({ error: 'VM must be stopped before editing resources' });
+    const output = await vmService.updateVmResources(name, cpus, memoryMb);
+    void logService.appendLog({ type: 'vm.resources.update', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.resources.update', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Per-VM stats
+vmsRouter.get('/:name/stats', async (req, res) => {
+  try {
+    const stats = await vmService.getVmStats(req.params.name);
+    if (!stats) return res.status(503).json({ error: 'VM is not running or stats unavailable' });
+    res.json(stats);
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── Device passthrough ───────────────────────────────────────────────────────
 
 vmsRouter.post('/:name/devices', async (req, res) => {

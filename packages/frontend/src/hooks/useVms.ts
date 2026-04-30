@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { DhcpReservation, FirewallConfig, Vm, VmMeta, VmSnapshot, VmSummary } from '@/types';
+import type { DhcpReservation, FirewallConfig, Vm, VmMeta, VmSnapshot, VmStatsResponse, VmSummary } from '@/types';
 
 const KEYS = {
   vms: ['vms'] as const,
@@ -266,5 +266,51 @@ export function useApplyFirewall(name: string) {
     mutationFn: async () => {
       await api.post(`/api/vms/${name}/firewall/apply`);
     },
+  });
+}
+
+export function useSetAutostart(name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (enabled: boolean) => {
+      await api.put(`/api/vms/${name}/autostart`, { enabled });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.vm(name) }),
+  });
+}
+
+export function useResizeDisk(name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ target, addGb }: { target: string; addGb: number }) => {
+      await api.post(`/api/vms/${name}/disks/${target}/resize`, { addGb }, { timeout: 120_000 });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.vm(name) }),
+  });
+}
+
+export function useUpdateVmResources(name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ cpus, memoryMb }: { cpus: number; memoryMb: number }) => {
+      await api.put(`/api/vms/${name}/resources`, { cpus, memoryMb });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.vms });
+      qc.invalidateQueries({ queryKey: KEYS.vm(name) });
+    },
+  });
+}
+
+export function useVmStats(name: string, enabled = true) {
+  return useQuery({
+    queryKey: [...KEYS.vm(name), 'stats'] as const,
+    queryFn: async () => {
+      const { data } = await api.get<VmStatsResponse>(`/api/vms/${name}/stats`);
+      return data;
+    },
+    enabled,
+    refetchInterval: 3_000,
+    retry: false,
   });
 }

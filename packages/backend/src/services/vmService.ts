@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { config } from '../config.js';
-import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary } from '../types.js';
+import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace, execTraced } from './traceService.js';
 
 const execAsync = promisify(exec);
@@ -65,7 +65,7 @@ export async function listVmsRaw(): Promise<VmSummary[]> {
     const stateStr = parts[2].trim();
     try {
       const info = await getVmInfo(name);
-      vms.push({ id: info.id, name, status: parseStatus(stateStr), cpus: info.cpus, memoryMb: info.memoryMb });
+      vms.push({ id: info.id, name, status: parseStatus(stateStr), cpus: info.cpus, memoryMb: info.memoryMb, autostart: info.autostart });
     } catch {
       vms.push({ id: name, name, status: parseStatus(stateStr), cpus: 0, memoryMb: 0 });
     }
@@ -105,6 +105,7 @@ export async function getVmInfo(nameOrId: string): Promise<Vm> {
   const cpus = parseInt(get('CPU(s)') || '0', 10);
   const memKb = parseInt(get('Used memory').replace(/[^0-9]/g, '') || '0', 10);
   const memoryMb = Math.round(memKb / 1024);
+  const autostart = get('Autostart').toLowerCase() === 'enable';
 
   const disks = await getVmDisks(nameOrId);
   const nics = await getVmNics(nameOrId);
@@ -133,7 +134,7 @@ export async function getVmInfo(nameOrId: string): Promise<Vm> {
   const status = parseStatus(stateStr);
   const guestAgent = status === 'running' ? await checkGuestAgent(nameOrId) : undefined;
 
-  return { id, name, status, cpus, memoryMb, disks, nics, vncDisplay, vncPort, guestAgent };
+  return { id, name, status, cpus, memoryMb, disks, nics, vncDisplay, vncPort, guestAgent, autostart };
 }
 
 export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
@@ -450,6 +451,167 @@ export async function exportSnapshotAsTemplate(vmName: string, snapshotName: str
 }
 
 // ─── Boot Once ────────────────────────────────────────────────────────────────
+
+// ─── Autostart ────────────────────────────────────────────────────────────────
+
+export async function setAutostart(nameOrId: string, enabled: boolean): Promise<string> {
+  const trace: TraceEntry[] = [];
+  await virsh(enabled ? `autostart ${nameOrId}` : `autostart --disable ${nameOrId}`, trace);
+  return formatTrace(trace);
+}
+
+// ─── Disk resize ──────────────────────────────────────────────────────────────
+
+export async function resizeDisk(nameOrId: string, target: string, addGb: number): Promise<string> {
+  const trace: TraceEntry[] = [];
+
+  const disks = await getVmDisks(nameOrId);
+  const disk = disks.find((d) => d.target === target);
+  if (!disk?.source) throw new Error(`Disk ${target} not found or has no source path`);
+
+  await execTraced(`qemu-img resize "${disk.source}" +${addGb}G`, trace, { timeout: 120_000 });
+
+  // If the VM is running, notify the hypervisor of the new size so the guest sees it immediately
+  const state = await virsh(`domstate ${nameOrId}`);
+  if (parseStatus(state) === 'running') {
+    const { stdout } = await execAsync(`qemu-img info --output=json "${disk.source}"`);
+    const info = JSON.parse(stdout) as { 'virtual-size': number };
+    await virsh(`blockresize ${nameOrId} ${target} ${info['virtual-size']}`, trace);
+  }
+
+  return formatTrace(trace);
+}
+
+// ─── Resource editing (CPU + RAM) ─────────────────────────────────────────────
+
+export async function updateVmResources(nameOrId: string, cpus: number, memoryMb: number): Promise<string> {
+  const trace: TraceEntry[] = [];
+  const xml = await getVmXml(nameOrId);
+  const memKib = memoryMb * 1024;
+
+  let newXml = xml
+    .replace(/<vcpu[^>]*>[0-9]+<\/vcpu>/, `<vcpu placement="static">${cpus}</vcpu>`)
+    .replace(/<memory unit=['"]KiB['"]>[0-9]+<\/memory>/, `<memory unit="KiB">${memKib}</memory>`)
+    .replace(/<currentMemory unit=['"]KiB['"]>[0-9]+<\/currentMemory>/, `<currentMemory unit="KiB">${memKib}</currentMemory>`);
+
+  const tmpPath = path.join(os.tmpdir(), `virtpilot-res-${nameOrId}-${Date.now()}.xml`);
+  await fs.writeFile(tmpPath, newXml, 'utf8');
+  try {
+    await virsh(`define ${tmpPath}`, trace);
+  } finally {
+    await fs.unlink(tmpPath).catch(() => {});
+  }
+  return formatTrace(trace);
+}
+
+// ─── Per-VM metrics ───────────────────────────────────────────────────────────
+
+const vmStatsPrev = new Map<string, {
+  timestamp: number;
+  cpuTimeNs: number;
+  blockRdBytes: number;
+  blockWrBytes: number;
+  netRxBytes: number;
+  netTxBytes: number;
+}>();
+const vmStatsHistory = new Map<string, VmStatsSample[]>();
+const VM_STATS_HISTORY = 30;
+
+function parseDomStats(out: string): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const line of out.split('\n')) {
+    const m = line.match(/^\s*([a-z0-9_.]+)=(\d+)\s*$/);
+    if (m) result.set(m[1], parseInt(m[2], 10));
+  }
+  return result;
+}
+
+export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | null> {
+  try {
+    const out = await virsh(`domstats ${nameOrId}`, undefined, 10_000);
+    const s = parseDomStats(out);
+
+    const get = (k: string) => s.get(k) ?? 0;
+    const cpuTimeNs = get('cpu.time');
+    const vcpuCount = get('vcpu.current') || get('vcpu.maximum') || 1;
+    const balloonCurrentKiB = get('balloon.current');
+    const balloonMaxKiB = get('balloon.maximum');
+    const balloonAvailableKiB = s.get('balloon.available');
+    const balloonUnusedKiB = s.get('balloon.unused');
+
+    // Sum block I/O across all devices
+    const blockCount = get('block.count');
+    let blockRdBytes = 0;
+    let blockWrBytes = 0;
+    for (let i = 0; i < blockCount; i++) {
+      blockRdBytes += get(`block.${i}.rd.bytes`);
+      blockWrBytes += get(`block.${i}.wr.bytes`);
+    }
+
+    // Sum network I/O across all interfaces
+    const netCount = get('net.count');
+    let netRxBytes = 0;
+    let netTxBytes = 0;
+    for (let i = 0; i < netCount; i++) {
+      netRxBytes += get(`net.${i}.rx.bytes`);
+      netTxBytes += get(`net.${i}.tx.bytes`);
+    }
+
+    const now = Date.now();
+    const prev = vmStatsPrev.get(nameOrId);
+    vmStatsPrev.set(nameOrId, { timestamp: now, cpuTimeNs, blockRdBytes, blockWrBytes, netRxBytes, netTxBytes });
+
+    let cpuPercent = 0;
+    let diskReadBps = 0;
+    let diskWriteBps = 0;
+    let netRxBps = 0;
+    let netTxBps = 0;
+
+    if (prev) {
+      const dt = (now - prev.timestamp) / 1000;
+      if (dt > 0) {
+        const maxCpuNs = dt * vcpuCount * 1e9;
+        cpuPercent = Math.min(100, Math.max(0, ((cpuTimeNs - prev.cpuTimeNs) / maxCpuNs) * 100));
+        diskReadBps = Math.max(0, (blockRdBytes - prev.blockRdBytes) / dt);
+        diskWriteBps = Math.max(0, (blockWrBytes - prev.blockWrBytes) / dt);
+        netRxBps = Math.max(0, (netRxBytes - prev.netRxBytes) / dt);
+        netTxBps = Math.max(0, (netTxBytes - prev.netTxBytes) / dt);
+      }
+    }
+
+    // Memory: use guest-reported values (via balloon driver) if available, else show allocated
+    let memUsedMb: number;
+    let memTotalMb: number;
+    if (balloonAvailableKiB != null && balloonUnusedKiB != null) {
+      memTotalMb = Math.round(balloonAvailableKiB / 1024);
+      memUsedMb = Math.round((balloonAvailableKiB - balloonUnusedKiB) / 1024);
+    } else {
+      memTotalMb = Math.round(balloonMaxKiB / 1024);
+      memUsedMb = Math.round(balloonCurrentKiB / 1024);
+    }
+
+    const sample: VmStatsSample = {
+      timestamp: now,
+      cpuPercent: Math.round(cpuPercent * 10) / 10,
+      memUsedMb,
+      memTotalMb,
+      diskReadBps,
+      diskWriteBps,
+      netRxBps,
+      netTxBps,
+      vcpuCount,
+    };
+
+    const hist = vmStatsHistory.get(nameOrId) ?? [];
+    hist.push(sample);
+    if (hist.length > VM_STATS_HISTORY) hist.shift();
+    vmStatsHistory.set(nameOrId, hist);
+
+    return { current: sample, history: [...hist] };
+  } catch {
+    return null;
+  }
+}
 
 export async function startVmBootOnce(nameOrId: string, device: 'cdrom' | 'hd'): Promise<string> {
   const trace: TraceEntry[] = [];

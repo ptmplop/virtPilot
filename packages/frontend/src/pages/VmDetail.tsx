@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowLeft, Camera, ChevronDown, ChevronUp, Cpu, Disc, Eye, EyeOff,
-  HardDrive, MemoryStick, Network, Pencil, Plus, Power, PowerOff, RotateCcw,
-  Server, Shield, Terminal, Trash2, Usb, Zap,
+  Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, ChevronDown, ChevronUp,
+  Cpu, Disc, Eye, EyeOff, HardDrive, MemoryStick, Network, Pencil, Plus,
+  Power, PowerOff, RotateCcw, Server, Shield, Terminal, Trash2, Usb, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
@@ -22,7 +22,10 @@ import {
   useSnapshots, useCreateSnapshot, useDeleteSnapshot, useRevertSnapshot, useSnapshotToTemplate,
   useVmIfAddrs, useVmReservations,
   useVmFirewall, useSaveFirewall, useApplyFirewall,
+  useSetAutostart, useResizeDisk, useUpdateVmResources, useVmStats,
 } from '@/hooks/useVms';
+import { useEffect, useRef } from 'react';
+import type { VmStatsSample } from '@/types';
 import { useHostDevices, useAttachDevice, useDetachDevice } from '@/hooks/useDevices';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
@@ -33,7 +36,7 @@ import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network
 import { useLogoStore } from '@/store/logoStore';
 import { useVmOpsStore } from '@/store/vmOpsStore';
 
-type Tab = 'overview' | 'disks' | 'network' | 'snapshots' | 'firewall' | 'devices';
+type Tab = 'overview' | 'disks' | 'network' | 'snapshots' | 'firewall' | 'devices' | 'metrics';
 
 const isSeedIso = (d: VmDisk): boolean => !!d.source?.endsWith('-seed.iso');
 
@@ -200,7 +203,7 @@ export function VmDetailPage() {
 
           {/* Tab bar */}
           <div className="mb-7 flex items-center gap-1 border-b border-border">
-            {(['overview', 'disks', 'network', 'snapshots', 'firewall', 'devices'] as Tab[]).map((t) => (
+            {(['overview', 'disks', 'network', 'snapshots', 'firewall', 'devices', 'metrics'] as Tab[]).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -224,6 +227,7 @@ export function VmDetailPage() {
           <div className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmName={name!} vmStatus={vm.status} /></div>
           <div className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmName={name!} vmStatus={vm.status} /></div>
           <div className={tab !== 'devices' ? 'hidden' : undefined}><DevicesTab vmName={name!} /></div>
+          <div className={tab !== 'metrics' ? 'hidden' : undefined}><MetricsTab vmName={name!} vmStatus={vm.status} /></div>
         </>
       )}
     </Layout>
@@ -243,16 +247,107 @@ function OverviewTab({
   const meta = metaData?.meta ?? null;
   const ip = metaData?.ip ?? null;
   const [showPassword, setShowPassword] = useState(false);
+  const [editResourcesOpen, setEditResourcesOpen] = useState(false);
+  const [editCpus, setEditCpus] = useState(String(vm.cpus));
+  const [editMemMb, setEditMemMb] = useState(String(vm.memoryMb));
+  const updateResources = useUpdateVmResources(vmName);
+  const setAutostart = useSetAutostart(vmName);
+
+  const handleSaveResources = async () => {
+    const cpus = parseInt(editCpus, 10);
+    const memoryMb = parseInt(editMemMb, 10);
+    if (!cpus || cpus < 1 || !memoryMb || memoryMb < 128) {
+      toast.error('Invalid values — vCPUs must be ≥ 1 and memory ≥ 128 MB');
+      return;
+    }
+    try {
+      await updateResources.mutateAsync({ cpus, memoryMb });
+      toast.success('Resources updated — changes take effect on next boot');
+      setEditResourcesOpen(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update resources');
+    }
+  };
+
+  const handleAutostartToggle = async () => {
+    const newVal = !(vm.autostart ?? false);
+    try {
+      await setAutostart.mutateAsync(newVal);
+      toast.success(newVal ? 'Autostart enabled' : 'Autostart disabled');
+    } catch {
+      toast.error('Failed to update autostart');
+    }
+  };
 
   return (
     <div className="space-y-7">
       {/* Resource summary */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <ResourceCard label="vCPUs" value={String(vm.cpus)} icon={Cpu} />
-        <ResourceCard label="Memory" value={formatMemory(vm.memoryMb)} icon={MemoryStick} />
-        <ResourceCard label="Disks" value={String(vm.disks.filter((d) => !isSeedIso(d)).length)} icon={HardDrive} />
-        <ResourceCard label="NICs" value={String(vm.nics.length)} icon={Network} />
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <SectionHeading>Resources</SectionHeading>
+          {vm.status === 'stopped' && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setEditCpus(String(vm.cpus));
+                setEditMemMb(String(vm.memoryMb));
+                setEditResourcesOpen(true);
+              }}
+            >
+              <Pencil size={13} /> Edit
+            </Button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <ResourceCard label="vCPUs" value={String(vm.cpus)} icon={Cpu} />
+          <ResourceCard label="Memory" value={formatMemory(vm.memoryMb)} icon={MemoryStick} />
+          <ResourceCard label="Disks" value={String(vm.disks.filter((d) => !isSeedIso(d)).length)} icon={HardDrive} />
+          <ResourceCard label="NICs" value={String(vm.nics.length)} icon={Network} />
+        </div>
       </div>
+
+      {/* Edit Resources dialog */}
+      <Dialog
+        open={editResourcesOpen}
+        onClose={() => setEditResourcesOpen(false)}
+        title="Edit Resources"
+        description="The VM must be stopped. Changes take effect on the next boot."
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setEditResourcesOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleSaveResources} disabled={updateResources.isPending}>
+              {updateResources.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">vCPUs</label>
+            <Input
+              type="number"
+              min={1}
+              max={64}
+              value={editCpus}
+              onChange={(e) => setEditCpus(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">Memory (MB)</label>
+            <Input
+              type="number"
+              min={128}
+              step={256}
+              value={editMemMb}
+              onChange={(e) => setEditMemMb(e.target.value)}
+            />
+          </div>
+        </div>
+      </Dialog>
 
       {/* Access credentials */}
       {meta && (
@@ -300,6 +395,30 @@ function OverviewTab({
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
           <div className="divide-y divide-border">
             <ConfigRow label="UUID" value={vm.id} mono />
+            {/* Autostart toggle */}
+            <div className="flex items-center justify-between gap-4 px-5 py-3.5">
+              <div>
+                <span className="text-sm text-muted-foreground">Autostart on host boot</span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={vm.autostart ?? false}
+                disabled={setAutostart.isPending}
+                onClick={handleAutostartToggle}
+                className={cn(
+                  'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
+                  vm.autostart ? 'bg-primary' : 'bg-muted-foreground/30'
+                )}
+              >
+                <span
+                  className={cn(
+                    'pointer-events-none inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-0 transition-transform',
+                    vm.autostart ? 'translate-x-4' : 'translate-x-0'
+                  )}
+                />
+              </button>
+            </div>
             {vm.status === 'running' && vm.guestAgent !== undefined && (
               <div className="flex items-center justify-between gap-4 px-5 py-3.5">
                 <span className="text-sm text-muted-foreground">Guest Agent</span>
@@ -385,10 +504,13 @@ function DisksTab({
   const [cdromOpen, setCdromOpen] = useState(false);
   const [sizeGb, setSizeGb] = useState('20');
   const [isoFilename, setIsoFilename] = useState('');
+  const [resizingDisk, setResizingDisk] = useState<VmDisk | null>(null);
+  const [resizeAddGb, setResizeAddGb] = useState('10');
   const addDisk = useAddDisk(vmName);
   const detachDisk = useDetachDisk(vmName);
   const attachCdrom = useAttachCdrom(vmName);
   const detachCdrom = useDetachCdrom(vmName);
+  const resizeDisk = useResizeDisk(vmName);
   const setBootOrder = useSetBootOrder(vmName);
   const bootOnce = useBootOnce(vmName);
   const { data: isos = [] } = useIsos();
@@ -523,25 +645,38 @@ function DisksTab({
                       {d.source || '—'}
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      {d.target !== 'vda' && d.target !== 'sda' && (
-                        <Tooltip label="Detach">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                if (d.type === 'cdrom') await detachCdrom.mutateAsync(d.target);
-                                else await detachDisk.mutateAsync(d.target);
-                                toast.success('Detached');
-                              } catch {
-                                toast.error('Failed to detach');
-                              }
-                            }}
-                            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </Tooltip>
-                      )}
+                      <div className="inline-flex items-center gap-1">
+                        {d.type === 'disk' && d.source && (
+                          <Tooltip label="Grow disk">
+                            <button
+                              type="button"
+                              onClick={() => { setResizeAddGb('10'); setResizingDisk(d); }}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            >
+                              <ArrowUp size={13} />
+                            </button>
+                          </Tooltip>
+                        )}
+                        {d.target !== 'vda' && d.target !== 'sda' && (
+                          <Tooltip label="Detach">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  if (d.type === 'cdrom') await detachCdrom.mutateAsync(d.target);
+                                  else await detachDisk.mutateAsync(d.target);
+                                  toast.success('Detached');
+                                } catch {
+                                  toast.error('Failed to detach');
+                                }
+                              }}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </Tooltip>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -550,6 +685,61 @@ function DisksTab({
           )}
         </div>
       </div>
+
+      {/* Resize disk dialog */}
+      <Dialog
+        open={!!resizingDisk}
+        onClose={() => setResizingDisk(null)}
+        title="Grow Disk"
+        description={`Disk image will be extended. Partition/filesystem resize must be done inside the guest.${vmStatus === 'stopped' ? '' : ' The VM will be notified of the new size immediately.'}`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setResizingDisk(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={async () => {
+                if (!resizingDisk) return;
+                const gb = parseInt(resizeAddGb, 10);
+                if (!gb || gb <= 0) { toast.error('Enter a valid number of GB'); return; }
+                try {
+                  await resizeDisk.mutateAsync({ target: resizingDisk.target, addGb: gb });
+                  toast.success(`${resizingDisk.target} grown by ${gb} GB`);
+                  setResizingDisk(null);
+                } catch (err: unknown) {
+                  toast.error(err instanceof Error ? err.message : 'Failed to resize disk');
+                }
+              }}
+              disabled={resizeDisk.isPending}
+            >
+              {resizeDisk.isPending ? 'Resizing…' : `Add ${resizeAddGb || '?'} GB`}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+            <p className="font-mono text-xs text-muted-foreground">
+              {resizingDisk?.target} — {resizingDisk?.source?.split('/').pop() ?? ''}
+            </p>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
+              Gigabytes to add
+            </label>
+            <Input
+              type="number"
+              min={1}
+              max={10240}
+              value={resizeAddGb}
+              onChange={(e) => setResizeAddGb(e.target.value)}
+              placeholder="e.g. 10"
+            />
+          </div>
+        </div>
+      </Dialog>
 
       {/* Boot Order */}
       {bootableDisks.length > 0 && (
@@ -2422,6 +2612,205 @@ function DevicesTab({ vmName }: { vmName: string }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Metrics ──────────────────────────────────────────────────────────────────
+
+import { AreaChart } from '@/components/ui/AreaChart';
+
+function fmtBps(bps: number): string {
+  if (bps < 1024) return `${Math.round(bps)} B/s`;
+  if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
+  return `${(bps / 1024 / 1024).toFixed(1)} MB/s`;
+}
+
+function MetricsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }) {
+  const isRunning = vmStatus === 'running';
+  const { data: stats, isError } = useVmStats(vmName, isRunning);
+
+  // Keep a rolling local history for charts (backend returns its own buffer, but accumulate more)
+  const historyRef = useRef<VmStatsSample[]>([]);
+  useEffect(() => {
+    if (!stats?.current) return;
+    historyRef.current = [...(stats.history ?? [historyRef.current[historyRef.current.length - 1]].filter(Boolean))];
+  }, [stats]);
+
+  const history = stats?.history ?? [];
+  const current = stats?.current;
+
+  const cpuData = history.map((s) => s.cpuPercent);
+  const memData = history.map((s) => (s.memTotalMb > 0 ? (s.memUsedMb / s.memTotalMb) * 100 : 0));
+  const diskRdData = history.map((s) => s.diskReadBps);
+  const diskWrData = history.map((s) => s.diskWriteBps);
+  const netRxData = history.map((s) => s.netRxBps);
+  const netTxData = history.map((s) => s.netTxBps);
+
+  if (!isRunning) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+          <Activity className="h-5 w-5 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium text-foreground">VM is not running</p>
+        <p className="mt-1 text-xs text-muted-foreground">Start the VM to view per-VM metrics.</p>
+      </div>
+    );
+  }
+
+  if (isError || (!current && !history.length)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+          <Activity className="h-5 w-5 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium text-foreground">Metrics unavailable</p>
+        <p className="mt-1 text-xs text-muted-foreground">Waiting for first sample…</p>
+      </div>
+    );
+  }
+
+  const memPct = current && current.memTotalMb > 0
+    ? Math.round((current.memUsedMb / current.memTotalMb) * 100)
+    : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <MetricCard
+          label="CPU"
+          value={current ? `${Math.round(current.cpuPercent)}%` : '—'}
+          sub={current ? `${current.vcpuCount} vCPU${current.vcpuCount !== 1 ? 's' : ''}` : ''}
+          accent={current && current.cpuPercent > 80 ? 'warn' : 'neutral'}
+        />
+        <MetricCard
+          label="Memory"
+          value={current ? `${memPct}%` : '—'}
+          sub={current ? `${formatMemory(current.memUsedMb)} / ${formatMemory(current.memTotalMb)}` : ''}
+          accent={memPct > 90 ? 'warn' : 'neutral'}
+        />
+        <MetricCard
+          label="Disk I/O"
+          value={current ? fmtBps(current.diskReadBps + current.diskWriteBps) : '—'}
+          sub={current ? `↑ ${fmtBps(current.diskWriteBps)}  ↓ ${fmtBps(current.diskReadBps)}` : ''}
+        />
+        <MetricCard
+          label="Network"
+          value={current ? fmtBps(current.netRxBps + current.netTxBps) : '—'}
+          sub={current ? `↑ ${fmtBps(current.netTxBps)}  ↓ ${fmtBps(current.netRxBps)}` : ''}
+        />
+      </div>
+
+      {/* Charts */}
+      {history.length > 1 && (
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <ChartCard title="CPU Usage" unit="%" data={cpuData} color="hsl(214 100% 52%)" max={100} />
+          <ChartCard title="Memory Usage" unit="%" data={memData} color="hsl(158 60% 34%)" max={100} />
+          <ChartCard
+            title="Disk I/O"
+            unit=""
+            data={diskRdData}
+            data2={diskWrData}
+            color="hsl(214 100% 52%)"
+            color2="hsl(0 72% 51%)"
+            legend={['Read', 'Write']}
+            formatVal={fmtBps}
+          />
+          <ChartCard
+            title="Network I/O"
+            unit=""
+            data={netRxData}
+            data2={netTxData}
+            color="hsl(214 100% 52%)"
+            color2="hsl(280 65% 55%)"
+            legend={['RX', 'TX']}
+            formatVal={fmtBps}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricCard({
+  label, value, sub, accent = 'neutral',
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  accent?: 'warn' | 'neutral';
+}) {
+  return (
+    <div className={cn(
+      'rounded-xl border border-border bg-card px-5 py-4 shadow-card',
+      accent === 'warn' && 'border-amber-500/25 bg-amber-500/5',
+    )}>
+      <div className="mb-2 flex items-center gap-2">
+        <div className={cn(
+          'flex h-7 w-7 items-center justify-center rounded-lg',
+          accent === 'warn' ? 'bg-amber-500/15' : 'bg-muted',
+        )}>
+          <Activity className={cn('h-3.5 w-3.5', accent === 'warn' ? 'text-amber-500' : 'text-muted-foreground')} />
+        </div>
+        <span className={cn(
+          'text-[10px] font-semibold uppercase tracking-widest',
+          accent === 'warn' ? 'text-amber-500 dark:text-amber-400' : 'text-muted-foreground',
+        )}>
+          {label}
+        </span>
+      </div>
+      <p className="nums text-xl font-bold text-foreground">{value}</p>
+      {sub && <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
+
+function ChartCard({
+  title, data, data2, color, color2, legend, formatVal, max,
+}: {
+  title: string;
+  unit: string;
+  data: number[];
+  data2?: number[];
+  color: string;
+  color2?: string;
+  legend?: string[];
+  formatVal?: (v: number) => string;
+  max?: number;
+}) {
+  const displayData = max != null ? data.map((v) => Math.min(v, max)) : data;
+  const displayData2 = max != null && data2 ? data2.map((v) => Math.min(v, max)) : data2;
+  const last = data[data.length - 1];
+  const last2 = data2?.[data2.length - 1];
+  const fmt = formatVal ?? ((v: number) => `${Math.round(v)}%`);
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+      <div className="flex items-center justify-between border-b border-border px-5 py-3">
+        <span className="text-xs font-semibold text-foreground">{title}</span>
+        <div className="flex items-center gap-3">
+          {legend && color2 && last2 != null && (
+            <>
+              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="h-1.5 w-3 rounded-full" style={{ background: color }} />
+                {legend[0]} {fmt(last)}
+              </span>
+              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="h-px w-3 rounded-full" style={{ background: color2, borderBottom: `1px dashed ${color2}` }} />
+                {legend[1]} {fmt(last2)}
+              </span>
+            </>
+          )}
+          {!legend && last != null && (
+            <span className="nums text-xs font-semibold text-foreground">{fmt(last)}</span>
+          )}
+        </div>
+      </div>
+      <div className="h-[72px] w-full">
+        <AreaChart id={`vm-${title.replace(/\s/g, '-')}`} data={displayData} color={color} data2={displayData2} color2={color2} />
+      </div>
     </div>
   );
 }
