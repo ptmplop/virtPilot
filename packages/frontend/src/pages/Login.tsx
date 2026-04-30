@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Loader2, Lock } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
-import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 
 export function LoginPage() {
