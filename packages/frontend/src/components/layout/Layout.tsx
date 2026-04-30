@@ -91,16 +91,33 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       )}
     >
       {/* Brand */}
-      <div className={cn(
-        'flex items-center border-b border-sidebar-border py-4',
-        collapsed ? 'justify-center px-0' : 'px-5'
-      )}>
-        {collapsed ? (
-          <img src="/vlogo-small.png" alt="VirtPilot" className="h-8 w-8 object-contain" />
-        ) : (
-          <img src="/vlogo-big.png" alt="VirtPilot" className="h-8 w-auto object-contain" />
-        )}
-      </div>
+      {collapsed ? (
+        <div className="flex flex-col items-center gap-1.5 border-b border-sidebar-border py-3">
+          <img src="/vlogo-small.png" alt="VirtPilot" className="h-7 w-7 object-contain" />
+          <Tooltip label="Expand sidebar" side="right">
+            <button
+              type="button"
+              onClick={onToggle}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
+            >
+              <PanelLeftOpen size={13} />
+            </button>
+          </Tooltip>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 border-b border-sidebar-border px-4 py-3">
+          <img src="/vlogo-big.png" alt="VirtPilot" className="h-8 w-auto flex-1 object-contain object-left" />
+          <Tooltip label="Collapse sidebar" side="right">
+            <button
+              type="button"
+              onClick={onToggle}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
+            >
+              <PanelLeftClose size={14} />
+            </button>
+          </Tooltip>
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className={cn('flex-1 overflow-y-auto py-3', collapsed ? 'px-2' : 'px-3')}>
@@ -150,43 +167,25 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-red-500/15 hover:text-red-400"
               >
                 <LogOut size={13} />
               </button>
             </Tooltip>
-            <button
-              type="button"
-              onClick={onToggle}
-              title="Expand sidebar"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
-            >
-              <PanelLeftOpen size={14} />
-            </button>
           </div>
         ) : (
           <div className="space-y-1">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 px-1">
               <ThemeToggle />
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.4.2</span>
-              <Tooltip label="Sign out" side="top">
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="ml-1 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
-                >
-                  <LogOut size={13} />
-                </button>
-              </Tooltip>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.4.3</span>
             </div>
             <button
               type="button"
-              onClick={onToggle}
-              title="Collapse sidebar"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
+              onClick={handleLogout}
+              className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-all duration-200 ease-out hover:bg-red-500/10 hover:text-red-400"
             >
-              <PanelLeftClose size={14} />
-              <span className="text-[11px]">Collapse</span>
+              <LogOut size={14} />
+              <span>Sign out</span>
             </button>
           </div>
         )}
