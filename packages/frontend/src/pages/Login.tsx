@@ -150,15 +150,15 @@ export function LoginPage() {
 
         {/* Footer */}
         <div className="mt-7 flex items-center justify-center gap-3">
-          <span className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground/60">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
             <span
               className="h-1.5 w-1.5 rounded-full bg-emerald-400"
               style={{ boxShadow: '0 0 6px 1px rgb(52 211 153 / 0.45)' }}
             />
             System online
           </span>
-          <span className="text-muted-foreground/40">·</span>
-          <span className="font-mono text-[10px] text-muted-foreground/60">v1.3.0</span>
+          <span className="text-muted-foreground/60">·</span>
+          <span className="font-mono text-[10px] text-muted-foreground">v1.3.0</span>
         </div>
       </div>
     </div>
