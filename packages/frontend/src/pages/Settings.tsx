@@ -219,10 +219,10 @@ export function SettingsPage() {
           <p className="mt-0.5 text-xs text-muted-foreground">
             Restrict login and API access to specific IP addresses or CIDR ranges (e.g.{' '}
             <span className="font-mono">203.0.113.1</span> or{' '}
-            <span className="font-mono">10.0.0.0/8</span>). Leave empty to allow all IPs.{' '}
-            <span className="text-amber-500 dark:text-amber-400 font-medium">
-              Ensure your own IP is listed before saving, or you will be locked out.
-            </span>
+            <span className="font-mono">10.0.0.0/8</span>). Leave empty to allow all IPs.
+          </p>
+          <p className="mt-1 text-xs text-amber-500 dark:text-amber-400 font-medium">
+            Ensure your own IP is listed before saving, or you will be locked out.
           </p>
         </div>
         <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
@@ -250,33 +250,34 @@ export function SettingsPage() {
                 <p className="text-xs text-muted-foreground italic">No restrictions — all IPs are allowed.</p>
               )}
 
-              <div className="flex items-end gap-3">
-                <div className="w-64">
-                  <Input
-                    label="Add IP or CIDR"
-                    type="text"
-                    placeholder="e.g. 203.0.113.1 or 10.0.0.0/8"
-                    value={newIp}
-                    onChange={(e) => { setNewIp(e.target.value); setIpError(null); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddIp(); } }}
-                    error={ipError ?? undefined}
-                  />
+              <div className="flex items-end justify-between gap-3 pt-1">
+                <div className="flex items-end gap-2 min-w-0">
+                  <div className="w-64 shrink-0">
+                    <Input
+                      label="Add IP or CIDR"
+                      type="text"
+                      placeholder="e.g. 203.0.113.1 or 10.0.0.0/8"
+                      value={newIp}
+                      onChange={(e) => { setNewIp(e.target.value); setIpError(null); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddIp(); } }}
+                      error={ipError ?? undefined}
+                    />
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={handleAddIp} className="gap-1.5 shrink-0">
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
+                  </Button>
                 </div>
-                <Button size="sm" variant="secondary" onClick={handleAddIp} className="gap-1.5">
-                  <Plus className="h-3.5 w-3.5" />
-                  Add
+                <Button
+                  size="sm"
+                  onClick={() => saveIpWhitelist.mutate(ipWhitelist)}
+                  disabled={saveIpWhitelist.isPending}
+                  className="gap-1.5 shrink-0"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  Save
                 </Button>
               </div>
-
-              <Button
-                size="sm"
-                onClick={() => saveIpWhitelist.mutate(ipWhitelist)}
-                disabled={saveIpWhitelist.isPending}
-                className="gap-1.5"
-              >
-                <Save className="h-3.5 w-3.5" />
-                Save Whitelist
-              </Button>
             </div>
           )}
         </div>
