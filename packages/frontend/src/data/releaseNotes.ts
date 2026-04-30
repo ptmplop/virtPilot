@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.2.6',
+    date: '2026-04-30',
+    changes: [
+      { type: 'fixed', text: 'Deleting a VM with UEFI/Secure Boot or vTPM no longer fails — virsh undefine now includes --nvram and --tpm to clean up associated state files' },
+    ],
+  },
+  {
     version: '1.2.5',
     date: '2026-04-30',
     changes: [

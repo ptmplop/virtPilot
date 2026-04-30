@@ -258,7 +258,12 @@ export async function hardRebootVm(nameOrId: string): Promise<string> {
 export async function deleteVm(nameOrId: string, deleteStorage = false): Promise<string> {
   const trace: TraceEntry[] = [];
   try { await virsh(`destroy ${nameOrId}`, trace); } catch { /* already stopped */ }
-  const flags = ['--snapshots-metadata', deleteStorage ? '--remove-all-storage' : ''].join(' ').trim();
+  const flags = [
+    '--snapshots-metadata',
+    '--nvram',
+    '--tpm',
+    deleteStorage ? '--remove-all-storage' : '',
+  ].filter(Boolean).join(' ');
   await virsh(`undefine ${nameOrId} ${flags}`, trace);
   return formatTrace(trace);
 }
