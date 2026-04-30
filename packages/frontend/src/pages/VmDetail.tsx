@@ -165,7 +165,7 @@ export function VmDetailPage() {
                       className="h-8 w-52 text-sm font-bold"
                     />
                     <Button size="sm" onClick={handleRenameSubmit} disabled={rename.isPending}>
-                      {rename.isPending ? <Spinner size={13} /> : 'Save'}
+                      {rename.isPending ? <Spinner className="h-3 w-3" /> : 'Save'}
                     </Button>
                     <Button size="sm" variant="secondary" onClick={handleRenameCancel} disabled={rename.isPending}>
                       Cancel
