@@ -18,6 +18,7 @@ settingsRouter.get('/', async (_req, res) => {
         libvirtUri: config.libvirtUri,
         kvmAvailable: kvmAvailable(),
         maxLogs: user.maxLogs,
+        ipWhitelist: user.ipWhitelist,
       },
     });
   } catch (err: unknown) {
@@ -27,8 +28,11 @@ settingsRouter.get('/', async (_req, res) => {
 
 settingsRouter.put('/', async (req, res) => {
   try {
-    const { maxLogs } = req.body as { maxLogs?: number };
-    const updated = await saveUserSettings({ maxLogs });
+    const { maxLogs, ipWhitelist } = req.body as { maxLogs?: number; ipWhitelist?: string[] };
+    const updates: Parameters<typeof saveUserSettings>[0] = {};
+    if (maxLogs !== undefined) updates.maxLogs = maxLogs;
+    if (ipWhitelist !== undefined) updates.ipWhitelist = ipWhitelist;
+    const updated = await saveUserSettings(updates);
     res.json({ settings: updated });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });

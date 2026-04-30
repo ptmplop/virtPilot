@@ -181,6 +181,7 @@ export interface Settings {
   libvirtUri: string;
   kvmAvailable: boolean;
   maxLogs: number;
+  ipWhitelist: string[];
 }
 
 export interface VmDiskFile {

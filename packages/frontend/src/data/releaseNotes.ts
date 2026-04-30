@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.6.0',
+    date: '2026-04-30',
+    changes: [
+      { type: 'added', text: 'IP Access Control — whitelist specific IPs or CIDR ranges in Settings; when the list is non-empty only those addresses can log in or call the API/WebSocket; empty list preserves existing open-access behaviour' },
+    ],
+  },
+  {
     version: '1.5.1',
     date: '2026-04-30',
     changes: [

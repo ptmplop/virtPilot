@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save } from 'lucide-react';
+import { Save, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useSettings } from '@/hooks/useSettings';
 import { api } from '@/lib/api';
+import type { Settings } from '@/types';
 
 export function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
@@ -18,9 +19,17 @@ export function SettingsPage() {
     if (settings?.maxLogs != null) setMaxLogs(String(settings.maxLogs));
   }, [settings?.maxLogs]);
 
+  const [ipWhitelist, setIpWhitelist] = useState<string[]>([]);
+  const [newIp, setNewIp] = useState('');
+  const [ipError, setIpError] = useState<string | null>(null);
+  const rawWhitelist = settings?.ipWhitelist;
+  useEffect(() => {
+    setIpWhitelist(rawWhitelist ?? []);
+  }, [rawWhitelist]);
+
   const saveSettings = useMutation({
     mutationFn: async (values: { maxLogs: number }) => {
-      const { data } = await api.put<{ settings: { maxLogs: number } }>('/api/settings', values);
+      const { data } = await api.put<{ settings: Settings }>('/api/settings', values);
       return data.settings;
     },
     onSuccess: (updated) => {
@@ -30,6 +39,18 @@ export function SettingsPage() {
     onError: () => toast.error('Failed to save settings'),
   });
 
+  const saveIpWhitelist = useMutation({
+    mutationFn: async (whitelist: string[]) => {
+      const { data } = await api.put<{ settings: Settings }>('/api/settings', { ipWhitelist: whitelist });
+      return data.settings;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['settings'], (prev: typeof settings) => prev ? { ...prev, ...updated } : prev);
+      toast.success('IP whitelist saved');
+    },
+    onError: () => toast.error('Failed to save IP whitelist'),
+  });
+
   function handleSaveMaxLogs() {
     const n = parseInt(maxLogs, 10);
     if (isNaN(n) || n < 10 || n > 10_000) {
@@ -37,6 +58,29 @@ export function SettingsPage() {
       return;
     }
     saveSettings.mutate({ maxLogs: n });
+  }
+
+  function isValidIpEntry(value: string): boolean {
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(value)) return true;
+    if (/^(\d{1,3}\.){3}\d{1,3}\/(\d|[12]\d|3[0-2])$/.test(value)) return true;
+    if (value.includes(':') && /^[0-9a-fA-F:]{2,}$/.test(value)) return true;
+    return false;
+  }
+
+  function handleAddIp() {
+    const value = newIp.trim();
+    if (!value) return;
+    if (!isValidIpEntry(value)) {
+      setIpError('Invalid IP address or CIDR range');
+      return;
+    }
+    if (ipWhitelist.includes(value)) {
+      setIpError('Already in the list');
+      return;
+    }
+    setIpWhitelist(prev => [...prev, value]);
+    setNewIp('');
+    setIpError(null);
   }
 
   const configRows: [string, string][] = settings ? [
@@ -109,6 +153,76 @@ export function SettingsPage() {
               >
                 <Save className="h-3.5 w-3.5" />
                 Save
+              </Button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* IP Access Control */}
+      <section className="mb-5">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-foreground">IP Access Control</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Restrict login and API access to specific IP addresses or CIDR ranges (e.g.{' '}
+            <span className="font-mono">203.0.113.1</span> or{' '}
+            <span className="font-mono">10.0.0.0/8</span>). Leave empty to allow all IPs.{' '}
+            <span className="text-amber-500 dark:text-amber-400 font-medium">
+              Ensure your own IP is listed before saving, or you will be locked out.
+            </span>
+          </p>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
+          {isLoading ? (
+            <Skeleton className="h-24 rounded-lg" />
+          ) : (
+            <div className="space-y-3">
+              {ipWhitelist.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {ipWhitelist.map((entry) => (
+                    <li key={entry} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                      <span className="font-mono text-xs text-foreground">{entry}</span>
+                      <button
+                        type="button"
+                        onClick={() => setIpWhitelist(prev => prev.filter(e => e !== entry))}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                        aria-label={`Remove ${entry}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">No restrictions — all IPs are allowed.</p>
+              )}
+
+              <div className="flex items-end gap-3">
+                <div className="w-64">
+                  <Input
+                    label="Add IP or CIDR"
+                    type="text"
+                    placeholder="e.g. 203.0.113.1 or 10.0.0.0/8"
+                    value={newIp}
+                    onChange={(e) => { setNewIp(e.target.value); setIpError(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddIp(); } }}
+                    error={ipError ?? undefined}
+                  />
+                </div>
+                <Button size="sm" variant="secondary" onClick={handleAddIp} className="gap-1.5">
+                  <Plus className="h-3.5 w-3.5" />
+                  Add
+                </Button>
+              </div>
+
+              <Button
+                size="sm"
+                onClick={() => saveIpWhitelist.mutate(ipWhitelist)}
+                disabled={saveIpWhitelist.isPending}
+                className="gap-1.5"
+              >
+                <Save className="h-3.5 w-3.5" />
+                Save Whitelist
               </Button>
             </div>
           )}

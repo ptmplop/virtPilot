@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] — 2026-04-30
+
+### Added
+- IP Access Control — Settings page now includes an IP whitelist; when one or more entries are present, only those IPs (or CIDR ranges) can log in or make API/WebSocket requests; empty list allows all IPs (no behaviour change for existing installs)
+
 ## [1.5.1] — 2026-04-30
 
 ### Changed

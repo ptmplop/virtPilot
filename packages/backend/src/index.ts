@@ -15,7 +15,8 @@ import { systemRouter } from './routes/system.js';
 import { logsRouter } from './routes/logs.js';
 import { devicesRouter } from './routes/devices.js';
 import { sshKeysRouter } from './routes/sshKeys.js';
-import { requireAuth, verifyWsToken } from './middleware/auth.js';
+import { requireAuth, verifyWsToken, isIpAllowed } from './middleware/auth.js';
+import { getUserSettings } from './services/userSettingsService.js';
 import { createConsoleWss } from './console.js';
 import { createSshWss } from './ssh.js';
 import { createVncWss } from './vnc.js';
@@ -58,11 +59,17 @@ const consoleWss = createConsoleWss();
 const sshWss = createSshWss();
 const vncWss = createVncWss();
 
-server.on('upgrade', (req, socket, head) => {
+server.on('upgrade', async (req, socket, head) => {
   const url = new URL(req.url ?? '', 'http://localhost');
   const token = url.searchParams.get('token');
   if (!verifyWsToken(token)) {
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  const { ipWhitelist } = await getUserSettings();
+  if (!isIpAllowed(req.socket.remoteAddress, ipWhitelist)) {
+    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
     socket.destroy();
     return;
   }
