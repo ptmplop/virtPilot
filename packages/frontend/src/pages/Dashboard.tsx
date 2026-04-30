@@ -5,10 +5,13 @@ import {
   ArrowUp,
   CheckCircle2,
   Cpu,
+  Globe,
   HardDrive,
   MemoryStick,
+  Monitor,
   PackageOpen,
   RefreshCw,
+  Terminal,
   X,
   Zap,
   ZapOff,
@@ -19,7 +22,7 @@ import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
 import { AreaChart } from '@/components/ui/AreaChart';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useSystemStats, useAptPackages, useInvalidateApt, type StatsSample, type AptPackage } from '@/hooks/useSystemStats';
+import { useSystemStats, useSystemInfo, useAptPackages, useInvalidateApt, type StatsSample, type AptPackage } from '@/hooks/useSystemStats';
 import { useSettings } from '@/hooks/useSettings';
 import { useVms } from '@/hooks/useVms';
 import { cn } from '@/lib/cn';
@@ -38,6 +41,15 @@ function fmtBps(bps: number): string {
   if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
   if (bps < 1024 * 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(1)} MB/s`;
   return `${(bps / 1024 / 1024 / 1024).toFixed(2)} GB/s`;
+}
+
+function cleanCpuModel(raw: string): string {
+  return raw
+    .replace(/\(R\)/g, '').replace(/\(TM\)/g, '')
+    .replace(/\s+CPU\b/i, '')
+    .replace(/\s+@\s+[\d.]+\s*GHz/i, '')
+    .replace(/\s+\d+-Core\s+Processor\b/i, '')
+    .replace(/\s+/g, ' ').trim();
 }
 
 // ─── Section label ─────────────────────────────────────────────────────────────
@@ -158,19 +170,79 @@ function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', b
 
 // ─── Host overview ─────────────────────────────────────────────────────────────
 
-function HostDetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function ZoneSeparator({ label }: { label: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
-      <span className={cn('truncate text-right text-xs font-medium text-foreground', mono && 'font-mono text-[11px]')}>
+    <div className="flex items-center gap-2">
+      <div className="h-px flex-1 bg-border/50" />
+      <span className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/40">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function IconRow({ icon: Icon, value, mono, dim }: { icon: typeof Cpu; value: string; mono?: boolean; dim?: boolean }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Icon className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+      <span className={cn(
+        'truncate text-xs',
+        dim ? 'text-muted-foreground' : 'text-foreground',
+        mono && 'font-mono text-[11px]',
+      )}>
         {value}
       </span>
     </div>
   );
 }
 
+function LoadRow({ load, cores }: { load?: [number, number, number]; cores?: number }) {
+  const color = (v: number) => {
+    const r = v / Math.max(cores ?? 1, 1);
+    if (r > 1.0) return 'text-red-400';
+    if (r > 0.7) return 'text-amber-400';
+    return 'text-emerald-400';
+  };
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Activity className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+      <span className="shrink-0 text-[10px] text-muted-foreground/50">load</span>
+      {load ? (
+        <div className="flex items-center gap-2">
+          {load.map((v, i) => (
+            <span key={i} className={cn('font-mono text-[11px] font-semibold tabular-nums', color(v))}>
+              {v.toFixed(2)}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <span className="font-mono text-xs text-muted-foreground">—</span>
+      )}
+    </div>
+  );
+}
+
+function NetRow({ rx, tx }: { rx: number; tx: number }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Globe className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+      <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1">
+          <ArrowDown className="h-2.5 w-2.5 text-emerald-500/60" />
+          <span className="font-mono text-[11px] tabular-nums text-foreground">{fmtBps(rx)}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <ArrowUp className="h-2.5 w-2.5 text-cyan-500/60" />
+          <span className="font-mono text-[11px] tabular-nums text-foreground">{fmtBps(tx)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HostOverview() {
   const { data: settings } = useSettings();
+  const { data: info } = useSystemInfo();
   const { data: vms } = useVms();
   const { data: packages } = useAptPackages();
   const { data: stats } = useSystemStats();
@@ -179,9 +251,9 @@ function HostOverview() {
   if (!settings) {
     return (
       <div className="grid grid-cols-[1fr_1.5fr] gap-4">
-        <Skeleton className="h-[210px] rounded-xl" />
+        <Skeleton className="h-[230px] rounded-xl" />
         <div className="grid grid-cols-2 gap-4">
-          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[97px] rounded-xl" />)}
+          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[107px] rounded-xl" />)}
         </div>
       </div>
     );
@@ -210,18 +282,19 @@ function HostOverview() {
             ? 'bg-gradient-to-r from-emerald-500/60 via-emerald-500/20 to-transparent'
             : 'bg-gradient-to-r from-amber-500/60 via-amber-500/20 to-transparent',
         )} />
-        <div className="p-5">
-          {/* KVM / TCG mode */}
-          <div className="mb-5 flex items-center gap-3">
+        <div className="flex flex-col gap-3 p-5">
+
+          {/* KVM / TCG badge */}
+          <div className="flex items-center gap-3">
             <div className={cn(
-              'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl',
               isKvm ? 'bg-emerald-500/10' : 'bg-amber-500/10',
             )}>
-              <VirtIcon className={cn('h-5 w-5', isKvm ? 'text-emerald-500' : 'text-amber-500')} />
+              <VirtIcon className={cn('h-4.5 w-4.5', isKvm ? 'text-emerald-500' : 'text-amber-500')} />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-lg font-bold text-foreground">{isKvm ? 'KVM' : 'TCG'}</span>
+                <span className="text-base font-bold text-foreground">{isKvm ? 'KVM' : 'TCG'}</span>
                 <span className={cn(
                   'h-1.5 w-1.5 rounded-full animate-glow-pulse',
                   isKvm
@@ -229,25 +302,30 @@ function HostOverview() {
                     : 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
                 )} />
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {isKvm ? 'Hardware-accelerated virtualisation' : 'Software emulation — reduced performance'}
               </p>
             </div>
           </div>
 
-          {/* Detail rows */}
-          <div className="space-y-2.5">
-            <HostDetailRow label="Hypervisor" value="Connected" />
-            <HostDetailRow label="Driver" value={settings.libvirtUri} mono />
-            <HostDetailRow
-              label="Total RAM"
-              value={current ? fmtMb(current.memTotalMb) : '—'}
+          {/* Host zone */}
+          <ZoneSeparator label="Host" />
+          <div className="space-y-2">
+            <IconRow icon={Monitor} value={info?.hostname ?? '—'} />
+            <IconRow
+              icon={Cpu}
+              value={info ? `${cleanCpuModel(info.cpuModel)} · ${info.cpuCores} cores` : '—'}
             />
-            <HostDetailRow
-              label="Total Disk"
-              value={current ? `${current.diskTotalGb.toFixed(0)} GB` : '—'}
-            />
+            <IconRow icon={Terminal} value={settings.libvirtUri} mono dim />
           </div>
+
+          {/* Live zone */}
+          <ZoneSeparator label="Live" />
+          <div className="space-y-2">
+            <LoadRow load={info?.load} cores={info?.cpuCores} />
+            <NetRow rx={current?.netRxBps ?? 0} tx={current?.netTxBps ?? 0} />
+          </div>
+
         </div>
       </div>
 

@@ -1,6 +1,8 @@
 import { spawn } from 'child_process';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import fs from 'fs/promises';
+import os from 'os';
 import { Router } from 'express';
 import { listPhysicalNics } from '../services/networkService.js';
 import { getHistory, takeSample } from '../services/statsService.js';
@@ -8,6 +10,44 @@ import * as logService from '../services/logService.js';
 
 const execAsync = promisify(exec);
 export const systemRouter = Router();
+
+systemRouter.get('/info', async (_req, res) => {
+  try {
+    const [cpuRaw, loadRaw] = await Promise.all([
+      fs.readFile('/proc/cpuinfo', 'utf8'),
+      fs.readFile('/proc/loadavg', 'utf8'),
+    ]);
+
+    const modelMatch = cpuRaw.match(/^model name\s*:\s*(.+)$/m);
+    const cpuModel = modelMatch ? modelMatch[1].trim() : 'Unknown';
+
+    // Count distinct physical-id+core-id pairs; fall back to logical count
+    const cores = new Set<string>();
+    for (const block of cpuRaw.split('\n\n')) {
+      const phys = block.match(/^physical id\s*:\s*(\d+)/m)?.[1];
+      const core = block.match(/^core id\s*:\s*(\d+)/m)?.[1];
+      if (phys !== undefined && core !== undefined) cores.add(`${phys}-${core}`);
+    }
+    const cpuCores = cores.size > 0 ? cores.size : (cpuRaw.match(/^processor\s*:/gm) ?? []).length;
+
+    const loadParts = loadRaw.trim().split(/\s+/);
+    const load: [number, number, number] = [
+      parseFloat(loadParts[0] ?? '0'),
+      parseFloat(loadParts[1] ?? '0'),
+      parseFloat(loadParts[2] ?? '0'),
+    ];
+
+    let kernelVersion = 'unknown';
+    try {
+      const { stdout } = await execAsync('uname -r', { timeout: 3000 });
+      kernelVersion = stdout.trim();
+    } catch { /* non-Linux or restricted */ }
+
+    res.json({ hostname: os.hostname(), cpuModel, cpuCores, load, kernelVersion });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 systemRouter.get('/nics', async (_req, res) => {
   try {

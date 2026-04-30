@@ -1,6 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
+export interface SystemInfo {
+  hostname: string;
+  cpuModel: string;
+  cpuCores: number;
+  load: [number, number, number];
+  kernelVersion: string;
+}
+
 export interface StatsSample {
   timestamp: number;
   cpuPercent: number;
@@ -41,6 +49,18 @@ export function useAptPackages() {
       return data.packages;
     },
     refetchInterval: 60_000,
+  });
+}
+
+export function useSystemInfo() {
+  return useQuery({
+    queryKey: ['system', 'info'],
+    queryFn: async () => {
+      const { data } = await api.get<SystemInfo>('/api/system/info');
+      return data;
+    },
+    staleTime: 30_000,
+    refetchInterval: 30_000,
   });
 }
 
