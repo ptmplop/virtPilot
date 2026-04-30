@@ -432,12 +432,12 @@ function MetricCard({
             </div>
           ) : (
             <>
-              <div className="flex items-baseline gap-2 overflow-hidden">
-                <span className="whitespace-nowrap text-3xl font-bold tracking-tight tabular-nums bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
+              <div>
+                <span className="block whitespace-nowrap text-3xl font-bold tracking-tight tabular-nums bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
                   {primaryValue}
                 </span>
                 {secondaryValue && (
-                  <span className="shrink-0 text-sm text-muted-foreground">{secondaryValue}</span>
+                  <span className="block text-sm text-muted-foreground">{secondaryValue}</span>
                 )}
               </div>
               {detail && <div className="mt-1.5">{detail}</div>}
@@ -786,7 +786,7 @@ export function DashboardPage() {
               color="#8b5cf6"
               accentBg="bg-violet-500/10"
               primaryValue={current ? fmtMb(current.memUsedMb) : '—'}
-              secondaryValue={current ? `/ ${fmtMb(current.memTotalMb)}` : undefined}
+              secondaryValue={current ? `of ${fmtMb(current.memTotalMb)}` : undefined}
               detail={
                 <div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
