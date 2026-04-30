@@ -311,6 +311,12 @@ function OverviewTab({
           <ResourceCard label="Disks" value={String(vm.disks.filter((d) => !isSeedIso(d)).length)} icon={HardDrive} />
           <ResourceCard label="NICs" value={String(vm.nics.length)} icon={Network} />
         </div>
+        {vm.status !== 'stopped' && (
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <AlertTriangle size={12} className="shrink-0" />
+            Shut down the VM to edit CPU and memory allocation.
+          </p>
+        )}
       </div>
 
       {/* Edit Resources dialog */}

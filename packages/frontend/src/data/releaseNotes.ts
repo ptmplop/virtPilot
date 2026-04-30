@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.2.5',
+    date: '2026-04-30',
+    changes: [
+      { type: 'changed', text: 'Resources section shows a hint to shut down the VM when CPU/memory editing is unavailable' },
+    ],
+  },
+  {
     version: '1.2.4',
     date: '2026-04-30',
     changes: [
