@@ -475,7 +475,7 @@ export async function resizeDisk(nameOrId: string, target: string, addGb: number
   if (running) {
     // QEMU holds a write lock on the image while running — qemu-img resize would fail.
     // virsh blockresize talks directly to QEMU, resizes the image, and notifies the guest.
-    const { stdout } = await execAsync(`qemu-img info --output=json "${disk.source}"`);
+    const { stdout } = await execAsync(`qemu-img info -U --output=json "${disk.source}"`);
     const info = JSON.parse(stdout) as { 'virtual-size': number };
     const newSizeBytes = info['virtual-size'] + addGb * 1024 * 1024 * 1024;
     await virsh(`blockresize ${nameOrId} ${target} ${newSizeBytes}`, trace);
