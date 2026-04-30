@@ -4,6 +4,7 @@ import {
   Database,
   Disc,
   HardDrive,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   type LucideProps,
@@ -114,6 +115,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             <CollapsedNavItem to="/isos" icon={Disc} label="ISOs" />
             <CollapsedNavItem to="/storage" icon={Database} label="Storage" />
             <div className="my-2 border-t border-sidebar-border" />
+            <CollapsedNavItem to="/ssh-keys" icon={KeyRound} label="SSH Keys" />
             <CollapsedNavItem to="/logs" icon={ScrollText} label="Logs" />
             <CollapsedNavItem to="/settings" icon={Settings2} label="Settings" />
           </div>
@@ -131,6 +133,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               <NavItem to="/storage" label="Storage" icon={Database} />
             </NavSection>
             <NavSection label="System">
+              <NavItem to="/ssh-keys" label="SSH Keys" icon={KeyRound} />
               <NavItem to="/logs" label="Logs" icon={ScrollText} />
               <NavItem to="/settings" label="Settings" icon={Settings2} />
             </NavSection>
@@ -165,7 +168,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           <div className="space-y-1">
             <div className="flex items-center gap-1">
               <ThemeToggle />
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.2.6</span>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.3.0</span>
               <Tooltip label="Sign out" side="top">
                 <button
                   type="button"

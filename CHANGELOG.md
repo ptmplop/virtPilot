@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.0] — 2026-04-30
+
+### Added
+- SSH Keys management section in the sidebar — save public keys with a friendly name and reuse them across VM provisioning
+- VM provisioning wizard now shows a checkbox list of saved SSH keys instead of a free-form textarea; zero or more keys can be selected per VM
+
 ## [1.2.6] — 2026-04-30
 
 ### Fixed

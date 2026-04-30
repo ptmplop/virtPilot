@@ -10,6 +10,7 @@ import { IsosPage } from '@/pages/Isos';
 import { StoragePage } from '@/pages/Storage';
 import { SettingsPage } from '@/pages/Settings';
 import { LogsPage } from '@/pages/Logs';
+import { SshKeysPage } from '@/pages/SshKeys';
 import { LoginPage } from '@/pages/Login';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 
@@ -102,6 +103,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <LogsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ssh-keys"
+        element={
+          <ProtectedRoute>
+            <SshKeysPage />
           </ProtectedRoute>
         }
       />

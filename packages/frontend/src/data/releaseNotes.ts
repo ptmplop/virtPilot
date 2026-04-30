@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.3.0',
+    date: '2026-04-30',
+    changes: [
+      { type: 'added', text: 'SSH Keys page — save public keys with a friendly name and select them during VM provisioning' },
+      { type: 'added', text: 'VM creation wizard now shows a checkbox picker for saved SSH keys instead of a free-form textarea' },
+    ],
+  },
+  {
     version: '1.2.6',
     date: '2026-04-30',
     changes: [

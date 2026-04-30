@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';
 import { useCreateVm } from '@/hooks/useVms';
+import { useSshKeys } from '@/hooks/useSshKeys';
 import { api } from '@/lib/api';
 import { useTemplates } from '@/hooks/useTemplates';
 import { useIsos } from '@/hooks/useIsos';
@@ -57,7 +58,7 @@ interface FormData {
   hostname: string;
   username: string;
   password: string;
-  sshKeys: string;
+  selectedSshKeyIds: string[];
   cpuMode: CpuMode;
   nicModel: NicModel;
   firmware: FirmwareMode;
@@ -77,7 +78,7 @@ const defaults: FormData = {
   hostname: '',
   username: 'ubuntu',
   password: '',
-  sshKeys: '',
+  selectedSshKeyIds: [],
   cpuMode: 'host-passthrough',
   nicModel: 'virtio',
   firmware: 'uefi',
@@ -1064,6 +1065,93 @@ function NetworkCardWithIps({
   );
 }
 
+// ─── SSH key picker ───────────────────────────────────────────────────────────
+
+function SshKeyPicker({
+  form,
+  setForm,
+}: {
+  form: FormData;
+  setForm: React.Dispatch<React.SetStateAction<FormData>>;
+}) {
+  const { data: keys, isLoading } = useSshKeys();
+
+  const toggle = (id: string) => {
+    setForm((f) => {
+      const already = f.selectedSshKeyIds.includes(id);
+      return {
+        ...f,
+        selectedSshKeyIds: already
+          ? f.selectedSshKeyIds.filter((k) => k !== id)
+          : [...f.selectedSshKeyIds, id],
+      };
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <FieldLabel icon={KeyRound} hint="— optional">SSH Keys</FieldLabel>
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner className="h-3.5 w-3.5" /> Loading keys…
+        </div>
+      ) : !keys?.length ? (
+        <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center">
+          <p className="text-xs text-muted-foreground/60">No SSH keys saved.</p>
+          <Link
+            to="/ssh-keys"
+            className="mt-1 inline-block text-xs text-primary hover:underline"
+          >
+            Add keys in SSH Keys settings →
+          </Link>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-border">
+          {keys.map((key, i) => {
+            const selected = form.selectedSshKeyIds.includes(key.id);
+            return (
+              <button
+                key={key.id}
+                type="button"
+                onClick={() => toggle(key.id)}
+                className={cn(
+                  'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors',
+                  i > 0 && 'border-t border-border/60',
+                  selected ? 'bg-primary/5' : 'hover:bg-muted/40'
+                )}
+              >
+                <div
+                  className={cn(
+                    'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors',
+                    selected
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-input bg-background'
+                  )}
+                >
+                  {selected && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">{key.name}</p>
+                  <p className="truncate font-mono text-[10px] text-muted-foreground/50">
+                    {key.publicKey.slice(0, 48)}…
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!!keys?.length && (
+        <p className="text-xs text-muted-foreground/50">
+          {form.selectedSshKeyIds.length === 0
+            ? 'No keys selected — password-only access.'
+            : `${form.selectedSshKeyIds.length} key${form.selectedSshKeyIds.length !== 1 ? 's' : ''} will be authorised on this VM.`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Authentication step ──────────────────────────────────────────────────────
 
 function AuthStep({
@@ -1154,23 +1242,7 @@ function AuthStep({
         </div>
       </div>
 
-      <div className="space-y-3">
-        <FieldLabel icon={KeyRound} hint="— optional">SSH Public Keys</FieldLabel>
-        <textarea
-          className={cn(
-            'block w-full resize-none rounded-lg border border-input bg-background px-3 py-2.5',
-            'font-mono text-xs text-foreground placeholder:text-muted-foreground/35',
-            'focus:outline-none focus:ring-2 focus:ring-ring'
-          )}
-          rows={4}
-          value={form.sshKeys}
-          onChange={(e) => setForm((f) => ({ ...f, sshKeys: e.target.value }))}
-          placeholder={'ssh-ed25519 AAAA...\nssh-rsa AAAA...'}
-        />
-        <p className="text-xs text-muted-foreground/50">
-          One key per line. SSH keys are preferred over passwords for production use.
-        </p>
-      </div>
+      <SshKeyPicker form={form} setForm={setForm} />
     </div>
   );
 }
@@ -1221,7 +1293,7 @@ function ReviewStep({
   startAfterCreate: boolean;
   onToggleStart: () => void;
 }) {
-  const sshKeyCount = form.sshKeys.split('\n').filter((k) => k.trim()).length;
+  const sshKeyCount = form.selectedSshKeyIds.length;
   const isIso = form.sourceType === 'iso';
   return (
     <div className="space-y-4">
@@ -1308,6 +1380,7 @@ function ReviewStep({
 export function VmCreatePage() {
   const navigate  = useNavigate();
   const createVm  = useCreateVm();
+  const { data: savedSshKeys = [] } = useSshKeys();
   const { data: templates = [] } = useTemplates();
   const { data: isos = [] }      = useIsos();
   const { data: networks }       = useNetworks();
@@ -1394,9 +1467,9 @@ export function VmCreatePage() {
             hostname: form.hostname || form.name,
             username: form.username,
             password: form.password,
-            sshKeys: form.sshKeys
-              ? form.sshKeys.split('\n').map((k) => k.trim()).filter(Boolean)
-              : [],
+            sshKeys: form.selectedSshKeyIds
+              .map((id) => savedSshKeys.find((k) => k.id === id)?.publicKey ?? '')
+              .filter(Boolean),
           },
         });
       }
