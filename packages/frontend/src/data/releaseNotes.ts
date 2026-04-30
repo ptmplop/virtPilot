@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.7.0',
+    date: '2026-04-30',
+    changes: [
+      { type: 'added', text: 'Two-factor authentication — enable TOTP-based 2FA in Settings; when active, login requires a 6-digit code from an authenticator app after the password; 2FA can be removed at any time from Settings' },
+    ],
+  },
+  {
     version: '1.6.0',
     date: '2026-04-30',
     changes: [

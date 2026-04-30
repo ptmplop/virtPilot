@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Save, Plus, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Save, Plus, X, ShieldCheck, ShieldOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/Input';
 import { useSettings } from '@/hooks/useSettings';
 import { api } from '@/lib/api';
 import type { Settings } from '@/types';
+
+type TotpSetupState = 'idle' | 'setup';
 
 export function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
@@ -82,6 +84,57 @@ export function SettingsPage() {
     setNewIp('');
     setIpError(null);
   }
+
+  // 2FA state
+  const [totpSetupState, setTotpSetupState] = useState<TotpSetupState>('idle');
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
+  const [totpSecret, setTotpSecret] = useState('');
+  const [totpConfirmCode, setTotpConfirmCode] = useState('');
+  const totpConfirmRef = useRef<HTMLInputElement>(null);
+
+  const setup2fa = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<{ secret: string; qrCodeDataUrl: string }>('/api/2fa/setup');
+      return data;
+    },
+    onSuccess: (data) => {
+      setQrCodeDataUrl(data.qrCodeDataUrl);
+      setTotpSecret(data.secret);
+      setTotpSetupState('setup');
+      setTimeout(() => totpConfirmRef.current?.focus(), 50);
+    },
+    onError: () => toast.error('Failed to start 2FA setup'),
+  });
+
+  const enable2fa = useMutation({
+    mutationFn: async (code: string) => {
+      await api.post('/api/2fa/enable', { code });
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(['settings'], (prev: typeof settings) =>
+        prev ? { ...prev, totpEnabled: true } : prev,
+      );
+      setTotpSetupState('idle');
+      setTotpConfirmCode('');
+      setQrCodeDataUrl('');
+      setTotpSecret('');
+      toast.success('Two-factor authentication enabled');
+    },
+    onError: () => toast.error('Invalid code — please try again'),
+  });
+
+  const disable2fa = useMutation({
+    mutationFn: async () => {
+      await api.delete('/api/2fa');
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(['settings'], (prev: typeof settings) =>
+        prev ? { ...prev, totpEnabled: false } : prev,
+      );
+      toast.success('Two-factor authentication removed');
+    },
+    onError: () => toast.error('Failed to remove 2FA'),
+  });
 
   const configRows: [string, string][] = settings ? [
     ['Storage Root',        settings.storageRoot],
@@ -224,6 +277,110 @@ export function SettingsPage() {
                 <Save className="h-3.5 w-3.5" />
                 Save Whitelist
               </Button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Two-factor authentication */}
+      <section className="mb-5">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-foreground">Two-Factor Authentication</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Require a time-based one-time code from an authenticator app (Google Authenticator, Authy, etc.) on every login.
+          </p>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
+          {isLoading ? (
+            <Skeleton className="h-10 rounded-lg" />
+          ) : settings?.totpEnabled ? (
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2.5">
+                <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                <span className="text-sm font-medium text-foreground">2FA is enabled</span>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => disable2fa.mutate()}
+                disabled={disable2fa.isPending}
+                className="gap-1.5 text-destructive hover:text-destructive"
+              >
+                <ShieldOff className="h-3.5 w-3.5" />
+                Remove 2FA
+              </Button>
+            </div>
+          ) : totpSetupState === 'idle' ? (
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2.5">
+                <ShieldOff className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">2FA is not enabled</span>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setup2fa.mutate()}
+                disabled={setup2fa.isPending}
+                className="gap-1.5"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Set up authenticator
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Scan this QR code with your authenticator app, then enter the 6-digit code below to confirm.
+              </p>
+              <div className="flex gap-6">
+                {qrCodeDataUrl && (
+                  <img
+                    src={qrCodeDataUrl}
+                    alt="2FA QR code"
+                    className="h-32 w-32 shrink-0 rounded-lg border border-border bg-white p-1"
+                  />
+                )}
+                <div className="flex flex-col justify-center gap-2 min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Manual entry key</p>
+                  <p className="break-all font-mono text-xs text-foreground select-all">{totpSecret}</p>
+                </div>
+              </div>
+              <div className="flex items-end gap-3">
+                <div className="w-40">
+                  <Input
+                    ref={totpConfirmRef}
+                    label="Confirm code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={totpConfirmCode}
+                    onChange={(e) => setTotpConfirmCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && totpConfirmCode.length === 6) {
+                        e.preventDefault();
+                        enable2fa.mutate(totpConfirmCode);
+                      }
+                    }}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => enable2fa.mutate(totpConfirmCode)}
+                  disabled={enable2fa.isPending || totpConfirmCode.length !== 6}
+                  className="gap-1.5"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Activate
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => { setTotpSetupState('idle'); setTotpConfirmCode(''); }}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
         </div>

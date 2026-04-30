@@ -182,6 +182,7 @@ export interface Settings {
   kvmAvailable: boolean;
   maxLogs: number;
   ipWhitelist: string[];
+  totpEnabled: boolean;
 }
 
 export interface VmDiskFile {

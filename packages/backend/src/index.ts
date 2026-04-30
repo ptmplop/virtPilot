@@ -15,6 +15,7 @@ import { systemRouter } from './routes/system.js';
 import { logsRouter } from './routes/logs.js';
 import { devicesRouter } from './routes/devices.js';
 import { sshKeysRouter } from './routes/sshKeys.js';
+import { totpRouter } from './routes/totp.js';
 import { requireAuth, verifyWsToken, isIpAllowed } from './middleware/auth.js';
 import { getUserSettings } from './services/userSettingsService.js';
 import { createConsoleWss } from './console.js';
@@ -45,6 +46,7 @@ app.use('/api/system', requireAuth, systemRouter);
 app.use('/api/logs', requireAuth, logsRouter);
 app.use('/api/devices', requireAuth, devicesRouter);
 app.use('/api/ssh-keys', requireAuth, sshKeysRouter);
+app.use('/api/2fa', requireAuth, totpRouter);
 
 // Serve built frontend in production
 const frontendDist = path.resolve(__dirname, '../../frontend/dist');

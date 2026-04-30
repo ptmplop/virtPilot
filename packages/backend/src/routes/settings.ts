@@ -19,6 +19,7 @@ settingsRouter.get('/', async (_req, res) => {
         kvmAvailable: kvmAvailable(),
         maxLogs: user.maxLogs,
         ipWhitelist: user.ipWhitelist,
+        totpEnabled: user.totpEnabled,
       },
     });
   } catch (err: unknown) {

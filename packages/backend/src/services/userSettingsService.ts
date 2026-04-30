@@ -5,9 +5,12 @@ import { config } from '../config.js';
 export interface UserSettings {
   maxLogs: number;
   ipWhitelist: string[];
+  totpEnabled: boolean;
+  totpSecret?: string;
+  totpPendingSecret?: string;
 }
 
-const DEFAULT: UserSettings = { maxLogs: 500, ipWhitelist: [] };
+const DEFAULT: UserSettings = { maxLogs: 500, ipWhitelist: [], totpEnabled: false };
 
 const settingsFile = () => path.join(config.storageRoot, 'user-settings.json');
 
@@ -25,6 +28,9 @@ export async function saveUserSettings(updates: Partial<UserSettings>): Promise<
   const merged = { ...current };
   if (updates.maxLogs !== undefined) merged.maxLogs = updates.maxLogs;
   if (updates.ipWhitelist !== undefined) merged.ipWhitelist = updates.ipWhitelist;
+  if (updates.totpEnabled !== undefined) merged.totpEnabled = updates.totpEnabled;
+  if ('totpSecret' in updates) merged.totpSecret = updates.totpSecret;
+  if ('totpPendingSecret' in updates) merged.totpPendingSecret = updates.totpPendingSecret;
   if (typeof merged.maxLogs !== 'number' || merged.maxLogs < 10) merged.maxLogs = 10;
   if (merged.maxLogs > 10_000) merged.maxLogs = 10_000;
   if (!Array.isArray(merged.ipWhitelist)) merged.ipWhitelist = [];

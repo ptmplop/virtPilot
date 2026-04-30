@@ -1,32 +1,72 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, Lock } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, ShieldCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/ui/Button';
+
+type Step = 'password' | 'totp';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const setToken = useAuthStore((s) => s.setToken);
 
+  const [step, setStep] = useState<Step>('password');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [tempToken, setTempToken] = useState('');
+  const [totpCode, setTotpCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const totpInputRef = useRef<HTMLInputElement>(null);
 
-  async function handleSubmit(e: FormEvent) {
+  async function handlePasswordSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const { data } = await api.post<{ token: string }>('/api/auth/login', { password });
-      setToken(data.token);
-      navigate('/', { replace: true });
+      const { data } = await api.post<{ token?: string; requiresTotp?: boolean; tempToken?: string }>(
+        '/api/auth/login',
+        { password },
+      );
+      if (data.requiresTotp && data.tempToken) {
+        setTempToken(data.tempToken);
+        setStep('totp');
+        setTimeout(() => totpInputRef.current?.focus(), 50);
+      } else if (data.token) {
+        setToken(data.token);
+        navigate('/', { replace: true });
+      }
     } catch {
       setError('Invalid password.');
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleTotpSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const { data } = await api.post<{ token: string }>('/api/auth/verify-totp', {
+        tempToken,
+        code: totpCode,
+      });
+      setToken(data.token);
+      navigate('/', { replace: true });
+    } catch {
+      setError('Invalid authenticator code.');
+      setTotpCode('');
+      totpInputRef.current?.focus();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleTotpInput(e: ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setTotpCode(val);
   }
 
   return (
@@ -96,56 +136,114 @@ export function LoginPage() {
             }}
           />
 
-          {/* Heading */}
-          <div className="mb-6 flex items-center gap-3">
-            <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
-              style={{
-                background:
-                  'linear-gradient(135deg, hsl(214 100% 62% / 0.2), hsl(214 100% 62% / 0.06))',
-                boxShadow: 'inset 0 0 0 1px hsl(214 100% 62% / 0.2)',
-              }}
-            >
-              <Lock size={13} className="text-primary" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">Authenticate</h2>
-              <p className="text-[11px] leading-tight text-muted-foreground">
-                Enter your admin password
-              </p>
-            </div>
-          </div>
+          {step === 'password' ? (
+            <>
+              {/* Heading */}
+              <div className="mb-6 flex items-center gap-3">
+                <div
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, hsl(214 100% 62% / 0.2), hsl(214 100% 62% / 0.06))',
+                    boxShadow: 'inset 0 0 0 1px hsl(214 100% 62% / 0.2)',
+                  }}
+                >
+                  <Lock size={13} className="text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Authenticate</h2>
+                  <p className="text-[11px] leading-tight text-muted-foreground">
+                    Enter your admin password
+                  </p>
+                </div>
+              </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-foreground">Password</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  autoFocus
-                  required
-                  className="block w-full rounded-lg border border-input bg-background py-2 pl-3 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                />
+              <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      autoFocus
+                      required
+                      className="block w-full rounded-lg border border-input bg-background py-2 pl-3 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      tabIndex={-1}
+                      className="absolute inset-y-0 right-3 flex items-center text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  {error && <p className="text-xs text-destructive">{error}</p>}
+                </div>
+
+                <Button type="submit" disabled={loading} className="w-full">
+                  {loading && <Loader2 size={14} className="animate-spin" />}
+                  {loading ? 'Signing in…' : 'Sign in'}
+                </Button>
+              </form>
+            </>
+          ) : (
+            <>
+              {/* Heading */}
+              <div className="mb-6 flex items-center gap-3">
+                <div
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, hsl(214 100% 62% / 0.2), hsl(214 100% 62% / 0.06))',
+                    boxShadow: 'inset 0 0 0 1px hsl(214 100% 62% / 0.2)',
+                  }}
+                >
+                  <ShieldCheck size={13} className="text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Two-factor authentication</h2>
+                  <p className="text-[11px] leading-tight text-muted-foreground">
+                    Enter the 6-digit code from your authenticator app
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleTotpSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">Authenticator code</label>
+                  <input
+                    ref={totpInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={totpCode}
+                    onChange={handleTotpInput}
+                    placeholder="000000"
+                    required
+                    maxLength={6}
+                    className="block w-full rounded-lg border border-input bg-background py-2 pl-3 pr-3 text-center font-mono text-lg tracking-[0.35em] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  {error && <p className="text-xs text-destructive">{error}</p>}
+                </div>
+
+                <Button type="submit" disabled={loading || totpCode.length !== 6} className="w-full">
+                  {loading && <Loader2 size={14} className="animate-spin" />}
+                  {loading ? 'Verifying…' : 'Verify'}
+                </Button>
+
                 <button
                   type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  tabIndex={-1}
-                  className="absolute inset-y-0 right-3 flex items-center text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => { setStep('password'); setError(''); setTotpCode(''); }}
+                  className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  ← Back to password
                 </button>
-              </div>
-              {error && <p className="text-xs text-destructive">{error}</p>}
-            </div>
-
-            <Button type="submit" disabled={loading} className="w-full">
-              {loading && <Loader2 size={14} className="animate-spin" />}
-              {loading ? 'Signing in…' : 'Sign in'}
-            </Button>
-          </form>
+              </form>
+            </>
+          )}
         </div>
 
         {/* Footer */}
@@ -158,7 +256,7 @@ export function LoginPage() {
             System online
           </span>
           <span className="text-muted-foreground/60">·</span>
-          <span className="font-mono text-[10px] text-muted-foreground">v1.3.0</span>
+          <span className="font-mono text-[10px] text-muted-foreground">v1.7.0</span>
         </div>
       </div>
     </div>
