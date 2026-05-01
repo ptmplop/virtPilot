@@ -13,6 +13,7 @@ import * as deviceService from '../services/deviceService.js';
 import * as storageService from '../services/storageService.js';
 import * as networkService from '../services/networkService.js';
 import * as vmMetaService from '../services/vmMetaService.js';
+import * as vmMetricsService from '../services/vmMetricsService.js';
 import * as portForwardService from '../services/portForwardService.js';
 import * as firewallService from '../services/firewallService.js';
 import * as logService from '../services/logService.js';
@@ -363,6 +364,7 @@ vmsRouter.put('/:name/rename', async (req, res) => {
     }
     await portForwardService.renameVmReferences(name, newName);
     await firewallService.renameFirewallConfig(name, newName);
+    vmMetricsService.renameVmMetrics(name, newName);
 
     void logService.appendLog({ type: 'vm.rename', subject: name, status: 'success', output: `Renamed to ${newName}`, durationMs: Date.now() - start });
     res.json({ ok: true, newName });
@@ -385,6 +387,7 @@ vmsRouter.delete('/:name', async (req, res) => {
     await portForwardService.deletePortForwardsForVm(name);
     await vmMetaService.deleteVmMeta(name);
     await firewallService.deleteFirewallConfig(name);
+    vmMetricsService.deleteVmMetrics(name);
     void logService.appendLog({ type: 'vm.delete', subject: name, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
@@ -835,6 +838,17 @@ vmsRouter.get('/:name/stats', async (req, res) => {
     const stats = await vmService.getVmStats(req.params.name);
     if (!stats) return res.status(503).json({ error: 'VM is not running or stats unavailable' });
     res.json(stats);
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Per-VM persistent metrics history (SQLite-backed)
+vmsRouter.get('/:name/metrics', (req, res) => {
+  const range = req.query.range === '24h' ? '24h' : '1h';
+  try {
+    const history = vmMetricsService.getVmMetricsHistory(req.params.name, range);
+    res.json({ range, history });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

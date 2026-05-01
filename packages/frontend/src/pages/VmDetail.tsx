@@ -22,11 +22,10 @@ import {
   useSnapshots, useCreateSnapshot, useDeleteSnapshot, useRevertSnapshot, useSnapshotToTemplate,
   useVmIfAddrs, useVmReservations,
   useVmFirewall, useSaveFirewall, useApplyFirewall,
-  useSetAutostart, useResizeDisk, useUpdateVmResources, useVmStats,
+  useSetAutostart, useResizeDisk, useUpdateVmResources, useVmStats, useVmMetricsHistory,
   useRenameVm,
 } from '@/hooks/useVms';
-import { useEffect, useRef } from 'react';
-import type { VmStatsSample } from '@/types';
+import type { VmMetricsRange } from '@/types';
 import { useHostDevices, useAttachDevice, useDetachDevice } from '@/hooks/useDevices';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
@@ -2874,26 +2873,43 @@ function fmtBps(bps: number): string {
   return `${(bps / 1024 / 1024).toFixed(1)} MB/s`;
 }
 
+type ChartRange = 'live' | VmMetricsRange;
+
+interface ChartPoint {
+  cpuPercent: number;
+  memUsedMb: number;
+  memTotalMb: number;
+  diskReadBps: number;
+  diskWriteBps: number;
+  netRxBps: number;
+  netTxBps: number;
+}
+
 function MetricsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }) {
   const isRunning = vmStatus === 'running';
   const { data: stats, isError } = useVmStats(vmName, isRunning);
 
-  // Keep a rolling local history for charts (backend returns its own buffer, but accumulate more)
-  const historyRef = useRef<VmStatsSample[]>([]);
-  useEffect(() => {
-    if (!stats?.current) return;
-    historyRef.current = [...(stats.history ?? [historyRef.current[historyRef.current.length - 1]].filter(Boolean))];
-  }, [stats]);
+  const [range, setRange] = useState<ChartRange>('1h');
+  const historyEnabled = range !== 'live';
+  const { data: metrics } = useVmMetricsHistory(
+    vmName,
+    range === 'live' ? '1h' : range,
+    historyEnabled,
+  );
 
-  const history = stats?.history ?? [];
+  const liveHistory = stats?.history ?? [];
   const current = stats?.current;
 
-  const cpuData = history.map((s) => s.cpuPercent);
-  const memData = history.map((s) => (s.memTotalMb > 0 ? (s.memUsedMb / s.memTotalMb) * 100 : 0));
-  const diskRdData = history.map((s) => s.diskReadBps);
-  const diskWrData = history.map((s) => s.diskWriteBps);
-  const netRxData = history.map((s) => s.netRxBps);
-  const netTxData = history.map((s) => s.netTxBps);
+  const points: ChartPoint[] = range === 'live'
+    ? liveHistory
+    : (metrics?.history ?? []);
+
+  const cpuData = points.map((s) => s.cpuPercent);
+  const memData = points.map((s) => (s.memTotalMb > 0 ? (s.memUsedMb / s.memTotalMb) * 100 : 0));
+  const diskRdData = points.map((s) => s.diskReadBps);
+  const diskWrData = points.map((s) => s.diskWriteBps);
+  const netRxData = points.map((s) => s.netRxBps);
+  const netTxData = points.map((s) => s.netTxBps);
 
   if (!isRunning) {
     return (
@@ -2907,7 +2923,7 @@ function MetricsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }
     );
   }
 
-  if (isError || (!current && !history.length)) {
+  if (isError || (!current && !liveHistory.length)) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
@@ -2951,8 +2967,30 @@ function MetricsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }
         />
       </div>
 
+      {/* Range selector */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">History</span>
+        <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-card">
+          {(['live', '1h', '24h'] as const).map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRange(r)}
+              className={cn(
+                'px-3 py-1 text-[11px] font-semibold uppercase tracking-widest rounded-md transition',
+                range === r
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {r === 'live' ? 'Live' : r}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Charts */}
-      {history.length > 1 && (
+      {points.length > 1 ? (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <ChartCard title="CPU Usage" unit="%" data={cpuData} color="hsl(214 100% 52%)" max={100} />
           <ChartCard title="Memory Usage" unit="%" data={memData} color="hsl(158 60% 34%)" max={100} />
@@ -2976,6 +3014,15 @@ function MetricsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }
             legend={['RX', 'TX']}
             formatVal={fmtBps}
           />
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-12 text-center">
+          <p className="text-sm font-medium text-foreground">No samples yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {range === 'live'
+              ? 'Waiting for live samples…'
+              : 'Metrics are sampled every 30 seconds. History will appear shortly.'}
+          </p>
         </div>
       )}
     </div>

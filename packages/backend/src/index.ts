@@ -25,7 +25,9 @@ import { createVncWss } from './vnc.js';
 import { ensureDirs } from './services/storageService.js';
 import { applyAllRules } from './services/portForwardService.js';
 import { startSampling } from './services/statsService.js';
+import { startVmMetricsSampling } from './services/vmMetricsService.js';
 import { startBackupScheduler } from './services/backupSchedulerService.js';
+import { getDb } from './services/db.js';
 
 const app = express();
 
@@ -101,7 +103,13 @@ async function main() {
   } catch (err) {
     console.warn('Could not apply port forward iptables rules:', err);
   }
+  try {
+    getDb();
+  } catch (err) {
+    console.warn('Could not initialise SQLite database:', err);
+  }
   startSampling();
+  startVmMetricsSampling();
   startBackupScheduler();
   server.listen(config.port, () => {
     console.log(`VirtPilot backend listening on port ${config.port}`);

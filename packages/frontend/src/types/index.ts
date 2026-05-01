@@ -59,6 +59,24 @@ export interface VmStatsResponse {
   history: VmStatsSample[];
 }
 
+export type VmMetricsRange = '1h' | '24h';
+
+export interface VmMetricsPoint {
+  ts: number;
+  cpuPercent: number;
+  memUsedMb: number;
+  memTotalMb: number;
+  diskReadBps: number;
+  diskWriteBps: number;
+  netRxBps: number;
+  netTxBps: number;
+}
+
+export interface VmMetricsResponse {
+  range: VmMetricsRange;
+  history: VmMetricsPoint[];
+}
+
 export interface Template {
   name: string;
   filename: string;

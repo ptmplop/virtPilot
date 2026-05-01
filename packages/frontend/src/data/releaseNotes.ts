@@ -13,6 +13,15 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.11.0',
+    date: '2026-05-01',
+    changes: [
+      { type: 'added', text: 'Per-VM metrics history — the VM detail Metrics tab now has a Live / 1h / 24h range selector backed by a SQLite ring buffer, so CPU, memory, disk and network charts survive restarts and reach back beyond the last 30 seconds' },
+      { type: 'added', text: 'Background sampler writes a metrics row every 30s for every running VM; 24h range aggregates into 5-minute buckets via SQL AVG so the chart stays readable. Rows are pruned after 24 hours' },
+      { type: 'added', text: 'New embedded SQLite layer (`$STORAGE_ROOT/virtpilot.db`) for state libvirt doesn’t track itself — schema, migrations, and per-VM cleanup hooks documented in DATABASE.md so future features can reuse it' },
+    ],
+  },
+  {
     version: '1.10.0',
     date: '2026-05-01',
     changes: [

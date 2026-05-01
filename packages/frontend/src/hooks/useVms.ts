@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { DhcpReservation, FirewallConfig, Vm, VmMeta, VmSnapshot, VmStatsResponse, VmSummary } from '@/types';
+import type { DhcpReservation, FirewallConfig, Vm, VmMeta, VmMetricsRange, VmMetricsResponse, VmSnapshot, VmStatsResponse, VmSummary } from '@/types';
 
 const KEYS = {
   vms: ['vms'] as const,
@@ -342,6 +342,19 @@ export function useVmStats(name: string, enabled = true) {
     },
     enabled,
     refetchInterval: 3_000,
+    retry: false,
+  });
+}
+
+export function useVmMetricsHistory(name: string, range: VmMetricsRange, enabled = true) {
+  return useQuery({
+    queryKey: [...KEYS.vm(name), 'metrics', range] as const,
+    queryFn: async () => {
+      const { data } = await api.get<VmMetricsResponse>(`/api/vms/${name}/metrics`, { params: { range } });
+      return data;
+    },
+    enabled,
+    refetchInterval: range === '1h' ? 30_000 : 5 * 60_000,
     retry: false,
   });
 }
