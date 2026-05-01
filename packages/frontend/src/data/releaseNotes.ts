@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.8.0',
+    date: '2026-05-01',
+    changes: [
+      { type: 'added', text: 'Backup progress indicator — a live in-progress row appears at the top of the per-VM backup table while a backup is running (manual or scheduled), with spinner and animated progress bar; the backup list also shows a progress bar under the VM name and "Backing up…" in the Last Backup column; indicator persists on page navigation via a polled backend endpoint' },
+      { type: 'fixed', text: 'Large backup and restore operations no longer time out — Axios timeout disabled for create-backup and restore calls which can take many minutes on large disks' },
+    ],
+  },
+  {
     version: '1.7.0',
     date: '2026-04-30',
     changes: [

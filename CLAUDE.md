@@ -56,6 +56,20 @@ usermod -aG libvirt $USER
 - NAT bridge names: `vp0`, `vp1`, ... (libvirt network names: `virtpilot-{uuid8}`)
 - Firewall iptables chains: `VP-IN-{vmName}`, `VP-OUT-{vmName}`
 
+## Before every commit — mandatory version bump
+
+Every commit must update all four of these. No exceptions.
+
+1. `packages/frontend/package.json` — bump `"version"`
+2. `packages/backend/package.json` — bump `"version"` to match
+3. `packages/frontend/src/components/layout/Layout.tsx` — bump the hardcoded version string in the sidebar footer (e.g. `v1.7.0`)
+4. `CHANGELOG.md` (repo root, Keep a Changelog format) **and** `packages/frontend/src/data/releaseNotes.ts` (TypeScript array that drives the dashboard About section) — add a new entry to both
+
+Version increment rules:
+- **Patch** (x.x.N) — fixes, tweaks, cosmetic changes
+- **Minor** (x.N.0) — meaningful new features or notable UX additions
+- **Major** (N.0.0) — breaking changes or major rewrites
+
 ## Conventions
 
 - British English in UI copy
