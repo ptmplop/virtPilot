@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.9.2',
+    date: '2026-05-01',
+    changes: [
+      { type: 'fixed', text: 'Deleting a snapshot on a running VM cloned from a shared template no longer fails with "Failed to get write lock" — blockcommit was walking the whole backing chain down to the template; now pinned to the overlay → immediate backing only' },
+    ],
+  },
+  {
     version: '1.9.1',
     date: '2026-05-01',
     changes: [

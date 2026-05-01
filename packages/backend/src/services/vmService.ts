@@ -559,10 +559,21 @@ export async function deleteSnapshot(nameOrId: string, snapshotName: string): Pr
   for (const sd of snapDisks) {
     overlayFiles.push(sd.file);
     if (running) {
+      // Without --top/--base, blockcommit walks the entire chain down to the
+      // bottom-most backing file — which for VMs cloned from a shared template
+      // is read-only and held by other domains, producing a "Failed to get
+      // write lock" error. Pin the merge to overlay → immediate backing only.
+      const { stdout: chainJson } = await execAsync(
+        `qemu-img info --force-share --output=json --backing-chain "${sd.file}"`,
+      );
+      const chain = JSON.parse(chainJson) as Array<{ filename: string; 'backing-filename'?: string }>;
+      const backing = chain[0]?.['backing-filename'];
+      if (!backing) throw new Error(`Could not determine backing file for ${sd.file}`);
+      const backingAbs = path.isAbsolute(backing) ? backing : path.resolve(path.dirname(sd.file), backing);
       // Active commit: merge active overlay into its backing and pivot the
       // domain to use the (now updated) backing file as the active disk.
       await virsh(
-        `blockcommit ${nameOrId} ${sd.target} --active --pivot --wait --verbose`,
+        `blockcommit ${nameOrId} ${sd.target} --active --pivot --wait --verbose --top "${sd.file}" --base "${backingAbs}"`,
         trace,
         SNAPSHOT_TIMEOUT,
       );
