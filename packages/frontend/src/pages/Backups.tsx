@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   Clock,
   HardDrive,
+  Info,
   Play,
   ShieldAlert,
   Trash2,
@@ -103,6 +104,7 @@ function BackupsList({ onSelect }: { onSelect: (name: string) => void }) {
   return (
     <Layout title="Backups" subtitle="Manage VM backups and schedules">
       <div className="space-y-3">
+        <BackupInfoPanel />
         {isLoading ? (
           Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-16 rounded-xl" />
@@ -116,6 +118,70 @@ function BackupsList({ onSelect }: { onSelect: (name: string) => void }) {
         )}
       </div>
     </Layout>
+  );
+}
+
+// ─── Info panel ───────────────────────────────────────────────────────────────
+
+function BackupInfoPanel() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-border bg-card/50">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2.5 px-4 py-3 text-left"
+      >
+        <Info size={13} className="shrink-0 text-muted-foreground" />
+        <span className="flex-1 text-xs text-muted-foreground">Understanding backup states</span>
+        <ChevronLeft
+          size={13}
+          className={`text-muted-foreground transition-transform ${open ? '-rotate-90' : 'rotate-90'}`}
+        />
+      </button>
+
+      {open && (
+        <div className="border-t border-border px-4 pb-4 pt-3">
+          <div className="space-y-3">
+            <div className="flex gap-3">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+                <Check size={13} className="text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground">App-consistent</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  The VM's filesystems were frozen via the QEMU guest agent before the disk was
+                  copied. All writes were flushed and paused, so the backup is guaranteed to be
+                  in a clean state — safe to restore databases and any application without extra steps.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+                <ShieldAlert size={13} className="text-amber-400" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground">No guest agent <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400"><ShieldAlert size={8} />No guest agent</span></p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  The QEMU guest agent was not available, so filesystems were not frozen before
+                  copying. The backup may capture a disk mid-write. Simple workloads and stopped
+                  VMs recover cleanly; databases or applications with open transactions may need
+                  a consistency check (e.g. <code className="rounded bg-muted px-1 font-mono">fsck</code>,{' '}
+                  <code className="rounded bg-muted px-1 font-mono">mysqlcheck</code>) after restore.
+                </p>
+                <p className="mt-1.5 text-xs text-muted-foreground/70">
+                  To enable app-consistent backups, install{' '}
+                  <code className="rounded bg-muted px-1 font-mono">qemu-guest-agent</code> inside
+                  the VM and ensure the service is running.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
