@@ -3,6 +3,16 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.5] — 2026-05-01
+
+### Changed
+- Dashboard visual polish: coloured per-metric top accent stripe on all four MetricCards (blue/violet/amber/emerald matching their chart colour); coloured hover glow per card
+- StatTile now supports `blue` and `violet` accent types; Virtual Machines tile uses blue accent instead of neutral
+- Running VM dots in the VM tile now pulse with `animate-glow-pulse`
+- Host identity card top stripe thickened and made more opaque; card gains a coloured hover shadow (emerald for KVM, amber for TCG)
+- System Updates card gains a coloured top stripe (emerald = up to date, amber = updates available)
+- MetricCard chart area background gradient slightly stronger for better contrast against the chart line
+
 ## [1.8.4] — 2026-05-01
 
 ### Changed

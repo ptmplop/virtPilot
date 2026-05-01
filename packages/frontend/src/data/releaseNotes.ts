@@ -13,6 +13,15 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.8.5',
+    date: '2026-05-01',
+    changes: [
+      { type: 'changed', text: 'Dashboard: coloured top accent stripe on each MetricCard matching its chart colour, with coloured hover glow per card' },
+      { type: 'changed', text: 'Dashboard: StatTile expanded with blue/violet accent types; VM tile uses blue; running VM dots now pulse' },
+      { type: 'changed', text: 'Dashboard: host identity card top stripe thickened; System Updates card gains a coloured top stripe' },
+    ],
+  },
+  {
     version: '1.8.4',
     date: '2026-05-01',
     changes: [

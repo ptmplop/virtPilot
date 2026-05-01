@@ -83,7 +83,57 @@ function LegendItem({ color, label, dashed }: { color: string; label: string; da
 
 // ─── Stat tile ─────────────────────────────────────────────────────────────────
 
-type TileAccent = 'ok' | 'warn' | 'neutral';
+type TileAccent = 'ok' | 'warn' | 'neutral' | 'blue' | 'violet';
+
+const ACCENT_CFG: Record<TileAccent, {
+  border:     string;
+  cardBg:     string;
+  hoverGlow:  string;
+  iconBg:     string;
+  iconColor:  string;
+  labelColor: string;
+  dotColor:   string;
+  barColor:   string;
+  showDot:    boolean;
+}> = {
+  neutral: {
+    border: 'border-border', cardBg: 'bg-card', hoverGlow: '',
+    iconBg: 'bg-muted', iconColor: 'text-muted-foreground',
+    labelColor: 'text-muted-foreground', dotColor: '', barColor: 'bg-border/60', showDot: false,
+  },
+  ok: {
+    border: 'border-border', cardBg: 'bg-card',
+    hoverGlow: 'hover:shadow-[0_0_24px_-4px_rgb(52_211_153_/_0.15)]',
+    iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-500',
+    labelColor: 'text-muted-foreground',
+    dotColor: 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]',
+    barColor: 'bg-emerald-500/50', showDot: true,
+  },
+  warn: {
+    border: 'border-amber-500/25', cardBg: 'bg-amber-500/5',
+    hoverGlow: 'hover:shadow-[0_0_24px_-4px_rgb(245_158_11_/_0.15)]',
+    iconBg: 'bg-amber-500/15', iconColor: 'text-amber-500',
+    labelColor: 'text-amber-500 dark:text-amber-400',
+    dotColor: 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
+    barColor: 'bg-amber-500/60', showDot: true,
+  },
+  blue: {
+    border: 'border-blue-500/20', cardBg: 'bg-blue-500/[0.03]',
+    hoverGlow: 'hover:shadow-[0_0_24px_-4px_rgb(59_130_246_/_0.15)]',
+    iconBg: 'bg-blue-500/10', iconColor: 'text-blue-500',
+    labelColor: 'text-muted-foreground',
+    dotColor: 'bg-blue-500 shadow-[0_0_6px_1px_rgb(59_130_246_/_0.5)]',
+    barColor: 'bg-blue-500/50', showDot: true,
+  },
+  violet: {
+    border: 'border-violet-500/20', cardBg: 'bg-violet-500/[0.03]',
+    hoverGlow: 'hover:shadow-[0_0_24px_-4px_rgb(139_92_246_/_0.15)]',
+    iconBg: 'bg-violet-500/10', iconColor: 'text-violet-500',
+    labelColor: 'text-muted-foreground',
+    dotColor: 'bg-violet-500 shadow-[0_0_6px_1px_rgb(139_92_246_/_0.5)]',
+    barColor: 'bg-violet-500/50', showDot: true,
+  },
+};
 
 interface StatTileProps {
   icon: typeof Cpu;
@@ -98,47 +148,28 @@ interface StatTileProps {
 }
 
 function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', bar, extra, href, delay = 0 }: StatTileProps) {
-  const isWarn = accent === 'warn';
-  const isOk   = accent === 'ok';
+  const a = ACCENT_CFG[accent];
 
   const inner = (
     <div
       className={cn(
-        'group flex h-full flex-col overflow-hidden rounded-xl border bg-gradient-to-b from-white/60 dark:from-white/[0.03] to-transparent shadow-airy animate-fade-up',
+        'group flex h-full flex-col overflow-hidden rounded-xl border bg-gradient-to-b from-white/60 dark:from-white/[0.04] to-transparent shadow-airy animate-fade-up',
         'transition-all duration-200 ease-out',
         href && 'cursor-pointer hover:-translate-y-px',
-        isWarn
-          ? 'border-amber-500/25 bg-amber-500/5 hover:shadow-[0_0_24px_-4px_rgb(245_158_11_/_0.15)]'
-          : isOk
-          ? 'border-border bg-card hover:shadow-[0_0_24px_-4px_rgb(52_211_153_/_0.15)]'
-          : 'border-border bg-card',
+        a.border, a.cardBg, a.hoverGlow,
       )}
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex flex-1 flex-col justify-between px-5 py-4">
         <div className="flex items-center gap-2.5">
-          <div className={cn(
-            'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg badge-radial-hover',
-            isWarn ? 'bg-amber-500/15' : isOk ? 'bg-emerald-500/10' : 'bg-muted',
-          )}>
-            <Icon className={cn(
-              'h-3.5 w-3.5',
-              isWarn ? 'text-amber-500' : isOk ? 'text-emerald-500' : 'text-muted-foreground',
-            )} />
+          <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg badge-radial-hover', a.iconBg)}>
+            <Icon className={cn('h-3.5 w-3.5', a.iconColor)} />
           </div>
-          <span className={cn(
-            'truncate text-[10px] font-semibold uppercase tracking-widest',
-            isWarn ? 'text-amber-500 dark:text-amber-400' : 'text-muted-foreground',
-          )}>
+          <span className={cn('truncate text-[10px] font-semibold uppercase tracking-widest', a.labelColor)}>
             {label}
           </span>
-          {(isOk || isWarn) && (
-            <span className={cn(
-              'ml-auto h-1.5 w-1.5 shrink-0 rounded-full animate-glow-pulse',
-              isOk
-                ? 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]'
-                : 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
-            )} />
+          {a.showDot && (
+            <span className={cn('ml-auto h-1.5 w-1.5 shrink-0 rounded-full animate-glow-pulse', a.dotColor)} />
           )}
         </div>
 
@@ -152,12 +183,9 @@ function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', b
       </div>
 
       {bar !== undefined && (
-        <div className="h-0.5 w-full bg-border/50">
+        <div className="h-1 w-full bg-border/40">
           <div
-            className={cn(
-              'h-full transition-all duration-700',
-              isWarn ? 'bg-amber-500/60' : 'bg-emerald-500/50',
-            )}
+            className={cn('h-full transition-all duration-700', a.barColor)}
             style={{ width: `${Math.min(bar, 100)}%` }}
           />
         </div>
@@ -275,12 +303,17 @@ function HostOverview() {
   return (
     <div className="grid grid-cols-[1fr_1.5fr] gap-4">
       {/* Host identity card */}
-      <div className="animate-fade-up overflow-hidden rounded-xl border border-border bg-card shadow-airy">
+      <div className={cn(
+        'animate-fade-up overflow-hidden rounded-xl border border-border bg-card shadow-airy transition-all duration-200 ease-out',
+        isKvm
+          ? 'hover:shadow-[0_4px_28px_-4px_rgb(52_211_153_/_0.14)]'
+          : 'hover:shadow-[0_4px_28px_-4px_rgb(245_158_11_/_0.14)]',
+      )}>
         <div className={cn(
-          'h-0.5 w-full',
+          'h-[3px] w-full',
           isKvm
-            ? 'bg-gradient-to-r from-emerald-500/60 via-emerald-500/20 to-transparent'
-            : 'bg-gradient-to-r from-amber-500/60 via-amber-500/20 to-transparent',
+            ? 'bg-gradient-to-r from-emerald-500/80 via-emerald-500/30 to-transparent'
+            : 'bg-gradient-to-r from-amber-500/80 via-amber-500/30 to-transparent',
         )} />
         <div className="flex flex-col gap-3 p-5">
 
@@ -336,13 +369,13 @@ function HostOverview() {
           label="Virtual Machines"
           primary={String(total)}
           secondary={`${running} running · ${stopped} stopped`}
-          accent="neutral"
+          accent="blue"
           href="/vms"
           delay={60}
           extra={total > 0 ? (
             <div className="flex flex-wrap gap-1 pt-1">
               {Array.from({ length: Math.min(running, 8) }).map((_, i) => (
-                <span key={`r${i}`} className="h-1.5 w-1.5 rounded-full bg-emerald-500/70 shadow-[0_0_4px_1px_rgb(52_211_153_/_0.4)]" />
+                <span key={`r${i}`} className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_4px_1px_rgb(52_211_153_/_0.4)] animate-glow-pulse" />
               ))}
               {Array.from({ length: Math.min(stopped, 8 - Math.min(running, 8)) }).map((_, i) => (
                 <span key={`s${i}`} className="h-1.5 w-1.5 rounded-full bg-muted-foreground/25" />
@@ -400,19 +433,28 @@ interface MetricCardProps {
   loading?: boolean;
   delay?: number;
   chartBgClass?: string;
+  glowClass?: string;
 }
 
 function MetricCard({
   id, icon: Icon, label, color, accentBg,
   primaryValue, secondaryValue, detail, legend,
   chartData, chartData2, chartColor2, loading,
-  delay = 0, chartBgClass,
+  delay = 0, chartBgClass, glowClass,
 }: MetricCardProps) {
   return (
     <div
-      className="flex h-[220px] overflow-hidden rounded-xl border border-border bg-card shadow-airy animate-fade-up transition-all duration-200 ease-out hover:-translate-y-px hover:shadow-[0_4px_20px_rgb(0_0_0_/_0.1)]"
+      className={cn(
+        'relative flex h-[220px] overflow-hidden rounded-xl border border-border bg-card shadow-airy animate-fade-up transition-all duration-200 ease-out hover:-translate-y-px',
+        glowClass,
+      )}
       style={{ animationDelay: `${delay}ms` }}
     >
+      {/* Coloured top accent stripe */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[3px]"
+        style={{ background: `linear-gradient(90deg, ${color}99 0%, ${color}33 55%, transparent 100%)` }}
+      />
       {/* Left panel */}
       <div className="flex w-56 shrink-0 flex-col px-5 py-5">
         <div className="flex items-center gap-2.5">
@@ -643,6 +685,15 @@ function AptSection() {
   return (
     <>
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        {/* Coloured top stripe */}
+        <div className={cn(
+          'h-[3px] w-full',
+          upToDate
+            ? 'bg-gradient-to-r from-emerald-500/70 via-emerald-500/25 to-transparent'
+            : count > 0
+            ? 'bg-gradient-to-r from-amber-500/70 via-amber-500/25 to-transparent'
+            : 'bg-gradient-to-r from-border/40 to-transparent'
+        )} />
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-5">
           <div className="flex items-center gap-3">
@@ -776,7 +827,8 @@ export function DashboardPage() {
               chartData={cpuHistory.length ? cpuHistory : [0]}
               loading={isLoading}
               delay={0}
-              chartBgClass="bg-gradient-to-r from-blue-500/[0.04] dark:from-blue-500/[0.03] to-transparent"
+              chartBgClass="bg-gradient-to-r from-blue-500/[0.06] dark:from-blue-500/[0.05] to-transparent"
+              glowClass="hover:shadow-[0_6px_30px_-4px_rgb(59_130_246_/_0.14)]"
             />
             <MetricCard
               id="ram"
@@ -800,7 +852,8 @@ export function DashboardPage() {
               chartData={ramHistory.length ? ramHistory : [0]}
               loading={isLoading}
               delay={60}
-              chartBgClass="bg-gradient-to-r from-violet-500/[0.04] dark:from-violet-500/[0.03] to-transparent"
+              chartBgClass="bg-gradient-to-r from-violet-500/[0.06] dark:from-violet-500/[0.05] to-transparent"
+              glowClass="hover:shadow-[0_6px_30px_-4px_rgb(139_92_246_/_0.14)]"
             />
             <MetricCard
               id="disk"
@@ -833,7 +886,8 @@ export function DashboardPage() {
               chartColor2="#f97316"
               loading={isLoading}
               delay={120}
-              chartBgClass="bg-gradient-to-r from-amber-500/[0.04] dark:from-amber-500/[0.03] to-transparent"
+              chartBgClass="bg-gradient-to-r from-amber-500/[0.06] dark:from-amber-500/[0.05] to-transparent"
+              glowClass="hover:shadow-[0_6px_30px_-4px_rgb(245_158_11_/_0.14)]"
             />
             <MetricCard
               id="net"
@@ -871,7 +925,8 @@ export function DashboardPage() {
               chartColor2="#06b6d4"
               loading={isLoading}
               delay={180}
-              chartBgClass="bg-gradient-to-r from-emerald-500/[0.04] dark:from-emerald-500/[0.03] to-transparent"
+              chartBgClass="bg-gradient-to-r from-emerald-500/[0.06] dark:from-emerald-500/[0.05] to-transparent"
+              glowClass="hover:shadow-[0_6px_30px_-4px_rgb(16_185_129_/_0.14)]"
             />
           </div>
         </section>
