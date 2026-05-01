@@ -32,10 +32,12 @@ import {
   useRestoreBackup,
   useSaveSchedule,
   useDeleteSchedule,
+  useRunningBackups,
 } from '@/hooks/useBackups';
+import { Spinner } from '@/components/ui/Spinner';
 import { useVms } from '@/hooks/useVms';
 import { cn } from '@/lib/cn';
-import type { BackupConsistency, BackupEntry, BackupFrequency, BackupSchedule, BackupVmSummary } from '@/types';
+import type { BackupConsistency, BackupEntry, BackupFrequency, BackupInProgress, BackupSchedule, BackupVmSummary } from '@/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -91,8 +93,10 @@ const LIST_COLS = 'minmax(0,1fr) 90px 110px 150px 130px 186px';
 function BackupsList({ onSelect }: { onSelect: (name: string) => void }) {
   const { data: summaries, isLoading: summariesLoading } = useBackupSummaries();
   const { data: vms, isLoading: vmsLoading } = useVms();
+  const { data: runningBackups = [] } = useRunningBackups();
 
   const isLoading = summariesLoading || vmsLoading;
+  const runningSet = new Set(runningBackups.map((r) => r.vmName));
 
   const summaryMap = new Map((summaries ?? []).map((s) => [s.vmName, s]));
   const rows: BackupVmSummary[] = (vms ?? []).map(
@@ -149,7 +153,7 @@ function BackupsList({ onSelect }: { onSelect: (name: string) => void }) {
           ) : (
             <div className="divide-y divide-border/60">
               {rows.map((s, i) => (
-                <SummaryRow key={s.vmName} summary={s} onSelect={onSelect} index={i} />
+                <SummaryRow key={s.vmName} summary={s} onSelect={onSelect} index={i} isRunning={runningSet.has(s.vmName)} />
               ))}
             </div>
           )}
@@ -292,13 +296,16 @@ function SummaryRow({
   summary,
   onSelect,
   index,
+  isRunning,
 }: {
   summary: BackupVmSummary;
   onSelect: (v: string) => void;
   index: number;
+  isRunning: boolean;
 }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const createBackup = useCreateBackup(summary.vmName);
+  const busy = isRunning || createBackup.isPending;
 
   function handleBackupNow() {
     toast.promise(createBackup.mutateAsync(), {
@@ -312,24 +319,31 @@ function SummaryRow({
   return (
     <>
       <div
-        className="grid items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/40"
+        className={cn('grid items-center gap-4 px-5 py-3.5 transition-colors', busy ? 'bg-muted/20' : 'hover:bg-muted/40')}
         style={{ gridTemplateColumns: LIST_COLS, animationDelay: `${index * 30}ms` }}
       >
         {/* Name */}
         <button
           type="button"
           onClick={() => onSelect(summary.vmName)}
-          className="flex items-center gap-3 text-left"
+          className="flex items-start gap-3 text-left"
         >
           <div className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
             summary.backupCount > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
           )}>
-            <HardDrive size={14} />
+            {busy ? <Spinner className="h-3.5 w-3.5" /> : <HardDrive size={14} />}
           </div>
-          <span className="font-medium text-foreground transition-colors hover:text-primary">
-            {summary.vmName}
-          </span>
+          <div className="min-w-0">
+            <span className="font-medium text-foreground transition-colors hover:text-primary">
+              {summary.vmName}
+            </span>
+            {busy && (
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
+                <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
+              </div>
+            )}
+          </div>
         </button>
 
         {/* Count */}
@@ -347,7 +361,7 @@ function SummaryRow({
 
         {/* Last backup */}
         <span className="text-sm text-muted-foreground">
-          {summary.lastBackupAt ? formatRelative(summary.lastBackupAt) : '—'}
+          {busy ? 'Backing up…' : (summary.lastBackupAt ? formatRelative(summary.lastBackupAt) : '—')}
         </span>
 
         {/* Schedule */}
@@ -377,10 +391,10 @@ function SummaryRow({
             size="sm"
             className="h-7 gap-1 px-2.5 text-xs"
             onClick={handleBackupNow}
-            disabled={createBackup.isPending}
+            disabled={busy}
           >
-            {createBackup.isPending
-              ? <Clock size={12} className="animate-spin" />
+            {busy
+              ? <Spinner className="h-3 w-3" />
               : <Play size={12} />}
             Back Up
           </Button>
@@ -424,10 +438,14 @@ const BACKUP_COLS = 'minmax(0,1fr) 90px 60px 170px 110px 80px';
 
 function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void }) {
   const { data, isLoading } = useVmBackups(vmName);
+  const { data: runningBackups = [] } = useRunningBackups();
   const createBackup = useCreateBackup(vmName);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BackupEntry | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<BackupEntry | null>(null);
+
+  const runningEntry: BackupInProgress | undefined = runningBackups.find((r) => r.vmName === vmName);
+  const busy = !!runningEntry || createBackup.isPending;
 
   function handleBackupNow() {
     toast.promise(createBackup.mutateAsync(), {
@@ -475,9 +493,9 @@ function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void
               <CalendarClock size={14} className="mr-1.5" />
               {schedule ? 'Edit Schedule' : 'Set Schedule'}
             </Button>
-            <Button size="sm" onClick={handleBackupNow} disabled={createBackup.isPending}>
-              {createBackup.isPending ? (
-                <><Clock size={13} className="mr-1.5 animate-spin" />Backing up…</>
+            <Button size="sm" onClick={handleBackupNow} disabled={busy}>
+              {busy ? (
+                <><Spinner className="mr-1.5 h-3.5 w-3.5" />Backing up…</>
               ) : (
                 <><Play size={13} className="mr-1.5" />Back Up Now</>
               )}
@@ -519,7 +537,7 @@ function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void
             <div className="space-y-px p-3">
               {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[56px] rounded-xl" />)}
             </div>
-          ) : backups.length === 0 ? (
+          ) : backups.length === 0 && !busy ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
                 <HardDrive className="h-4.5 w-4.5 text-muted-foreground" />
@@ -529,6 +547,7 @@ function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void
             </div>
           ) : (
             <div className="divide-y divide-border/60">
+              {busy && <BackupInProgressRow triggerType={runningEntry?.triggerType ?? 'manual'} />}
               {backups.map((b, i) => (
                 <BackupRow
                   key={b.id}
@@ -638,6 +657,47 @@ function ScheduleBanner({
 }
 
 // ─── Backup row ───────────────────────────────────────────────────────────────
+
+// ─── In-progress row ─────────────────────────────────────────────────────────
+
+function BackupInProgressRow({ triggerType }: { triggerType: 'manual' | 'scheduled' }) {
+  return (
+    <div
+      className="grid items-center gap-4 bg-muted/20 px-5 py-3.5"
+      style={{ gridTemplateColumns: BACKUP_COLS }}
+    >
+      {/* Date cell: spinner + label + progress bar */}
+      <div>
+        <div className="mb-1.5 flex items-center gap-2">
+          <Spinner className="h-3 w-3 shrink-0" />
+          <span className="text-sm font-medium text-muted-foreground">Backing up…</span>
+        </div>
+        <div className="h-1 overflow-hidden rounded-full bg-muted">
+          <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
+        </div>
+      </div>
+      {/* Size */}
+      <span className="font-mono text-sm text-muted-foreground/40">—</span>
+      {/* Disks */}
+      <span />
+      {/* State */}
+      <span />
+      {/* Trigger */}
+      <span>
+        {triggerType === 'scheduled' ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+            <CalendarClock size={9} />
+            Scheduled
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">Manual</span>
+        )}
+      </span>
+      {/* Actions */}
+      <span />
+    </div>
+  );
+}
 
 const consistencyConfig: Record<BackupConsistency, {
   icon: React.ReactNode;

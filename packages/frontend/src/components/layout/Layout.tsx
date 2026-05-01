@@ -17,7 +17,6 @@ import {
   Server,
   Settings2,
 } from 'lucide-react';
-import { BackupProgressCard } from '@/components/ui/BackupProgressCard';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { cn } from '@/lib/cn';
@@ -70,7 +69,6 @@ export function Layout({ children, actions, title, subtitle }: LayoutProps) {
           </div>
         </main>
       </div>
-      <BackupProgressCard />
     </div>
   );
 }
