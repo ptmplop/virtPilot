@@ -101,7 +101,14 @@ function backupId(): string {
 
 // ─── Concurrency guard ────────────────────────────────────────────────────────
 
-const backupsInProgress = new Set<string>();
+interface BackupInProgressEntry { startedAt: string; triggerType: BackupTrigger; }
+const backupsInProgress = new Map<string, BackupInProgressEntry>();
+
+export function getBackupsInProgress(): Array<{ vmName: string; startedAt: string; triggerType: BackupTrigger }> {
+  return Array.from(backupsInProgress.entries()).map(([vmName, { startedAt, triggerType }]) => ({
+    vmName, startedAt, triggerType,
+  }));
+}
 
 // ─── Schedule persistence ─────────────────────────────────────────────────────
 
@@ -228,7 +235,7 @@ export async function createBackup(
   if (backupsInProgress.has(vmName)) {
     throw new Error(`Backup already in progress for VM "${vmName}"`);
   }
-  backupsInProgress.add(vmName);
+  backupsInProgress.set(vmName, { startedAt: new Date().toISOString(), triggerType: opts.triggerType });
 
   try {
     return await _createBackupInner(vmName, opts);

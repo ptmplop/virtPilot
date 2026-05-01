@@ -10,6 +10,7 @@ import {
   saveSchedule,
   deleteSchedule,
   computeNextRunAt,
+  getBackupsInProgress,
   type BackupFrequency,
   type BackupSchedule,
 } from '../services/backupService.js';
@@ -25,6 +26,12 @@ backupsRouter.get('/', async (_req, res) => {
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
+});
+
+// ─── In-progress ─────────────────────────────────────────────────────────────
+
+backupsRouter.get('/running', (_req, res) => {
+  res.json({ running: getBackupsInProgress() });
 });
 
 // ─── Schedules ────────────────────────────────────────────────────────────────

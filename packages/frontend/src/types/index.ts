@@ -193,6 +193,12 @@ export interface Settings {
 }
 
 export type BackupTrigger = 'manual' | 'scheduled';
+
+export interface BackupInProgress {
+  vmName: string;
+  startedAt: string;
+  triggerType: BackupTrigger;
+}
 export type BackupFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly';
 
 export interface BackupDiskEntry {
