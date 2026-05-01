@@ -1137,6 +1137,11 @@ export function DashboardPage() {
         <section className="space-y-3">
           <SectionLabel label="Overview" />
           <HostOverview />
+        </section>
+
+        {/* ── VirtPilot ── */}
+        <section className="space-y-3">
+          <SectionLabel label="VirtPilot" />
           <VirtPilotUpdateCard />
         </section>
 

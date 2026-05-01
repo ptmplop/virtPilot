@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.3',
+    date: '2026-05-02',
+    changes: [
+      { type: 'changed', text: 'Moved the VirtPilot version card out of the Overview section into its own labelled "VirtPilot" section on the Dashboard, matching the structure of the other sections' },
+    ],
+  },
+  {
     version: '1.13.2',
     date: '2026-05-02',
     changes: [
