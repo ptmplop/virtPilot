@@ -3,6 +3,22 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.2] — 2026-05-01
+
+### Changed
+- Templates, ISOs, Networks, Virtual Machines, SSH Keys, and Storage pages now have stat cards at the top (coloured icon accents, bold value, uppercase label) matching the Backups page pattern
+- Storage page ResourceCard updated to use the same icon-left layout as StatCard with per-type colour accents (violet/blue/emerald)
+- Virtual Machines page subtitle simplified to static string; counts moved into stat cards
+
+## [1.8.1] — 2026-05-01
+
+### Changed
+- UI consistency pass across all pages: standardised card shadows to `shadow-sm`, unified empty-state layout (py-20, h-14 w-14 icon wrapper, h-6 w-6 icon), aligned table header styles (bg-muted/40, font-semibold, tracking-widest), and table row padding to py-3.5
+- Logs page empty state now matches the style used on all other pages
+- Spinner component now used consistently for all loading indicators — replaced ad-hoc Loader2 usage in VmConsole and Login
+- Physical NIC picker in the Create Network dialog now uses the Select component instead of a raw select element
+- "History →" link in the Backups table now uses the Button ghost variant
+
 ## [1.8.0] — 2026-05-01
 
 ### Added

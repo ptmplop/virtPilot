@@ -13,6 +13,25 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.8.2',
+    date: '2026-05-01',
+    changes: [
+      { type: 'changed', text: 'Templates, ISOs, Networks, Virtual Machines, SSH Keys, and Storage pages all have stat cards at the top with coloured icon accents, matching the Backups page pattern' },
+      { type: 'changed', text: 'Storage ResourceCard updated to icon-left layout with per-type colour accents (violet/blue/emerald)' },
+      { type: 'changed', text: 'Virtual Machines page subtitle simplified; VM counts moved into stat cards' },
+    ],
+  },
+  {
+    version: '1.8.1',
+    date: '2026-05-01',
+    changes: [
+      { type: 'changed', text: 'UI consistency pass: standardised card shadows, empty-state layout, table header and row styles across all pages' },
+      { type: 'changed', text: 'Spinner component used consistently — replaced ad-hoc Loader2 usage in VmConsole and Login' },
+      { type: 'changed', text: 'Physical NIC picker in Create Network dialog uses the Select component' },
+      { type: 'changed', text: '"History →" link in the Backups table uses the Button ghost variant' },
+    ],
+  },
+  {
     version: '1.8.0',
     date: '2026-05-01',
     changes: [

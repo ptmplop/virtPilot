@@ -26,6 +26,29 @@ import type { VmStatus, VmSummary } from '@/types';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
 
+// ─── Stat card ────────────────────────────────────────────────────────────────
+
+function StatCard({ icon: Icon, label, value, iconClass }: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  iconClass: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
+          <Icon size={15} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const statusConfig: Record<VmStatus, {
@@ -49,17 +72,16 @@ export function VmsPage() {
   const [search, setSearch] = useState('');
   const { data: vms, isLoading, error } = useVms();
 
-  const total   = vms?.length ?? 0;
-  const running = vms?.filter((v) => v.status === 'running').length ?? 0;
-  const stopped = vms?.filter((v) => v.status === 'stopped').length ?? 0;
+  const total      = vms?.length ?? 0;
+  const running    = vms?.filter((v) => v.status === 'running').length ?? 0;
+  const stopped    = vms?.filter((v) => v.status === 'stopped').length ?? 0;
+  const totalCpus  = vms?.reduce((s, v) => s + v.cpus, 0) ?? 0;
 
   const filtered = (vms ?? []).filter((v) =>
     v.name.toLowerCase().includes(search.toLowerCase().trim())
   );
 
-  const subtitle = vms
-    ? `${total} ${total === 1 ? 'VM' : 'VMs'} · ${running} running · ${stopped} stopped`
-    : 'Manage your KVM virtual machines';
+  const subtitle = 'Manage your KVM virtual machines';
 
   return (
     <Layout
@@ -74,6 +96,14 @@ export function VmsPage() {
         </Link>
       }
     >
+      {/* Stats */}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard icon={Server} label="Virtual Machines" value={isLoading ? '—' : String(total)} iconClass="bg-blue-500/10 text-blue-500" />
+        <StatCard icon={Power} label="Running" value={isLoading ? '—' : String(running)} iconClass="bg-emerald-500/10 text-emerald-500" />
+        <StatCard icon={PowerOff} label="Stopped" value={isLoading ? '—' : String(stopped)} iconClass="bg-muted text-muted-foreground" />
+        <StatCard icon={Cpu} label="vCPUs Allocated" value={isLoading ? '—' : String(totalCpus)} iconClass="bg-violet-500/10 text-violet-500" />
+      </div>
+
       {/* Search */}
       <div className="mb-5">
         <div className="relative max-w-sm">

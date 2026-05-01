@@ -107,7 +107,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
         type="button"
         onClick={() => hasOutput && setExpanded((v) => !v)}
         className={cn(
-          'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors',
+          'flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors',
           hasOutput ? 'cursor-pointer hover:bg-muted/30' : 'cursor-default'
         )}
       >
@@ -277,7 +277,7 @@ export function LogsPage() {
       {/* Table */}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-border bg-muted/30 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+        <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
           <span className="w-3.5 shrink-0" />
           <span className="w-4 shrink-0" />
           <span className="w-44 shrink-0">Action</span>
@@ -294,10 +294,15 @@ export function LogsPage() {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
-            <Terminal className="h-8 w-8 opacity-30" />
-            <p className="text-sm">
-              {logs?.length === 0 ? 'No logs yet — actions will appear here.' : 'No entries match the current filters.'}
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
+              <Terminal className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">
+              {logs?.length === 0 ? 'No logs yet' : 'No entries match the filters'}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {logs?.length === 0 ? 'Actions will appear here as they run.' : 'Try adjusting or clearing the current filters.'}
             </p>
           </div>
         ) : (

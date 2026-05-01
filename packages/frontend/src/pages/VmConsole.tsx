@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Cpu, Loader2, Monitor, Play, Power, RefreshCw, Square, Terminal, Wifi, Zap } from 'lucide-react';
+import { ArrowLeft, Monitor, Play, Power, RefreshCw, Square, Terminal, Wifi, Zap } from 'lucide-react';
+import { Spinner } from '@/components/ui/Spinner';
 import { toast } from 'sonner';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -197,12 +198,7 @@ export function VmConsolePage() {
         style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.03)' }}
       >
         {/* Brand mark */}
-        <div
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md ring-1 ring-white/10"
-          style={{ background: 'hsl(214 100% 62% / 0.15)' }}
-        >
-          <Cpu size={12} className="text-primary" />
-        </div>
+        <img src="/vlogo-small.png" alt="VirtPilot" className="h-5 w-5 shrink-0 object-contain" />
 
         <span className="h-4 w-px bg-white/8" />
 
@@ -284,7 +280,7 @@ export function VmConsolePage() {
               title="Start"
               className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs text-emerald-400/70 transition-colors hover:bg-white/5 hover:text-emerald-400 disabled:opacity-40"
             >
-              {action.isPending ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
+              {action.isPending ? <Spinner className="h-2.5 w-2.5 text-white/60" /> : <Play size={11} />}
               Start
             </button>
           )}
@@ -296,7 +292,7 @@ export function VmConsolePage() {
                 title="Reboot"
                 className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs text-amber-400/70 transition-colors hover:bg-white/5 hover:text-amber-400 disabled:opacity-40"
               >
-                {action.isPending ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                {action.isPending ? <Spinner className="h-2.5 w-2.5 text-white/60" /> : <RefreshCw size={11} />}
                 Reboot
               </button>
               <button
@@ -305,7 +301,7 @@ export function VmConsolePage() {
                 title="Stop"
                 className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs text-red-400/70 transition-colors hover:bg-white/5 hover:text-red-400 disabled:opacity-40"
               >
-                {action.isPending ? <Loader2 size={11} className="animate-spin" /> : <Square size={11} />}
+                {action.isPending ? <Spinner className="h-2.5 w-2.5 text-white/60" /> : <Square size={11} />}
                 Stop
               </button>
               <button
@@ -314,7 +310,7 @@ export function VmConsolePage() {
                 title="Force stop (virsh destroy)"
                 className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs text-red-500/50 transition-colors hover:bg-white/5 hover:text-red-500 disabled:opacity-40"
               >
-                {action.isPending ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+                {action.isPending ? <Spinner className="h-2.5 w-2.5 text-white/60" /> : <Zap size={11} />}
                 Force Stop
               </button>
             </>

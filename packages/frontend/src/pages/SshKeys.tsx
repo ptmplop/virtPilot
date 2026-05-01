@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, KeyRound, Plus, Trash2, X } from 'lucide-react';
+import { Check, Clock, KeyRound, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
@@ -7,6 +7,29 @@ import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
 import { useSshKeys, useAddSshKey, useDeleteSshKey } from '@/hooks/useSshKeys';
+
+// ─── Stat card ────────────────────────────────────────────────────────────────
+
+function StatCard({ icon: Icon, label, value, iconClass }: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  iconClass: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
+          <Icon size={15} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Add key form ──────────────────────────────────────────────────────────────
 
@@ -29,7 +52,7 @@ function AddKeyForm({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <div className="flex items-center justify-between border-b border-border bg-[hsl(var(--surface))] px-5 py-3">
         <p className="text-sm font-semibold text-foreground">Add SSH Key</p>
         <button
@@ -148,6 +171,12 @@ export function SshKeysPage() {
   const { data: keys, isLoading } = useSshKeys();
   const [showForm, setShowForm] = useState(false);
 
+  const lastAdded = keys?.length
+    ? new Date(Math.max(...keys.map((k) => new Date(k.createdAt).getTime()))).toLocaleDateString('en-GB', {
+        day: 'numeric', month: 'short', year: 'numeric',
+      })
+    : '—';
+
   return (
     <Layout
       title="SSH Keys"
@@ -160,25 +189,29 @@ export function SshKeysPage() {
         )
       }
     >
+      {/* Stats */}
+      <div className="mb-6 grid grid-cols-2 gap-3">
+        <StatCard icon={KeyRound} label="Saved Keys" value={isLoading ? '—' : String(keys?.length ?? 0)} iconClass="bg-violet-500/10 text-violet-500" />
+        <StatCard icon={Clock} label="Last Added" value={isLoading ? '—' : lastAdded} iconClass="bg-blue-500/10 text-blue-500" />
+      </div>
+
       <div className="space-y-4">
         {showForm && <AddKeyForm onDone={() => setShowForm(false)} />}
 
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Spinner className="h-5 w-5 text-muted-foreground" />
             </div>
           ) : !keys?.length ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                <KeyRound className="h-5 w-5 text-muted-foreground/50" />
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
+                <KeyRound className="h-6 w-6 text-muted-foreground" />
               </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">No SSH keys saved</p>
-                <p className="mt-1 text-xs text-muted-foreground/60">
-                  Add a key above to use it when provisioning VMs.
-                </p>
-              </div>
+              <p className="text-sm font-semibold text-foreground">No SSH keys saved</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Add a key above to use it when provisioning VMs.
+              </p>
             </div>
           ) : (
             <div className="divide-y divide-border/60">

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Disc, Download, Pencil, Trash2, Upload, X } from 'lucide-react';
+import { Database, Disc, Download, Pencil, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
@@ -16,6 +16,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
 import { useUploadProgressStore } from '@/store/uploadProgressStore';
+import { cn } from '@/lib/cn';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -23,6 +24,27 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function StatCard({ icon: Icon, label, value, iconClass }: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  iconClass: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
+          <Icon size={15} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ProgressBar({ pct, indeterminate = false }: { pct?: number; indeterminate?: boolean }) {
@@ -210,6 +232,8 @@ export function IsosPage() {
     return () => clearInterval(id);
   }, [activeJob, pollJob]);
 
+  const totalIsoGb = isos?.reduce((s, i) => s + i.sizeGb, 0) ?? 0;
+
   const downloadPct = activeJob?.job.totalBytes
     ? Math.round((activeJob.job.bytesDownloaded / activeJob.job.totalBytes) * 100)
     : undefined;
@@ -231,6 +255,12 @@ export function IsosPage() {
         </>
       }
     >
+      {/* Stats */}
+      <div className="mb-6 grid grid-cols-2 gap-3">
+        <StatCard icon={Disc} label="ISOs" value={isLoading ? '—' : String(isos?.length ?? 0)} iconClass="bg-blue-500/10 text-blue-500" />
+        <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : `${totalIsoGb.toFixed(1)} GB`} iconClass="bg-violet-500/10 text-violet-500" />
+      </div>
+
       {/* Upload progress */}
       {uploadPct !== null && (
         <div className="mb-5 rounded-xl border border-border bg-card px-5 py-4">
@@ -273,7 +303,7 @@ export function IsosPage() {
       )}
 
       {/* ISO list */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {isLoading ? (
           <div className="space-y-px p-3">
             {[1, 2].map((i) => <Skeleton key={i} className="h-[60px] rounded-lg" />)}

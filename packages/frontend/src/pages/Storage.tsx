@@ -1,5 +1,6 @@
 import { HardDrive, Disc, Database } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
+import { cn } from '@/lib/cn';
 import { useTemplates } from '@/hooks/useTemplates';
 import { useIsos } from '@/hooks/useIsos';
 import { useVmDisks } from '@/hooks/useVmDisks';
@@ -9,24 +10,26 @@ function ResourceCard({
   count,
   detail,
   icon: Icon,
+  iconClass,
 }: {
   label: string;
   count: number;
   detail?: string;
   icon: typeof HardDrive;
+  iconClass: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4">
-      <div className="mb-3 flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted">
-          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
+          <Icon size={15} />
         </div>
-        <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          {label}
-        </span>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{count}</p>
+          {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
+        </div>
       </div>
-      <p className="font-mono text-2xl font-bold text-foreground">{count}</p>
-      {detail && <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>}
     </div>
   );
 }
@@ -51,18 +54,21 @@ export function StoragePage() {
           count={templates?.length ?? 0}
           detail={`${totalTemplateGb.toFixed(1)} GB total`}
           icon={HardDrive}
+          iconClass="bg-violet-500/10 text-violet-500"
         />
         <ResourceCard
           label="ISOs"
           count={isos?.length ?? 0}
           detail={`${totalIsoGb.toFixed(1)} GB total`}
           icon={Disc}
+          iconClass="bg-blue-500/10 text-blue-500"
         />
         <ResourceCard
           label="VM Disks"
           count={vmDisks?.length ?? 0}
           detail={`${totalDiskGb.toFixed(1)} GB on disk`}
           icon={Database}
+          iconClass="bg-emerald-500/10 text-emerald-500"
         />
       </div>
 
@@ -70,7 +76,7 @@ export function StoragePage() {
       {!!templates?.length && (
         <section className="mb-5">
           <h2 className="mb-3 text-sm font-semibold text-foreground">Templates</h2>
-          <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
@@ -105,7 +111,7 @@ export function StoragePage() {
       {!!isos?.length && (
         <section className="mb-5">
           <h2 className="mb-3 text-sm font-semibold text-foreground">ISOs</h2>
-          <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
@@ -140,7 +146,7 @@ export function StoragePage() {
       {!!vmDisks?.length && (
         <section>
           <h2 className="mb-3 text-sm font-semibold text-foreground">VM Disks</h2>
-          <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">

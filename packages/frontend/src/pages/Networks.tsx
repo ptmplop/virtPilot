@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookOpen, Globe, Network, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, Globe, Network, Plus, Trash2, Wifi } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
@@ -11,6 +11,27 @@ import { useNetworks, useCreateNetwork, useDeleteNetwork, useNetwork, useSystemN
 import { cn } from '@/lib/cn';
 import { NetworkGuide } from './NetworkGuide';
 import type { Network as NetworkType } from '@/types';
+
+function StatCard({ icon: Icon, label, value, iconClass }: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  iconClass: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
+          <Icon size={15} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function IpPoolDetail({ networkId }: { networkId: string }) {
   const { data } = useNetwork(networkId);
@@ -171,6 +192,9 @@ export function NetworksPage() {
     setCreateOpen(true);
   };
 
+  const natCount = networks?.filter((n) => n.type === 'nat').length ?? 0;
+  const bridgeCount = networks?.filter((n) => n.type === 'bridge' || n.type === 'existing-bridge').length ?? 0;
+
   const cidrConflict = form.cidr
     ? (networks ?? []).find((n) => cidrsOverlap(form.cidr, n.cidr))
     : undefined;
@@ -246,7 +270,14 @@ export function NetworksPage() {
         </div>
       }
     >
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+      {/* Stats */}
+      <div className="mb-6 grid grid-cols-3 gap-3">
+        <StatCard icon={Network} label="Networks" value={isLoading ? '—' : String(networks?.length ?? 0)} iconClass="bg-blue-500/10 text-blue-500" />
+        <StatCard icon={Wifi} label="NAT" value={isLoading ? '—' : String(natCount)} iconClass="bg-violet-500/10 text-violet-500" />
+        <StatCard icon={Globe} label="Bridge" value={isLoading ? '—' : String(bridgeCount)} iconClass="bg-emerald-500/10 text-emerald-500" />
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {isLoading ? (
           <div className="space-y-px p-3">
             {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[60px] rounded-lg" />)}
@@ -357,11 +388,7 @@ export function NetworksPage() {
               <label className="block text-xs font-medium text-foreground">
                 Physical NIC <span className="font-normal text-muted-foreground">(optional — must be a dedicated NIC with no active IPs)</span>
               </label>
-              <select
-                value={form.physicalNic}
-                onChange={set('physicalNic')}
-                className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
-              >
+              <Select value={form.physicalNic} onChange={set('physicalNic')}>
                 <option value="">None (floating bridge)</option>
                 {(systemNics ?? []).map((nic) => (
                   <option key={nic.name} value={nic.name} disabled={nic.hasIps || nic.inUse}>
@@ -370,7 +397,7 @@ export function NetworksPage() {
                     {nic.hasIps ? ' ⚠ has active IPs — use Existing OS bridge instead' : nic.inUse ? ' (already in use)' : ''}
                   </option>
                 ))}
-              </select>
+              </Select>
               {!systemNics?.length && (
                 <p className="text-xs text-muted-foreground">No physical NICs detected.</p>
               )}

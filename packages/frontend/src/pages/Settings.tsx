@@ -188,7 +188,7 @@ export function SettingsPage() {
             <span className="font-mono">.env</span> file.
           </p>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           {isLoading ? (
             <div className="space-y-px p-4">
               {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
@@ -215,7 +215,7 @@ export function SettingsPage() {
           </p>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
           {isLoading ? (
             <Skeleton className="h-10 w-48 rounded-lg" />
           ) : (
@@ -253,7 +253,7 @@ export function SettingsPage() {
             Set retention to <span className="font-mono">0</span> to keep backups forever.
           </p>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
           {isLoading ? (
             <Skeleton className="h-10 rounded-lg" />
           ) : (
@@ -305,7 +305,7 @@ export function SettingsPage() {
             Ensure your own IP is listed before saving, or you will be locked out.
           </p>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
           {isLoading ? (
             <Skeleton className="h-24 rounded-lg" />
           ) : (
@@ -371,7 +371,7 @@ export function SettingsPage() {
             Require a time-based one-time code from an authenticator app (Google Authenticator, Authy, etc.) on every login.
           </p>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
           {isLoading ? (
             <Skeleton className="h-10 rounded-lg" />
           ) : settings?.totpEnabled ? (

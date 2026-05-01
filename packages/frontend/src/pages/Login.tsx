@@ -1,6 +1,7 @@
 import { useState, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, Lock, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react';
+import { Spinner } from '@/components/ui/Spinner';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/ui/Button';
@@ -184,7 +185,7 @@ export function LoginPage() {
                 </div>
 
                 <Button type="submit" disabled={loading} className="w-full">
-                  {loading && <Loader2 size={14} className="animate-spin" />}
+                  {loading && <Spinner className="h-3.5 w-3.5 text-primary-foreground" />}
                   {loading ? 'Signing in…' : 'Sign in'}
                 </Button>
               </form>
@@ -230,7 +231,7 @@ export function LoginPage() {
                 </div>
 
                 <Button type="submit" disabled={loading || totpCode.length !== 6} className="w-full">
-                  {loading && <Loader2 size={14} className="animate-spin" />}
+                  {loading && <Spinner className="h-3.5 w-3.5 text-primary-foreground" />}
                   {loading ? 'Verifying…' : 'Verify'}
                 </Button>
 

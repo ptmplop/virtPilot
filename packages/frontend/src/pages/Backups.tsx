@@ -398,14 +398,15 @@ function SummaryRow({
               : <Play size={12} />}
             Back Up
           </Button>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => onSelect(summary.vmName)}
-            className="ml-1 flex h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            className="ml-1 h-7 px-1.5 text-[11px]"
             aria-label={`View backups for ${summary.vmName}`}
           >
             History →
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -538,12 +539,12 @@ function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void
               {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[56px] rounded-xl" />)}
             </div>
           ) : backups.length === 0 && !busy ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-                <HardDrive className="h-4.5 w-4.5 text-muted-foreground" />
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
+                <HardDrive className="h-6 w-6 text-muted-foreground" />
               </div>
-              <p className="text-sm font-medium text-muted-foreground">No backups yet</p>
-              <p className="mt-1 text-xs text-muted-foreground/60">Click "Back Up Now" to create the first backup.</p>
+              <p className="text-sm font-semibold text-foreground">No backups yet</p>
+              <p className="mt-1 text-xs text-muted-foreground">Click "Back Up Now" to create the first backup.</p>
             </div>
           ) : (
             <div className="divide-y divide-border/60">
