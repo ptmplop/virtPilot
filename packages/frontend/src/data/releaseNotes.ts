@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.4',
+    date: '2026-05-02',
+    changes: [
+      { type: 'changed', text: 'Up-to-date variant of the VirtPilot version card now matches the visual weight of the Update-available variant — same rounded card with layered radial gradients, same glowing icon badge, same big monospace version display with gradient-clipped text. Just emerald instead of blue/violet, and a "View latest release" link instead of an Update CTA' },
+    ],
+  },
+  {
     version: '1.13.3',
     date: '2026-05-02',
     changes: [

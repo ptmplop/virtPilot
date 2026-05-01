@@ -943,43 +943,104 @@ function VirtPilotUpdateCard() {
   const targetVersion = data.latest ?? '';
 
   // ── Up to date ───────────────────────────────────────────────────────────
+  // Mirrors the visual structure of the Update-available card so the section
+  // has consistent weight regardless of state — same shell, same icon badge,
+  // same big mono version display, just emerald instead of blue/violet.
   if (!data.updateAvailable) {
-    const accent = data.repoOk
-      ? { stripe: 'from-emerald-500/60 via-emerald-500/20', iconBg: 'bg-emerald-500/10', icon: 'text-emerald-500' }
-      : { stripe: 'from-amber-500/60 via-amber-500/20', iconBg: 'bg-amber-500/10', icon: 'text-amber-500' };
+    const broken = !data.repoOk;
     return (
-      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-        <div className={cn('h-[3px] w-full bg-gradient-to-r to-transparent', accent.stripe)} />
-        <div className="flex items-center gap-3 px-5 py-3">
-          <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', accent.iconBg)}>
-            {data.repoOk
-              ? <CheckCircle2 className={cn('h-3.5 w-3.5', accent.icon)} />
-              : <AlertTriangle className={cn('h-3.5 w-3.5', accent.icon)} />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-foreground">VirtPilot</span>
-              <span className="font-mono text-xs text-muted-foreground">v{data.current}</span>
-              <span className="text-[11px] text-muted-foreground/70">·</span>
-              <span className="text-xs text-muted-foreground">
-                {data.repoOk ? 'Up to date' : 'Up to date — in-app upgrades unavailable'}
-              </span>
+      <div className={cn(
+        'group relative overflow-hidden rounded-2xl border shadow-airy transition-all duration-300 ease-out',
+        broken
+          ? 'border-amber-500/30 hover:shadow-[0_0_48px_-8px_rgb(245_158_11_/_0.30)]'
+          : 'border-emerald-500/25 hover:shadow-[0_0_48px_-8px_rgb(52_211_153_/_0.30)]',
+      )}>
+        {/* Layered gradient background */}
+        <div className={cn(
+          'pointer-events-none absolute inset-0 bg-gradient-to-br to-transparent',
+          broken ? 'from-amber-500/[0.10] via-amber-500/[0.04]' : 'from-emerald-500/[0.10] via-teal-500/[0.05]',
+        )} />
+        <div className={cn(
+          'pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full blur-3xl',
+          broken ? 'bg-amber-500/15' : 'bg-emerald-500/15',
+        )} />
+        <div className={cn(
+          'pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full blur-3xl',
+          broken ? 'bg-orange-500/10' : 'bg-teal-500/10',
+        )} />
+
+        {/* Static top stripe (no shimmer — nothing to do here) */}
+        <div className={cn(
+          'relative h-[3px] w-full bg-gradient-to-r to-transparent',
+          broken ? 'from-amber-500 via-amber-500/40' : 'from-emerald-500 via-teal-500/50',
+        )} />
+
+        <div className="relative px-6 py-5">
+          <div className="flex items-start gap-4">
+            {/* Icon badge — matches the Update-available card's structure */}
+            <div className="relative shrink-0">
+              <div className={cn(
+                'absolute inset-0 rounded-2xl blur-xl',
+                broken ? 'bg-amber-500/30' : 'bg-emerald-500/30',
+              )} />
+              <div className={cn(
+                'relative flex h-12 w-12 items-center justify-center rounded-2xl ring-1 shadow-[0_4px_20px_-2px_rgb(0_0_0_/_0.2)]',
+                broken
+                  ? 'bg-gradient-to-br from-amber-500/30 via-amber-500/15 to-orange-500/20 ring-amber-400/30'
+                  : 'bg-gradient-to-br from-emerald-500/30 via-emerald-500/15 to-teal-500/20 ring-emerald-400/30',
+              )}>
+                {broken
+                  ? <AlertTriangle className="h-5 w-5 text-amber-300 drop-shadow-[0_0_6px_rgb(251_191_36_/_0.6)]" />
+                  : <CheckCircle2 className="h-5 w-5 text-emerald-300 drop-shadow-[0_0_6px_rgb(110_231_183_/_0.6)]" />}
+              </div>
             </div>
-            {!data.repoOk && data.repoReason && (
-              <p className="mt-0.5 text-[11px] text-muted-foreground/70">{data.repoReason}</p>
-            )}
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  'text-[10px] font-bold uppercase tracking-[0.2em]',
+                  broken ? 'text-amber-400/80' : 'text-emerald-400/80',
+                )}>
+                  {broken ? 'In-app upgrades unavailable' : 'Up to date'}
+                </span>
+              </div>
+
+              {/* Big version display — single version, no arrow */}
+              <div className="mt-2 font-mono">
+                <span className={cn(
+                  'text-xl font-bold tabular-nums bg-clip-text text-transparent drop-shadow-[0_0_12px_rgb(110_231_183_/_0.4)]',
+                  broken
+                    ? 'bg-gradient-to-r from-amber-300 via-amber-200 to-orange-300'
+                    : 'bg-gradient-to-r from-emerald-300 via-emerald-200 to-teal-300',
+                )}>
+                  v{data.current}
+                </span>
+              </div>
+
+              <p className="mt-1.5 text-[11px] text-muted-foreground/60">
+                {broken
+                  ? data.repoReason ?? 'Repository check failed.'
+                  : `Running the latest release${data.publishedAt ? ` from ${new Date(data.publishedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}` : ''}`}
+              </p>
+
+              {data.releaseUrl && (
+                <div className="mt-4">
+                  <a
+                    href={data.releaseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                      'inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-200',
+                      broken ? 'hover:text-amber-400' : 'hover:text-emerald-400',
+                    )}
+                  >
+                    View latest release
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
-          {data.releaseUrl && (
-            <a
-              href={data.releaseUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Latest release
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
         </div>
       </div>
     );
