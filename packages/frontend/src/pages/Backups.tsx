@@ -28,6 +28,7 @@ import {
   useSaveSchedule,
   useDeleteSchedule,
 } from '@/hooks/useBackups';
+import { useVms } from '@/hooks/useVms';
 import type { BackupEntry, BackupFrequency, BackupSchedule, BackupVmSummary } from '@/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -81,7 +82,23 @@ export function BackupsPage() {
 }
 
 function BackupsList({ onSelect }: { onSelect: (name: string) => void }) {
-  const { data: summaries, isLoading } = useBackupSummaries();
+  const { data: summaries, isLoading: summariesLoading } = useBackupSummaries();
+  const { data: vms, isLoading: vmsLoading } = useVms();
+
+  const isLoading = summariesLoading || vmsLoading;
+
+  // Merge: every VM from libvirt, enriched with backup data where available
+  const summaryMap = new Map((summaries ?? []).map((s) => [s.vmName, s]));
+  const rows: BackupVmSummary[] = (vms ?? []).map(
+    (vm) =>
+      summaryMap.get(vm.name) ?? {
+        vmName: vm.name,
+        backupCount: 0,
+        totalSizeBytes: 0,
+        lastBackupAt: null,
+        schedule: null,
+      }
+  );
 
   return (
     <Layout title="Backups" subtitle="Manage VM backups and schedules">
@@ -90,8 +107,8 @@ function BackupsList({ onSelect }: { onSelect: (name: string) => void }) {
           Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-16 rounded-xl" />
           ))
-        ) : summaries && summaries.length > 0 ? (
-          summaries.map((s) => (
+        ) : rows.length > 0 ? (
+          rows.map((s) => (
             <SummaryRow key={s.vmName} summary={s} onSelect={onSelect} />
           ))
         ) : (
@@ -105,38 +122,90 @@ function BackupsList({ onSelect }: { onSelect: (name: string) => void }) {
 // ─── Summary row ──────────────────────────────────────────────────────────────
 
 function SummaryRow({ summary, onSelect }: { summary: BackupVmSummary; onSelect: (v: string) => void }) {
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const createBackup = useCreateBackup(summary.vmName);
+
+  function handleBackupNow() {
+    toast.promise(createBackup.mutateAsync(), {
+      loading: 'Creating backup…',
+      success: 'Backup created',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      error: (e: any) => `Backup failed: ${String(e.response?.data?.error ?? e.message)}`,
+    });
+  }
+
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(summary.vmName)}
-      className="w-full rounded-xl border border-border bg-card px-5 py-4 text-left transition-all hover:border-border/80 hover:bg-card/80 active:scale-[0.995]"
-    >
-      <div className="flex items-center gap-4">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <HardDrive size={16} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="font-medium text-foreground">{summary.vmName}</p>
-          <p className="text-xs text-muted-foreground">
-            {summary.backupCount === 0
-              ? 'No backups'
-              : `${summary.backupCount} backup${summary.backupCount !== 1 ? 's' : ''} · ${formatBytes(summary.totalSizeBytes)}`}
-            {summary.lastBackupAt && ` · Last: ${formatRelative(summary.lastBackupAt)}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <>
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-5 py-4 transition-all hover:border-border/80 hover:bg-card/80">
+        <button
+          type="button"
+          onClick={() => onSelect(summary.vmName)}
+          className="flex min-w-0 flex-1 items-center gap-4 text-left"
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <HardDrive size={16} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">{summary.vmName}</p>
+            <p className="text-xs text-muted-foreground">
+              {summary.backupCount === 0
+                ? 'No backups'
+                : `${summary.backupCount} backup${summary.backupCount !== 1 ? 's' : ''} · ${formatBytes(summary.totalSizeBytes)}`}
+              {summary.lastBackupAt && ` · Last: ${formatRelative(summary.lastBackupAt)}`}
+            </p>
+          </div>
           {summary.schedule ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
               <CalendarClock size={10} />
               {frequencyLabel(summary.schedule.frequency)}
             </span>
           ) : (
-            <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">No schedule</span>
+            <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+              No schedule
+            </span>
           )}
-          <ChevronLeft size={14} className="rotate-180 text-muted-foreground" />
+        </button>
+        <div className="flex shrink-0 items-center gap-1.5 pl-1">
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 gap-1 px-2.5 text-xs"
+            onClick={() => setScheduleOpen(true)}
+          >
+            <CalendarClock size={12} />
+            {summary.schedule ? 'Schedule' : 'Set Schedule'}
+          </Button>
+          <Button
+            size="sm"
+            className="h-7 gap-1 px-2.5 text-xs"
+            onClick={handleBackupNow}
+            disabled={createBackup.isPending}
+          >
+            {createBackup.isPending ? (
+              <Clock size={12} className="animate-spin" />
+            ) : (
+              <Play size={12} />
+            )}
+            Back Up
+          </Button>
+          <button
+            type="button"
+            onClick={() => onSelect(summary.vmName)}
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+            aria-label={`View backup history for ${summary.vmName}`}
+          >
+            <ChevronLeft size={14} className="rotate-180" />
+          </button>
         </div>
       </div>
-    </button>
+      {scheduleOpen && (
+        <ScheduleDialog
+          vmName={summary.vmName}
+          existing={summary.schedule}
+          onClose={() => setScheduleOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -144,9 +213,9 @@ function EmptyState() {
   return (
     <div className="rounded-xl border border-dashed border-border py-16 text-center">
       <HardDrive size={28} className="mx-auto mb-3 text-muted-foreground/40" />
-      <p className="text-sm font-medium text-muted-foreground">No backups yet</p>
+      <p className="text-sm font-medium text-muted-foreground">No virtual machines</p>
       <p className="mt-1 text-xs text-muted-foreground/60">
-        Go to a VM and run "Back Up Now", or set up a schedule.
+        Create a VM first, then use "Back Up" to create a backup.
       </p>
     </div>
   );

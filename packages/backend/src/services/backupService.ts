@@ -187,10 +187,15 @@ export async function listAllVmBackupSummaries(): Promise<BackupVmSummary[]> {
     const entries = await fs.readdir(backupRoot(), { withFileTypes: true });
     vmNames = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
-    return [];
+    vmNames = [];
   }
 
   const schedules = await readSchedules();
+  // Also include VMs that have a schedule but no backup directory yet
+  for (const vmName of Object.keys(schedules)) {
+    if (!vmNames.includes(vmName)) vmNames.push(vmName);
+  }
+
   const summaries: BackupVmSummary[] = [];
   for (const vmName of vmNames) {
     const backups = await listBackupsForVm(vmName);
