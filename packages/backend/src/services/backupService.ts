@@ -280,9 +280,11 @@ async function _createBackupInner(
       const destFilename = path.basename(disk.source);
       const destPath = path.join(bdir, destFilename);
       // Fix 9: dropped -p (progress bar has nowhere to go over execAsync)
+      // -U skips QEMU's exclusive write-lock so we can read a running VM's disk.
+      // Safety is provided by guest-agent fsfreeze above (crash-consistent at minimum).
       const convertFlags = compress ? '-c ' : '';
       await execAsync(
-        `qemu-img convert ${convertFlags}-f qcow2 -O qcow2 "${disk.source}" "${destPath}"`,
+        `qemu-img convert -U ${convertFlags}-f qcow2 -O qcow2 "${disk.source}" "${destPath}"`,
         { timeout: 60 * 60_000 }
       );
       const stat = await fs.stat(destPath);
