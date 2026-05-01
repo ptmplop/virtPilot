@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.2',
+    date: '2026-05-02',
+    changes: [
+      { type: 'changed', text: 'Redesigned the "Update available" card on the Dashboard — bigger, layered blue-to-violet gradient background, large monospace version transition with gradient text on the new version, glowing sparkle badge, and a custom gradient "Update now" button with hover shimmer. The inline release-notes preview is gone in favour of a single "View release notes" link to the GitHub release page' },
+    ],
+  },
+  {
     version: '1.13.1',
     date: '2026-05-02',
     changes: [

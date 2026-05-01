@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowDown,
+  ArrowRight,
   ArrowUp,
   CheckCircle2,
   Cpu,
@@ -933,18 +934,6 @@ function VirtPilotUpgradeModal({
 
 // ─── VirtPilot update card (Overview section) ──────────────────────────────────
 
-function ReleaseNotesPreview({ body }: { body: string }) {
-  const trimmed = body.trim();
-  if (!trimmed) return null;
-  const firstSection = trimmed.split(/\n##\s/)[0];
-  const lines = firstSection.split('\n').slice(0, 6).join('\n');
-  return (
-    <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground font-sans">
-      {lines}
-    </pre>
-  );
-}
-
 function VirtPilotUpdateCard() {
   const { data, isLoading } = useVirtPilotVersion();
   const [upgrading, setUpgrading] = useState(false);
@@ -1021,48 +1010,84 @@ function VirtPilotUpdateCard() {
     );
   }
 
+  // ── Update available, repo OK ────────────────────────────────────────────
   return (
     <>
-      <div className="rounded-xl border border-blue-500/25 bg-gradient-to-b from-blue-500/[0.06] to-transparent shadow-sm overflow-hidden">
-        <div className="h-[3px] w-full bg-gradient-to-r from-blue-500/80 via-blue-500/30 to-transparent" />
-        <div className="px-5 py-4">
-          <div className="flex items-start gap-3">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
-              <Sparkles className="h-3.5 w-3.5 text-blue-500" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="text-sm font-semibold text-foreground">
-                  VirtPilot update available
-                </span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  v{data.current} → v{targetVersion}
-                </span>
-                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-blue-500 animate-glow-pulse shadow-[0_0_6px_1px_rgb(59_130_246_/_0.5)]" />
+      <div className="group relative overflow-hidden rounded-2xl border border-blue-500/30 shadow-airy transition-all duration-300 ease-out hover:shadow-[0_0_48px_-8px_rgb(99_102_241_/_0.35)]">
+        {/* Layered gradient background */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/[0.10] via-violet-500/[0.06] to-transparent" />
+        <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-blue-500/15 blur-3xl" />
+        <div className="pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full bg-violet-500/10 blur-3xl" />
+
+        {/* Animated top stripe */}
+        <div className="relative h-[3px] w-full overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500 via-violet-500 to-blue-500 bg-[length:200%_100%] animate-[shimmer_3s_linear_infinite]" />
+        </div>
+
+        <div className="relative px-6 py-5">
+          <div className="flex items-start gap-4">
+            {/* Glowing icon badge */}
+            <div className="relative shrink-0">
+              <div className="absolute inset-0 rounded-2xl bg-blue-500/40 blur-xl animate-glow-pulse" />
+              <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/30 via-blue-500/15 to-violet-500/20 ring-1 ring-blue-400/30 shadow-[0_4px_20px_-2px_rgb(59_130_246_/_0.4)]">
+                <Sparkles className="h-5 w-5 text-blue-300 drop-shadow-[0_0_6px_rgb(96_165_250_/_0.6)]" />
               </div>
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400/80">
+                  Update available
+                </span>
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-glow-pulse shadow-[0_0_8px_2px_rgb(96_165_250_/_0.7)]" />
+              </div>
+
+              {/* Big version transition */}
+              <div className="mt-2 flex items-center gap-3 font-mono">
+                <span className="text-xl font-medium tabular-nums text-muted-foreground/70">
+                  v{data.current}
+                </span>
+                <ArrowRight className="h-4 w-4 text-blue-400/70 transition-transform duration-300 group-hover:translate-x-0.5" />
+                <span className="text-xl font-bold tabular-nums bg-gradient-to-r from-blue-300 via-blue-200 to-violet-300 bg-clip-text text-transparent drop-shadow-[0_0_12px_rgb(96_165_250_/_0.4)]">
+                  v{targetVersion}
+                </span>
+              </div>
+
               {data.publishedAt && (
-                <p className="mt-0.5 text-[11px] text-muted-foreground/70">
-                  Released {new Date(data.publishedAt).toLocaleDateString()}
+                <p className="mt-1.5 text-[11px] text-muted-foreground/60">
+                  Released {new Date(data.publishedAt).toLocaleDateString(undefined, {
+                    year: 'numeric', month: 'short', day: 'numeric',
+                  })}
                 </p>
               )}
-              {data.releaseNotes && (
-                <div className="mt-3 rounded-lg border border-border/60 bg-card/60 p-3">
-                  <ReleaseNotesPreview body={data.releaseNotes} />
-                </div>
-              )}
-              <div className="mt-3 flex items-center gap-2">
-                <Button size="sm" onClick={() => setUpgrading(true)} className="gap-1.5">
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Update now
-                </Button>
+
+              <div className="mt-4 flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => setUpgrading(true)}
+                  className={cn(
+                    'group/btn relative inline-flex items-center gap-1.5 overflow-hidden rounded-lg px-4 py-2 text-xs font-semibold text-white',
+                    'bg-gradient-to-r from-blue-500 to-violet-500',
+                    'shadow-[0_4px_16px_-2px_rgb(59_130_246_/_0.5)]',
+                    'transition-all duration-200 ease-out',
+                    'hover:shadow-[0_6px_24px_-2px_rgb(99_102_241_/_0.65)] hover:-translate-y-px',
+                    'active:scale-95',
+                  )}
+                >
+                  {/* Hover shimmer */}
+                  <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 ease-out group-hover/btn:translate-x-full" />
+                  <RefreshCw className="relative h-3.5 w-3.5" />
+                  <span className="relative">Update now</span>
+                </button>
+
                 {data.releaseUrl && (
                   <a
                     href={data.releaseUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-blue-400 transition-colors duration-200"
                   >
-                    Full release notes
+                    View release notes
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 )}
