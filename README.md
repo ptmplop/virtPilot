@@ -2,8 +2,6 @@
   <img src="packages/frontend/public/vlogo-big.png" alt="VirtPilot" width="500">
 </p>
 
-# VirtPilot
-
 A web-based KVM/QEMU management UI for a single Ubuntu host. Create and run virtual machines, manage networks, snapshots, backups and ISOs — all from your browser, all backed by `libvirt` and `virsh` on the host.
 
 VirtPilot does not run a control plane, an agent, or a database of truth. VM state is read live from libvirt; templates and ISOs sit on disk; the only persisted state is a small SQLite file for things libvirt does not track itself (per-VM metrics history).
