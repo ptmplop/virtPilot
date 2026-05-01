@@ -30,7 +30,7 @@ import { useHostDevices, useAttachDevice, useDetachDevice } from '@/hooks/useDev
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
-import { formatMemory, formatDisk } from '@/lib/format';
+import { formatMemory, formatDisk, formatBytes } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
@@ -1026,6 +1026,18 @@ function DisksTab({
 
 // ─── Snapshots ────────────────────────────────────────────────────────────────
 
+// libvirt's snapshot-list "State" column reports what was captured at snapshot
+// time, not the VM's live state. Map the raw values to clearer labels.
+function snapshotStateLabel(vmState: string): string {
+  switch (vmState) {
+    case 'disk-snapshot': return 'Disk only';
+    case 'running': return 'Live (with RAM)';
+    case 'shutoff': return 'Offline';
+    case 'paused': return 'Paused';
+    default: return vmState;
+  }
+}
+
 function SnapshotsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [revertTarget, setRevertTarget] = useState<string | null>(null);
@@ -1138,7 +1150,7 @@ function SnapshotsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {['Name', 'Created', 'VM State', ''].map((h) => (
+                {['Name', 'Created', 'VM State', 'Size', ''].map((h) => (
                   <th
                     key={h}
                     className={cn(
@@ -1166,6 +1178,7 @@ function SnapshotsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus
                   <td className="px-5 py-3 text-xs text-muted-foreground/50">Taking snapshot…</td>
                   <td className="px-5 py-3" />
                   <td className="px-5 py-3" />
+                  <td className="px-5 py-3" />
                 </tr>
               )}
               {snapshots.filter((snap) => snap.name !== pendingSnapshot).map((snap: VmSnapshot) => {
@@ -1189,8 +1202,11 @@ function SnapshotsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus
                     <td className="px-5 py-3 text-xs text-muted-foreground">
                       {statusLabel ?? new Date(snap.createdAt).toLocaleString()}
                     </td>
-                    <td className="px-5 py-3 text-xs capitalize text-muted-foreground">
-                      {isBusy ? '' : snap.vmState}
+                    <td className="px-5 py-3 text-xs text-muted-foreground">
+                      {isBusy ? '' : snapshotStateLabel(snap.vmState)}
+                    </td>
+                    <td className="px-5 py-3 text-xs text-muted-foreground">
+                      {isBusy ? '' : (snap.sizeBytes !== undefined ? formatBytes(snap.sizeBytes) : '—')}
                     </td>
                     <td className="px-5 py-3 text-right">
                       {!isBusy && (

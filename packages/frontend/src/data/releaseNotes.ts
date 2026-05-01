@@ -13,6 +13,20 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.12.1',
+    date: '2026-05-01',
+    changes: [
+      { type: 'changed', text: 'Friendlier labels in the Snapshots tab "VM State" column — `disk-snapshot` → Disk only, `running` → Live (with RAM), `shutoff` → Offline. The column describes what the snapshot captured, not the VM\'s live state' },
+    ],
+  },
+  {
+    version: '1.12.0',
+    date: '2026-05-01',
+    changes: [
+      { type: 'added', text: 'Snapshot size column on the VM Snapshots tab — see the on-disk cost of each snapshot alongside Created and VM State. External snapshots sum their overlay files; internal snapshots report saved RAM (vm-state-size) from qemu-img info' },
+    ],
+  },
+  {
     version: '1.11.0',
     date: '2026-05-01',
     changes: [

@@ -519,9 +519,65 @@ export async function listSnapshots(nameOrId: string): Promise<VmSnapshot[]> {
       const [, name, createdAt, vmState] = match;
       snapshots.push({ name, createdAt: new Date(createdAt).toISOString(), vmState });
     }
+
+    // Resolve sizes in parallel. Internal snapshots need disk paths to look up
+    // vm-state-size via qemu-img; fetch them once and reuse.
+    if (snapshots.length > 0) {
+      const vmDisks = await getVmDisks(nameOrId);
+      await Promise.all(
+        snapshots.map(async (snap) => {
+          snap.sizeBytes = await getSnapshotSizeBytes(nameOrId, snap.name, vmDisks);
+        }),
+      );
+    }
+
     return snapshots;
   } catch {
     return [];
+  }
+}
+
+// Returns the on-disk cost of a snapshot.
+// External: sum of overlay file sizes (post-snapshot writes — i.e. the extra
+//   space the snapshot is keeping around).
+// Internal: vm-state-size from qemu-img info (saved RAM). Per-snapshot disk
+//   delta isn't exposed by qcow2, so this is the closest meaningful figure.
+async function getSnapshotSizeBytes(
+  nameOrId: string,
+  snapshotName: string,
+  vmDisks: VmDisk[],
+): Promise<number> {
+  try {
+    const xml = await getSnapshotXml(nameOrId, snapshotName);
+    if (isExternalSnapshotXml(xml)) {
+      const disks = parseExternalSnapshotDisks(xml);
+      let total = 0;
+      await Promise.all(
+        disks.map(async (d) => {
+          try {
+            const stat = await fs.stat(d.file);
+            total += stat.size;
+          } catch { /* overlay may already be committed away */ }
+        }),
+      );
+      return total;
+    }
+    let total = 0;
+    await Promise.all(
+      vmDisks
+        .filter((d) => d.type !== 'cdrom' && d.source)
+        .map(async (d) => {
+          try {
+            const { stdout } = await execAsync(`qemu-img info --force-share --output=json "${d.source}"`);
+            const info = JSON.parse(stdout) as { snapshots?: Array<{ name: string; 'vm-state-size'?: number }> };
+            const snap = info.snapshots?.find((s) => s.name === snapshotName);
+            if (snap && typeof snap['vm-state-size'] === 'number') total += snap['vm-state-size'];
+          } catch { /* skip */ }
+        }),
+    );
+    return total;
+  } catch {
+    return 0;
   }
 }
 

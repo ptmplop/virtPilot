@@ -112,6 +112,7 @@ export interface VmSnapshot {
   name: string;
   createdAt: string;
   vmState: string;
+  sizeBytes?: number;
 }
 
 export type NetworkType = 'nat' | 'bridge' | 'existing-bridge';
