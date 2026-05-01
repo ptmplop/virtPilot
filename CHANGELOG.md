@@ -3,6 +3,16 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.0] — 2026-05-01
+
+### Added
+- Snapshot support for UEFI VMs: when a VM uses pflash firmware (where QEMU can't store internal snapshots), VirtPilot now takes external `--disk-only` snapshots instead, creating a per-disk qcow2 overlay alongside each persistent disk
+- Revert and delete paths handle both internal and external snapshots transparently — external revert restores the saved domain XML and caps the sealed disk with a fresh overlay so the snapshot point stays re-revertible; external delete merges the active overlay back into its backing via `blockcommit --active --pivot` (running) or `qemu-img commit` (offline) and removes the snapshot metadata
+- Convert-to-template works for external snapshots by reading directly from the snapshot's sealed backing file
+
+### Fixed
+- "internal snapshots of a VM with pflash based firmware are not supported" error when snapshotting modern UEFI guests
+
 ## [1.8.5] — 2026-05-01
 
 ### Changed

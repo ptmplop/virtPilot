@@ -384,6 +384,58 @@ export async function setBootOrder(nameOrId: string, bootOrder: string[]): Promi
 
 // ─── Snapshots ────────────────────────────────────────────────────────────────
 
+// UEFI VMs (pflash firmware) can't store internal snapshots — QEMU has nowhere
+// to put the savevm state alongside pflash. We fall back to external disk-only
+// snapshots, which create a new qcow2 overlay on top of each persistent disk.
+async function isUefiVm(nameOrId: string): Promise<boolean> {
+  try {
+    const xml = await virsh(`dumpxml ${nameOrId}`);
+    return /<loader\b[^>]*type=['"]pflash['"]/i.test(xml);
+  } catch {
+    return false;
+  }
+}
+
+async function getSnapshotXml(nameOrId: string, snapshotName: string): Promise<string> {
+  return virsh(`snapshot-dumpxml ${nameOrId} ${snapshotName}`);
+}
+
+function isExternalSnapshotXml(snapshotXml: string): boolean {
+  return /snapshot=['"]external['"]/.test(snapshotXml);
+}
+
+// Pulls each external-disk entry out of a snapshot XML's <disks> section.
+// `file` is the new overlay that became active when the snapshot was taken.
+function parseExternalSnapshotDisks(snapshotXml: string): { target: string; file: string }[] {
+  const disks: { target: string; file: string }[] = [];
+  const diskRegex = /<disk\b[^>]*\bname=['"]([^'"]+)['"][^>]*\bsnapshot=['"]external['"][^>]*>([\s\S]*?)<\/disk>/g;
+  let m: RegExpExecArray | null;
+  while ((m = diskRegex.exec(snapshotXml)) !== null) {
+    const target = m[1];
+    const fileMatch = m[2].match(/<source\s+file=['"]([^'"]+)['"]/);
+    if (fileMatch) disks.push({ target, file: fileMatch[1] });
+  }
+  return disks;
+}
+
+// Extracts the source file for a given disk target from a domain XML blob.
+function parseDiskSourceFromDomainXml(domainXml: string, target: string): string | undefined {
+  const blockRegex = /<disk\b[^>]*>([\s\S]*?)<\/disk>/g;
+  let m: RegExpExecArray | null;
+  while ((m = blockRegex.exec(domainXml)) !== null) {
+    const block = m[1];
+    if (!new RegExp(`<target\\s+dev=['"]${escapeRegex(target)}['"]`).test(block)) continue;
+    const sourceMatch = block.match(/<source\s+file=['"]([^'"]+)['"]/);
+    if (sourceMatch) return sourceMatch[1];
+  }
+  return undefined;
+}
+
+function extractSavedDomainXml(snapshotXml: string): string | undefined {
+  const m = snapshotXml.match(/<domain\b[\s\S]*?<\/domain>/);
+  return m ? m[0] : undefined;
+}
+
 export async function listSnapshots(nameOrId: string): Promise<VmSnapshot[]> {
   try {
     const out = await virsh(`snapshot-list ${nameOrId}`);
@@ -405,34 +457,67 @@ export async function listSnapshots(nameOrId: string): Promise<VmSnapshot[]> {
 // Internal QEMU snapshots on a running VM can take >30s for large disks/memory
 const SNAPSHOT_TIMEOUT = 3 * 60_000;
 
-export async function createSnapshot(nameOrId: string, snapshotName: string, description?: string): Promise<string> {
-  const trace: TraceEntry[] = [];
-
-  // Freeze guest filesystems for a consistent snapshot. Falls through silently
-  // if the agent is absent or the VM is stopped.
-  let frozen = false;
+async function fsFreeze(nameOrId: string): Promise<boolean> {
   try {
     await execAsync(
       `virsh -c ${config.libvirtUri} qemu-agent-command "${nameOrId}" '{"execute":"guest-fsfreeze-freeze"}' --timeout 5`,
       { timeout: 10_000 },
     );
-    frozen = true;
-  } catch { /* agent absent or VM not running — proceed unfrozen */ }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function fsThaw(nameOrId: string): Promise<void> {
+  try {
+    await execAsync(
+      `virsh -c ${config.libvirtUri} qemu-agent-command "${nameOrId}" '{"execute":"guest-fsfreeze-thaw"}' --timeout 5`,
+      { timeout: 10_000 },
+    );
+  } catch { /* best-effort */ }
+}
+
+export async function createSnapshot(nameOrId: string, snapshotName: string, description?: string): Promise<string> {
+  const trace: TraceEntry[] = [];
+  const uefi = await isUefiVm(nameOrId);
+
+  // Freeze guest filesystems for a consistent snapshot. Falls through silently
+  // if the agent is absent or the VM is stopped.
+  const frozen = await fsFreeze(nameOrId);
 
   try {
-    const args = description
-      ? `snapshot-create-as ${nameOrId} ${snapshotName} "${description}" --atomic`
-      : `snapshot-create-as ${nameOrId} ${snapshotName} --atomic`;
-    await virsh(args, trace, SNAPSHOT_TIMEOUT);
-  } finally {
-    if (frozen) {
-      try {
-        await execAsync(
-          `virsh -c ${config.libvirtUri} qemu-agent-command "${nameOrId}" '{"execute":"guest-fsfreeze-thaw"}' --timeout 5`,
-          { timeout: 10_000 },
-        );
-      } catch { /* best-effort */ }
+    const desc = description ? `"${description}"` : '';
+    if (uefi) {
+      // External disk-only snapshot: each persistent qcow2 disk gets a new
+      // overlay, the previous file is sealed and becomes the backing chain.
+      // CD-ROMs and other non-qcow2 disks are excluded (snapshot=no).
+      const disks = await getVmDisks(nameOrId);
+      const persistent = disks.filter((d) => d.type === 'disk' && d.source && /\.qcow2$/i.test(d.source));
+      if (persistent.length === 0) {
+        throw new Error('No qcow2 disks found to snapshot');
+      }
+      const diskspecs: string[] = [];
+      for (const d of persistent) {
+        const dir = path.dirname(d.source);
+        const overlay = path.join(dir, `${nameOrId}-${d.target}-${snapshotName}.qcow2`);
+        diskspecs.push(`--diskspec ${d.target},file=${overlay},snapshot=external`);
+      }
+      for (const d of disks) {
+        if (!persistent.find((p) => p.target === d.target)) {
+          diskspecs.push(`--diskspec ${d.target},snapshot=no`);
+        }
+      }
+      const args = `snapshot-create-as ${nameOrId} ${snapshotName} ${desc} --disk-only --atomic ${diskspecs.join(' ')}`.trim();
+      await virsh(args, trace, SNAPSHOT_TIMEOUT);
+    } else {
+      const args = description
+        ? `snapshot-create-as ${nameOrId} ${snapshotName} ${desc} --atomic`
+        : `snapshot-create-as ${nameOrId} ${snapshotName} --atomic`;
+      await virsh(args, trace, SNAPSHOT_TIMEOUT);
     }
+  } finally {
+    if (frozen) await fsThaw(nameOrId);
   }
 
   return formatTrace(trace);
@@ -440,15 +525,129 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
 
 export async function deleteSnapshot(nameOrId: string, snapshotName: string): Promise<string> {
   const trace: TraceEntry[] = [];
-  await virsh(`snapshot-delete ${nameOrId} ${snapshotName}`, trace, SNAPSHOT_TIMEOUT);
+  const snapshotXml = await getSnapshotXml(nameOrId, snapshotName);
+
+  if (!isExternalSnapshotXml(snapshotXml)) {
+    await virsh(`snapshot-delete ${nameOrId} ${snapshotName}`, trace, SNAPSHOT_TIMEOUT);
+    return formatTrace(trace);
+  }
+
+  // External: merge each overlay back into its backing file, then drop the
+  // metadata. Only supported when the snapshot's overlay is currently the
+  // active disk (i.e. the topmost snapshot in the chain) — intermediate
+  // deletions would require rewriting the chain.
+  const snapDisks = parseExternalSnapshotDisks(snapshotXml);
+  if (snapDisks.length === 0) throw new Error('Snapshot XML has no external disk entries');
+
+  const liveDisks = await getVmDisks(nameOrId);
+  for (const sd of snapDisks) {
+    const live = liveDisks.find((d) => d.target === sd.target);
+    if (!live?.source) {
+      throw new Error(`Disk ${sd.target} not present on VM`);
+    }
+    if (path.resolve(live.source) !== path.resolve(sd.file)) {
+      throw new Error(
+        `Cannot delete snapshot '${snapshotName}': overlay for ${sd.target} is no longer the active disk (a newer snapshot exists). Delete newer snapshots first.`,
+      );
+    }
+  }
+
+  const stateOut = await virsh(`domstate ${nameOrId}`);
+  const running = parseStatus(stateOut) === 'running';
+  const overlayFiles: string[] = [];
+
+  for (const sd of snapDisks) {
+    overlayFiles.push(sd.file);
+    if (running) {
+      // Active commit: merge active overlay into its backing and pivot the
+      // domain to use the (now updated) backing file as the active disk.
+      await virsh(
+        `blockcommit ${nameOrId} ${sd.target} --active --pivot --wait --verbose`,
+        trace,
+        SNAPSHOT_TIMEOUT,
+      );
+    } else {
+      // Offline: qemu-img commits the overlay into its backing in-place.
+      await execTraced(`qemu-img commit -d "${sd.file}"`, trace, { timeout: SNAPSHOT_TIMEOUT });
+      // Repoint the domain at the backing file.
+      const { stdout } = await execAsync(`qemu-img info --output=json --backing-chain "${sd.file}"`);
+      const chain = JSON.parse(stdout) as Array<{ filename: string; 'backing-filename'?: string }>;
+      const backing = chain[0]?.['backing-filename'];
+      if (!backing) throw new Error(`Could not determine backing file for ${sd.file}`);
+      const backingAbs = path.isAbsolute(backing) ? backing : path.resolve(path.dirname(sd.file), backing);
+      const domXml = await getVmXml(nameOrId);
+      const updated = domXml.replace(
+        new RegExp(`(<source\\s+file=['"])${escapeRegex(sd.file)}(['"])`),
+        `$1${backingAbs}$2`,
+      );
+      if (updated === domXml) {
+        throw new Error(`Failed to rewrite domain XML for ${sd.target}`);
+      }
+      const tmp = path.join(os.tmpdir(), `virtpilot-snapdel-${nameOrId}-${Date.now()}.xml`);
+      await fs.writeFile(tmp, updated, 'utf8');
+      try {
+        await virsh(`define ${tmp}`, trace);
+      } finally {
+        await fs.unlink(tmp).catch(() => {});
+      }
+    }
+  }
+
+  await virsh(`snapshot-delete ${nameOrId} ${snapshotName} --metadata`, trace, SNAPSHOT_TIMEOUT);
+
+  // Clean up the now-merged overlay files.
+  for (const f of overlayFiles) {
+    await fs.unlink(f).catch(() => { /* best-effort */ });
+  }
+
   return formatTrace(trace);
 }
 
 export async function revertSnapshot(nameOrId: string, snapshotName: string): Promise<string> {
   const trace: TraceEntry[] = [];
+  const snapshotXml = await getSnapshotXml(nameOrId, snapshotName);
+
   try { await virsh(`destroy ${nameOrId}`, trace); } catch { /* already stopped */ }
-  await virsh(`snapshot-revert ${nameOrId} ${snapshotName} --force`, trace, SNAPSHOT_TIMEOUT);
-  // snapshot-revert --force may have already started the VM (e.g. snapshot taken while running)
+
+  if (!isExternalSnapshotXml(snapshotXml)) {
+    await virsh(`snapshot-revert ${nameOrId} ${snapshotName} --force`, trace, SNAPSHOT_TIMEOUT);
+  } else {
+    // External: restore the saved domain XML from the snapshot, then create a
+    // fresh overlay so the snapshot's frozen file stays sealed and re-revertible.
+    const savedXml = extractSavedDomainXml(snapshotXml);
+    if (!savedXml) throw new Error('Snapshot XML missing saved <domain> element');
+
+    // Identify which disks the snapshot froze, find their files in the saved
+    // domain, and cap each with a new overlay so writes don't dirty the
+    // snapshot point.
+    const snapDisks = parseExternalSnapshotDisks(snapshotXml);
+    let pivotedXml = savedXml;
+    const stamp = Date.now();
+    for (const sd of snapDisks) {
+      const sealed = parseDiskSourceFromDomainXml(savedXml, sd.target);
+      if (!sealed) continue;
+      const dir = path.dirname(sealed);
+      const overlay = path.join(dir, `${nameOrId}-${sd.target}-revert-${stamp}.qcow2`);
+      await execTraced(
+        `qemu-img create -f qcow2 -F qcow2 -b "${sealed}" "${overlay}"`,
+        trace,
+        { timeout: 60_000 },
+      );
+      pivotedXml = pivotedXml.replace(
+        new RegExp(`(<source\\s+file=['"])${escapeRegex(sealed)}(['"])`),
+        `$1${overlay}$2`,
+      );
+    }
+
+    const tmp = path.join(os.tmpdir(), `virtpilot-revert-${nameOrId}-${stamp}.xml`);
+    await fs.writeFile(tmp, pivotedXml, 'utf8');
+    try {
+      await virsh(`define ${tmp}`, trace);
+    } finally {
+      await fs.unlink(tmp).catch(() => {});
+    }
+  }
+
   const state = await virsh(`domstate ${nameOrId}`);
   if (parseStatus(state) !== 'running') {
     await virsh(`start ${nameOrId}`, trace);
@@ -457,16 +656,33 @@ export async function revertSnapshot(nameOrId: string, snapshotName: string): Pr
 }
 
 export async function exportSnapshotAsTemplate(vmName: string, snapshotName: string, templateFilename: string): Promise<string> {
-  const disks = await getVmDisks(vmName);
-  const primaryDisk = disks.find((d) => d.target === 'vda' && d.source);
-  if (!primaryDisk?.source) throw new Error('Primary disk (vda) not found or has no source path');
-  const destPath = path.join(config.templatesDir, templateFilename);
   const trace: TraceEntry[] = [];
-  await execTraced(
-    `qemu-img convert -U -f qcow2 -O qcow2 -l "snapshot.name=${snapshotName}" "${primaryDisk.source}" "${destPath}"`,
-    trace,
-    { timeout: 300_000 }
-  );
+  const destPath = path.join(config.templatesDir, templateFilename);
+  const snapshotXml = await getSnapshotXml(vmName, snapshotName);
+
+  if (isExternalSnapshotXml(snapshotXml)) {
+    // The snapshot's vda data lives in the saved domain XML's vda source —
+    // that file became the read-only backing when the snapshot was taken.
+    // qemu-img convert resolves any deeper backing chain automatically.
+    const savedXml = extractSavedDomainXml(snapshotXml);
+    if (!savedXml) throw new Error('Snapshot XML missing saved <domain> element');
+    const sealed = parseDiskSourceFromDomainXml(savedXml, 'vda');
+    if (!sealed) throw new Error('Snapshot does not include vda');
+    await execTraced(
+      `qemu-img convert -U -f qcow2 -O qcow2 "${sealed}" "${destPath}"`,
+      trace,
+      { timeout: 300_000 },
+    );
+  } else {
+    const disks = await getVmDisks(vmName);
+    const primaryDisk = disks.find((d) => d.target === 'vda' && d.source);
+    if (!primaryDisk?.source) throw new Error('Primary disk (vda) not found or has no source path');
+    await execTraced(
+      `qemu-img convert -U -f qcow2 -O qcow2 -l "snapshot.name=${snapshotName}" "${primaryDisk.source}" "${destPath}"`,
+      trace,
+      { timeout: 300_000 },
+    );
+  }
   return formatTrace(trace);
 }
 

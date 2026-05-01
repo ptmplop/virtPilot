@@ -13,6 +13,16 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.9.0',
+    date: '2026-05-01',
+    changes: [
+      { type: 'added', text: 'Snapshots now work on UEFI VMs — switches automatically to external --disk-only snapshots (per-disk qcow2 overlay) when QEMU cannot store internal snapshots alongside pflash firmware' },
+      { type: 'added', text: 'External snapshot revert restores the saved domain XML and caps the sealed disk with a fresh overlay, so reverting to the same snapshot multiple times still works' },
+      { type: 'added', text: 'External snapshot delete merges the overlay back into its backing via blockcommit --active --pivot (running) or qemu-img commit (offline)' },
+      { type: 'fixed', text: 'No more "internal snapshots of a VM with pflash based firmware are not supported" error on modern UEFI guests' },
+    ],
+  },
+  {
     version: '1.8.5',
     date: '2026-05-01',
     changes: [
