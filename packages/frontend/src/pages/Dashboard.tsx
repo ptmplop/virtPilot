@@ -955,21 +955,21 @@ function VirtPilotUpdateCard() {
           ? 'border-amber-500/30 hover:shadow-[0_0_48px_-8px_rgb(245_158_11_/_0.30)]'
           : 'border-emerald-500/25 hover:shadow-[0_0_48px_-8px_rgb(52_211_153_/_0.30)]',
       )}>
-        {/* Layered gradient background */}
+        {/* Layered gradient background — kept subtle so text stays readable */}
         <div className={cn(
           'pointer-events-none absolute inset-0 bg-gradient-to-br to-transparent',
-          broken ? 'from-amber-500/[0.10] via-amber-500/[0.04]' : 'from-emerald-500/[0.10] via-teal-500/[0.05]',
+          broken ? 'from-amber-500/[0.06] via-amber-500/[0.03]' : 'from-emerald-500/[0.06] via-teal-500/[0.03]',
         )} />
         <div className={cn(
           'pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full blur-3xl',
-          broken ? 'bg-amber-500/15' : 'bg-emerald-500/15',
+          broken ? 'bg-amber-500/10' : 'bg-emerald-500/10',
         )} />
         <div className={cn(
           'pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full blur-3xl',
-          broken ? 'bg-orange-500/10' : 'bg-teal-500/10',
+          broken ? 'bg-orange-500/[0.07]' : 'bg-teal-500/[0.07]',
         )} />
 
-        {/* Static top stripe (no shimmer — nothing to do here) */}
+        {/* Static top stripe */}
         <div className={cn(
           'relative h-[3px] w-full bg-gradient-to-r to-transparent',
           broken ? 'from-amber-500 via-amber-500/40' : 'from-emerald-500 via-teal-500/50',
@@ -990,8 +990,8 @@ function VirtPilotUpdateCard() {
                   : 'bg-gradient-to-br from-emerald-500/30 via-emerald-500/15 to-teal-500/20 ring-emerald-400/30',
               )}>
                 {broken
-                  ? <AlertTriangle className="h-5 w-5 text-amber-300 drop-shadow-[0_0_6px_rgb(251_191_36_/_0.6)]" />
-                  : <CheckCircle2 className="h-5 w-5 text-emerald-300 drop-shadow-[0_0_6px_rgb(110_231_183_/_0.6)]" />}
+                  ? <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-300" />
+                  : <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />}
               </div>
             </div>
 
@@ -999,25 +999,23 @@ function VirtPilotUpdateCard() {
               <div className="flex items-center gap-2">
                 <span className={cn(
                   'text-[10px] font-bold uppercase tracking-[0.2em]',
-                  broken ? 'text-amber-400/80' : 'text-emerald-400/80',
+                  broken ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300',
                 )}>
                   {broken ? 'In-app upgrades unavailable' : 'Up to date'}
                 </span>
               </div>
 
-              {/* Big version display — single version, no arrow */}
+              {/* Big version display — solid colours for max contrast */}
               <div className="mt-2 font-mono">
                 <span className={cn(
-                  'text-xl font-bold tabular-nums bg-clip-text text-transparent drop-shadow-[0_0_12px_rgb(110_231_183_/_0.4)]',
-                  broken
-                    ? 'bg-gradient-to-r from-amber-300 via-amber-200 to-orange-300'
-                    : 'bg-gradient-to-r from-emerald-300 via-emerald-200 to-teal-300',
+                  'text-2xl font-bold tabular-nums',
+                  broken ? 'text-amber-700 dark:text-amber-200' : 'text-emerald-700 dark:text-emerald-200',
                 )}>
                   v{data.current}
                 </span>
               </div>
 
-              <p className="mt-1.5 text-[11px] text-muted-foreground/60">
+              <p className="mt-1.5 text-xs text-muted-foreground">
                 {broken
                   ? data.repoReason ?? 'Repository check failed.'
                   : `Running the latest release${data.publishedAt ? ` from ${new Date(data.publishedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}` : ''}`}
@@ -1031,7 +1029,7 @@ function VirtPilotUpdateCard() {
                     rel="noopener noreferrer"
                     className={cn(
                       'inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-200',
-                      broken ? 'hover:text-amber-400' : 'hover:text-emerald-400',
+                      broken ? 'hover:text-amber-600 dark:hover:text-amber-300' : 'hover:text-emerald-600 dark:hover:text-emerald-300',
                     )}
                   >
                     View latest release
@@ -1075,10 +1073,10 @@ function VirtPilotUpdateCard() {
   return (
     <>
       <div className="group relative overflow-hidden rounded-2xl border border-blue-500/30 shadow-airy transition-all duration-300 ease-out hover:shadow-[0_0_48px_-8px_rgb(99_102_241_/_0.35)]">
-        {/* Layered gradient background */}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/[0.10] via-violet-500/[0.06] to-transparent" />
-        <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-blue-500/15 blur-3xl" />
-        <div className="pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full bg-violet-500/10 blur-3xl" />
+        {/* Layered gradient background — kept subtle so text stays readable */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/[0.06] via-violet-500/[0.03] to-transparent" />
+        <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
+        <div className="pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full bg-violet-500/[0.07] blur-3xl" />
 
         {/* Animated top stripe */}
         <div className="relative h-[3px] w-full overflow-hidden">
@@ -1091,31 +1089,31 @@ function VirtPilotUpdateCard() {
             <div className="relative shrink-0">
               <div className="absolute inset-0 rounded-2xl bg-blue-500/40 blur-xl animate-glow-pulse" />
               <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/30 via-blue-500/15 to-violet-500/20 ring-1 ring-blue-400/30 shadow-[0_4px_20px_-2px_rgb(59_130_246_/_0.4)]">
-                <Sparkles className="h-5 w-5 text-blue-300 drop-shadow-[0_0_6px_rgb(96_165_250_/_0.6)]" />
+                <Sparkles className="h-5 w-5 text-blue-600 dark:text-blue-300" />
               </div>
             </div>
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400/80">
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">
                   Update available
                 </span>
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-glow-pulse shadow-[0_0_8px_2px_rgb(96_165_250_/_0.7)]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-glow-pulse shadow-[0_0_8px_2px_rgb(59_130_246_/_0.7)]" />
               </div>
 
-              {/* Big version transition */}
+              {/* Big version transition — solid colours for max contrast */}
               <div className="mt-2 flex items-center gap-3 font-mono">
-                <span className="text-xl font-medium tabular-nums text-muted-foreground/70">
+                <span className="text-xl font-medium tabular-nums text-muted-foreground line-through decoration-muted-foreground/40 decoration-1">
                   v{data.current}
                 </span>
-                <ArrowRight className="h-4 w-4 text-blue-400/70 transition-transform duration-300 group-hover:translate-x-0.5" />
-                <span className="text-xl font-bold tabular-nums bg-gradient-to-r from-blue-300 via-blue-200 to-violet-300 bg-clip-text text-transparent drop-shadow-[0_0_12px_rgb(96_165_250_/_0.4)]">
+                <ArrowRight className="h-4 w-4 text-blue-500 dark:text-blue-400 transition-transform duration-300 group-hover:translate-x-0.5" />
+                <span className="text-2xl font-bold tabular-nums text-blue-700 dark:text-blue-200">
                   v{targetVersion}
                 </span>
               </div>
 
               {data.publishedAt && (
-                <p className="mt-1.5 text-[11px] text-muted-foreground/60">
+                <p className="mt-1.5 text-xs text-muted-foreground">
                   Released {new Date(data.publishedAt).toLocaleDateString(undefined, {
                     year: 'numeric', month: 'short', day: 'numeric',
                   })}
@@ -1146,7 +1144,7 @@ function VirtPilotUpdateCard() {
                     href={data.releaseUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-blue-400 transition-colors duration-200"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-blue-600 dark:hover:text-blue-300 transition-colors duration-200"
                   >
                     View release notes
                     <ExternalLink className="h-3 w-3" />

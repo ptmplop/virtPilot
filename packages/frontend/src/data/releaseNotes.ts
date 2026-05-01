@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.5',
+    date: '2026-05-02',
+    changes: [
+      { type: 'fixed', text: 'Improved readability of the VirtPilot version cards — dropped the gradient-clipped text on version numbers (low contrast against tinted backgrounds), now using solid theme-aware colours. Old version is struck through. Background gradient opacities cut by ~40% so text wins. Small uppercase labels brightened with explicit dark-mode variants' },
+    ],
+  },
+  {
     version: '1.13.4',
     date: '2026-05-02',
     changes: [
