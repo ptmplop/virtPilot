@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.8.3',
+    date: '2026-05-01',
+    changes: [
+      { type: 'changed', text: 'Settings — Host Configuration section now shows a tip explaining that BACKUP_ROOT can point to a mounted second disk or NAS share (NFS, SMB, iSCSI) to keep backups off the primary storage pool' },
+    ],
+  },
+  {
     version: '1.8.2',
     date: '2026-05-01',
     changes: [

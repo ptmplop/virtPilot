@@ -204,6 +204,12 @@ export function SettingsPage() {
             </dl>
           )}
         </div>
+        <p className="mt-2.5 text-xs text-muted-foreground">
+          Tip: point <span className="font-mono">BACKUP_ROOT</span> at a mount point for a second disk or
+          NAS share (NFS, SMB, iSCSI) to keep backups off the primary storage pool — e.g.{' '}
+          <span className="font-mono">/mnt/backups</span>. Mount it in{' '}
+          <span className="font-mono">/etc/fstab</span> before starting VirtPilot.
+        </p>
       </section>
 
       {/* Log retention */}
