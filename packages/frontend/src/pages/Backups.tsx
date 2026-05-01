@@ -15,7 +15,6 @@ import {
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -127,12 +126,12 @@ function SummaryRow({ summary, onSelect }: { summary: BackupVmSummary; onSelect:
         </div>
         <div className="flex items-center gap-2">
           {summary.schedule ? (
-            <Badge variant="default" className="text-[10px]">
-              <CalendarClock size={10} className="mr-1" />
+            <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+              <CalendarClock size={10} />
               {frequencyLabel(summary.schedule.frequency)}
-            </Badge>
+            </span>
           ) : (
-            <Badge variant="secondary" className="text-[10px]">No schedule</Badge>
+            <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">No schedule</span>
           )}
           <ChevronLeft size={14} className="rotate-180 text-muted-foreground" />
         </div>
@@ -182,7 +181,7 @@ function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void
           <Button variant="ghost" size="sm" onClick={onBack}>
             <ChevronLeft size={14} className="mr-1" /> All VMs
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setScheduleOpen(true)}>
+          <Button variant="secondary" size="sm" onClick={() => setScheduleOpen(true)}>
             <CalendarClock size={14} className="mr-1.5" />
             {schedule ? 'Edit Schedule' : 'Set Schedule'}
           </Button>
@@ -274,7 +273,7 @@ function ScheduleBanner({ schedule, vmName }: { schedule: BackupSchedule; vmName
           )}
         </div>
         {!schedule.enabled && (
-          <Badge variant="secondary" className="text-[10px]">Paused</Badge>
+          <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Paused</span>
         )}
         <button
           type="button"
@@ -296,7 +295,7 @@ function ScheduleBanner({ schedule, vmName }: { schedule: BackupSchedule; vmName
           <>
             <Button variant="ghost" size="sm" onClick={() => setConfirmOpen(false)}>Cancel</Button>
             <Button
-              variant="destructive"
+              variant="danger"
               size="sm"
               onClick={handleConfirmDelete}
               disabled={deleteSchedule.isPending}
@@ -349,10 +348,10 @@ function BackupRow({
       </div>
       <div className="flex items-center gap-1.5">
         {backup.triggerType === 'scheduled' && backup.scheduleFrequency && (
-          <Badge variant="secondary" className="text-[10px]">
-            <CalendarClock size={9} className="mr-1" />
+          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+            <CalendarClock size={9} />
             {frequencyLabel(backup.scheduleFrequency)}
-          </Badge>
+          </span>
         )}
         <Button variant="ghost" size="sm" onClick={onRestore} className="h-7 gap-1 px-2 text-xs">
           <ArchiveRestore size={12} /> Restore
@@ -425,16 +424,12 @@ function ScheduleDialog({
       <div className="space-y-4">
         <div>
           <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Frequency</label>
-          <Select
-            value={frequency}
-            onChange={(e) => setFrequency(e.target.value as BackupFrequency)}
-            options={[
-              { value: 'hourly', label: 'Hourly' },
-              { value: 'daily', label: 'Daily' },
-              { value: 'weekly', label: 'Weekly' },
-              { value: 'monthly', label: 'Monthly' },
-            ]}
-          />
+          <Select value={frequency} onChange={(e) => setFrequency(e.target.value as BackupFrequency)}>
+            <option value="hourly">Hourly</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </Select>
         </div>
 
         {frequency !== 'hourly' && (
@@ -460,7 +455,9 @@ function ScheduleDialog({
         {frequency === 'weekly' && (
           <div>
             <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Day of week</label>
-            <Select value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)} options={DAY_OPTIONS} />
+            <Select value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)}>
+              {DAY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </Select>
           </div>
         )}
 
@@ -518,7 +515,7 @@ function DeleteBackupDialog({
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleteBackup.isPending}>
+          <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleteBackup.isPending}>
             Delete
           </Button>
         </>
@@ -571,7 +568,7 @@ function RestoreDialog({
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
           <Button
-            variant="destructive"
+            variant="danger"
             size="sm"
             onClick={handleRestore}
             disabled={restoreBackup.isPending || (mode === 'new' && !newVmName.trim())}
