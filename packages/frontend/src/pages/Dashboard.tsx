@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   CheckCircle2,
   Cpu,
+  ExternalLink,
   Globe,
   HardDrive,
   MemoryStick,
   Monitor,
   PackageOpen,
   RefreshCw,
+  Sparkles,
   Terminal,
   X,
   Zap,
@@ -22,7 +25,11 @@ import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
 import { AreaChart } from '@/components/ui/AreaChart';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useSystemStats, useSystemInfo, useAptPackages, useInvalidateApt, type StatsSample, type AptPackage } from '@/hooks/useSystemStats';
+import {
+  useSystemStats, useSystemInfo, useAptPackages, useInvalidateApt,
+  useVirtPilotVersion, useInvalidateVersion,
+  type StatsSample, type AptPackage, type VirtPilotVersion,
+} from '@/hooks/useSystemStats';
 import { useSettings } from '@/hooks/useSettings';
 import { useVms } from '@/hooks/useVms';
 import { cn } from '@/lib/cn';
@@ -768,6 +775,272 @@ function AptSection() {
   );
 }
 
+// ─── VirtPilot self-upgrade modal ──────────────────────────────────────────────
+
+function VirtPilotUpgradeModal({
+  targetVersion, onClose,
+}: { targetVersion: string; onClose: () => void }) {
+  const [lines, setLines] = useState<{ type: 'out' | 'err' | 'meta'; text: string }[]>([
+    { type: 'meta', text: `Upgrading VirtPilot to ${targetVersion}…\n` },
+  ]);
+  const [phase, setPhase] = useState<'streaming' | 'restarting' | 'done-success' | 'done-fail'>('streaming');
+  const [exitCode, setExitCode] = useState<number | null>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
+  const invalidateVersion = useInvalidateVersion();
+
+  useEffect(() => {
+    const token = localStorage.getItem('virtpilotToken') ?? '';
+    const es = new EventSource(`/api/system/upgrade?token=${encodeURIComponent(token)}`);
+
+    es.onmessage = (e) => {
+      const msg = JSON.parse(e.data) as { type: string; text: string };
+      if (msg.type === 'done') {
+        const code = parseInt(msg.text, 10);
+        setExitCode(code);
+        setPhase(code === 0 ? 'restarting' : 'done-fail');
+        es.close();
+      } else {
+        setLines((prev) => [...prev, { type: msg.type === 'err' ? 'err' : msg.type === 'meta' ? 'meta' : 'out', text: msg.text }]);
+      }
+    };
+
+    es.onerror = () => {
+      // Connection dropped — likely because the backend just restarted.
+      // Switch to "restarting" phase and let the version-poll loop confirm.
+      setLines((prev) => [...prev, { type: 'meta', text: '\nBackend restarted. Waiting for new version…\n' }]);
+      setPhase('restarting');
+      es.close();
+    };
+
+    return () => es.close();
+  }, []);
+
+  // Once we believe the upgrade has finished, poll /api/system/version until
+  // the reported `current` matches `targetVersion` (or we give up after 90s).
+  useEffect(() => {
+    if (phase !== 'restarting') return;
+    let cancelled = false;
+    const deadline = Date.now() + 90_000;
+
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch('/api/system/version', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('virtpilotToken') ?? ''}` },
+        });
+        if (res.ok) {
+          const data = (await res.json()) as VirtPilotVersion;
+          if (data.current === targetVersion) {
+            setPhase('done-success');
+            invalidateVersion();
+            setLines((prev) => [...prev, { type: 'meta', text: `\nNow running ${targetVersion}. Reloading…\n` }]);
+            setTimeout(() => window.location.reload(), 1500);
+            return;
+          }
+        }
+      } catch { /* backend probably still restarting */ }
+      if (Date.now() > deadline) {
+        setPhase('done-fail');
+        setLines((prev) => [...prev, { type: 'err', text: '\nTimed out waiting for backend to come back. Check `journalctl -u virtpilot` on the host.\n' }]);
+        return;
+      }
+      setTimeout(tick, 2000);
+    };
+
+    void tick();
+    return () => { cancelled = true; };
+  }, [phase, targetVersion, invalidateVersion]);
+
+  useEffect(() => {
+    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+  }, [lines]);
+
+  const done = phase === 'done-success' || phase === 'done-fail';
+  const success = phase === 'done-success' || (phase === 'restarting' && exitCode === 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-xl overflow-hidden border border-border shadow-2xl"
+           style={{ background: 'hsl(224 30% 5%)' }}>
+        <div className="flex items-center gap-3 border-b border-white/8 px-4 py-3">
+          <div className="flex gap-1.5">
+            <div className="h-3 w-3 rounded-full bg-red-500/70" />
+            <div className="h-3 w-3 rounded-full bg-amber-500/70" />
+            <div className="h-3 w-3 rounded-full bg-emerald-500/70" />
+          </div>
+          <span className="flex-1 text-center font-mono text-xs text-white/35">
+            virtpilot upgrade → {targetVersion}
+          </span>
+          {done && (
+            <button
+              onClick={onClose}
+              className="flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/60 transition-all duration-200 ease-out"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div ref={outputRef} className="h-[340px] overflow-y-auto p-4 font-mono text-xs leading-relaxed">
+          {lines.map((l, i) => (
+            <span key={i} className={cn(
+              'whitespace-pre-wrap',
+              l.type === 'meta' ? 'text-white/30' : l.type === 'err' ? 'text-red-300/80' : 'text-white/75',
+            )}>
+              {l.text}
+            </span>
+          ))}
+          {!done && <span className="inline-block h-3.5 w-1.5 animate-pulse bg-white/50 align-middle" />}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-white/8 px-4 py-3">
+          <div className="flex items-center gap-2">
+            {phase === 'streaming' && (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin text-white/40" />
+                <span className="text-xs text-white/40">Building…</span>
+              </>
+            )}
+            {phase === 'restarting' && (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin text-amber-400/80" />
+                <span className="text-xs text-amber-400/80">Restarting service…</span>
+              </>
+            )}
+            {phase === 'done-success' && (
+              <>
+                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                <span className="text-xs text-emerald-400">Upgrade complete</span>
+              </>
+            )}
+            {phase === 'done-fail' && (
+              <>
+                <X className="h-4 w-4 text-red-400" />
+                <span className="text-xs text-red-400">
+                  Upgrade failed{exitCode !== null ? ` (exit ${exitCode})` : ''}
+                </span>
+              </>
+            )}
+          </div>
+          <Button size="sm" variant="secondary" onClick={onClose} disabled={!done && !success} className="text-xs">
+            Close
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── VirtPilot update card (Overview section) ──────────────────────────────────
+
+function ReleaseNotesPreview({ body }: { body: string }) {
+  const trimmed = body.trim();
+  if (!trimmed) return null;
+  const firstSection = trimmed.split(/\n##\s/)[0];
+  const lines = firstSection.split('\n').slice(0, 6).join('\n');
+  return (
+    <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground font-sans">
+      {lines}
+    </pre>
+  );
+}
+
+function VirtPilotUpdateCard() {
+  const { data, isLoading } = useVirtPilotVersion();
+  const [upgrading, setUpgrading] = useState(false);
+
+  if (isLoading || !data) return null;
+
+  // Hide entirely when there's nothing to do — keep the dashboard quiet.
+  if (!data.updateAvailable) return null;
+
+  const targetVersion = data.latest ?? '';
+
+  if (!data.repoOk) {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] shadow-sm overflow-hidden">
+        <div className="h-[3px] w-full bg-gradient-to-r from-amber-500/80 via-amber-500/30 to-transparent" />
+        <div className="flex items-start gap-3 px-5 py-4">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">
+              Update {targetVersion} available — but in-app upgrade is unavailable
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {data.repoReason ?? 'Repository check failed.'} Upgrade manually from the host:
+            </p>
+            <pre className="mt-2 rounded bg-muted/40 px-2.5 py-1.5 font-mono text-[11px] text-foreground">
+              cd {data.repoPath} && sudo bash update.sh
+            </pre>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="rounded-xl border border-blue-500/25 bg-gradient-to-b from-blue-500/[0.06] to-transparent shadow-sm overflow-hidden">
+        <div className="h-[3px] w-full bg-gradient-to-r from-blue-500/80 via-blue-500/30 to-transparent" />
+        <div className="px-5 py-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+              <Sparkles className="h-3.5 w-3.5 text-blue-500" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-sm font-semibold text-foreground">
+                  VirtPilot update available
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  v{data.current} → v{targetVersion}
+                </span>
+                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-blue-500 animate-glow-pulse shadow-[0_0_6px_1px_rgb(59_130_246_/_0.5)]" />
+              </div>
+              {data.publishedAt && (
+                <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                  Released {new Date(data.publishedAt).toLocaleDateString()}
+                </p>
+              )}
+              {data.releaseNotes && (
+                <div className="mt-3 rounded-lg border border-border/60 bg-card/60 p-3">
+                  <ReleaseNotesPreview body={data.releaseNotes} />
+                </div>
+              )}
+              <div className="mt-3 flex items-center gap-2">
+                <Button size="sm" onClick={() => setUpgrading(true)} className="gap-1.5">
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Update now
+                </Button>
+                {data.releaseUrl && (
+                  <a
+                    href={data.releaseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Full release notes
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {upgrading && (
+        <VirtPilotUpgradeModal
+          targetVersion={targetVersion}
+          onClose={() => setUpgrading(false)}
+        />
+      )}
+    </>
+  );
+}
+
 // ─── Dashboard page ────────────────────────────────────────────────────────────
 
 function extract(history: StatsSample[], key: keyof StatsSample): number[] {
@@ -798,6 +1071,7 @@ export function DashboardPage() {
         <section className="space-y-3">
           <SectionLabel label="Overview" />
           <HostOverview />
+          <VirtPilotUpdateCard />
         </section>
 
         {/* ── Live Metrics ── */}

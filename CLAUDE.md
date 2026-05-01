@@ -40,6 +40,16 @@ Frontend at http://localhost:5174. Proxies `/api` and `/ws` to backend.
 npm install
 ```
 
+## Production install (target host)
+
+Standard install path is `/usr/local/virtpilot`. The one-liner bootstrap clones (or pulls) the repo there and hands off to `install.sh`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ptmplop/virtPilot/main/bootstrap.sh | sudo bash
+```
+
+`install.sh` requires running from inside a git clone (the in-dashboard self-upgrade does `git pull` to update). It writes `VIRTPILOT_REPO_DIR=…` into `packages/backend/.env` so the backend can locate `update.sh` independently of `process.cwd()`.
+
 ## Host Requirements (Debian/Ubuntu)
 ```bash
 apt install libvirt-daemon-system libvirt-clients qemu-kvm qemu-utils genisoimage
@@ -65,6 +75,16 @@ Every commit must update all four of these. No exceptions.
 2. `packages/backend/package.json` — bump `"version"` to match
 3. `packages/frontend/src/components/layout/Layout.tsx` — bump the hardcoded version string in the sidebar footer (e.g. `v1.7.0`)
 4. `CHANGELOG.md` (repo root, Keep a Changelog format) **and** `packages/frontend/src/data/releaseNotes.ts` (TypeScript array that drives the dashboard About section) — add a new entry to both
+
+## After pushing — publish a GitHub release
+
+The in-dashboard self-upgrade reads the latest release from GitHub Releases. After the version-bump commit lands on `main`, publish a release so existing installs see the update:
+
+```bash
+gh release create v<version> --title "v<version>" --notes "$(awk '/^## \['<version>'\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md)"
+```
+
+The release body becomes the "release notes" preview shown on the Dashboard update card, so the CHANGELOG section for that version is the user-facing copy.
 
 Version increment rules:
 - **Patch** (x.x.N) — fixes, tweaks, cosmetic changes

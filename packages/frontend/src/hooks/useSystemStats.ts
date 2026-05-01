@@ -68,3 +68,33 @@ export function useInvalidateApt() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ['system', 'apt'] });
 }
+
+export interface VirtPilotVersion {
+  current: string;
+  latest: string | null;
+  latestTag: string | null;
+  releaseUrl: string | null;
+  releaseNotes: string | null;
+  publishedAt: string | null;
+  updateAvailable: boolean;
+  repoOk: boolean;
+  repoReason: string | null;
+  repoPath: string;
+}
+
+export function useVirtPilotVersion() {
+  return useQuery({
+    queryKey: ['system', 'version'],
+    queryFn: async () => {
+      const { data } = await api.get<VirtPilotVersion>('/api/system/version');
+      return data;
+    },
+    refetchInterval: 5 * 60_000,
+    staleTime: 60_000,
+  });
+}
+
+export function useInvalidateVersion() {
+  const qc = useQueryClient();
+  return () => qc.invalidateQueries({ queryKey: ['system', 'version'] });
+}

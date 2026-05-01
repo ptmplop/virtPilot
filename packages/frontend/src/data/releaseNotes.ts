@@ -13,6 +13,16 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.0',
+    date: '2026-05-01',
+    changes: [
+      { type: 'added', text: 'In-dashboard self-upgrade — a new card under Overview on the Dashboard surfaces when a newer VirtPilot version is published on GitHub Releases. One click runs update.sh inside a transient systemd unit, streams live build output into a terminal modal, and reloads when the new version is up' },
+      { type: 'added', text: 'bootstrap.sh one-liner installer — `curl -fsSL https://raw.githubusercontent.com/ptmplop/virtPilot/main/bootstrap.sh | sudo bash` clones to /usr/local/virtpilot and runs the installer' },
+      { type: 'changed', text: 'install.sh now requires a git clone (in-app upgrades depend on it) and writes VIRTPILOT_REPO_DIR into .env so the backend has an explicit repo path' },
+      { type: 'fixed', text: 'Backend VERSION constant is now read from package.json at startup instead of being hardcoded — backup metadata had been stamping every backup as v1.7.0 since the constant was last manually updated' },
+    ],
+  },
+  {
     version: '1.12.1',
     date: '2026-05-01',
     changes: [

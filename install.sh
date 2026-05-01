@@ -37,8 +37,18 @@ fi
 
 # Absolute path to the directory containing this script (the project root)
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STANDARD_DIR="/usr/local/virtpilot"
 
 info "Project root: ${INSTALL_DIR}"
+
+# Self-upgrade requires a git clone (update.sh runs `git pull`)
+if [[ ! -d "${INSTALL_DIR}/.git" ]]; then
+  die "VirtPilot must be installed from a git clone (no .git directory at ${INSTALL_DIR}). Use bootstrap.sh or run: git clone https://github.com/ptmplop/virtPilot.git ${STANDARD_DIR} && cd ${STANDARD_DIR} && sudo bash install.sh"
+fi
+
+if [[ "${INSTALL_DIR}" != "${STANDARD_DIR}" ]]; then
+  warn "Installing outside the standard path ${STANDARD_DIR} — fine for development, but the bootstrap installer expects ${STANDARD_DIR}."
+fi
 
 # ─── APT dependencies ─────────────────────────────────────────────────────────
 info "Updating package lists..."
@@ -142,6 +152,9 @@ CLOUD_INIT_DIR=/var/lib/virtpilot/cloud-init
 
 DEFAULT_BRIDGE=br0
 LIBVIRT_URI=qemu:///system
+
+# Repo path — used by the in-dashboard self-upgrade to locate update.sh
+VIRTPILOT_REPO_DIR=${INSTALL_DIR}
 
 AUTH_PASSWORD=${VP_PASSWORD}
 JWT_SECRET=${JWT_SECRET}
