@@ -160,7 +160,7 @@ export function IsosPage() {
     setUploadLogoSlug(null);
     setUploadingName(displayName || file.name);
     setUploadPct(0);
-    setUploadAbort(() => ac.abort.bind(ac));
+    setUploadAbort(ac.abort.bind(ac));
     try {
       await uploadIso.mutateAsync({ file, displayName, signal: ac.signal });
       if (logoSlug) setIsoLogo(file.name, logoSlug);

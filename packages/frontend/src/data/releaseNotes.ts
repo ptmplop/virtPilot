@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.9.1',
+    date: '2026-05-01',
+    changes: [
+      { type: 'fixed', text: 'Cancel button (X) on ISO and template upload progress bars now actually aborts the upload — the abort callback was being stored as a thunk that returned the abort function instead of calling it' },
+    ],
+  },
+  {
     version: '1.9.0',
     date: '2026-05-01',
     changes: [

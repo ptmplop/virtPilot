@@ -161,7 +161,7 @@ export function TemplatesPage() {
     setUploadLogoSlug(null);
     setUploadingName(displayName || file.name);
     setUploadPct(0);
-    setUploadAbort(() => ac.abort.bind(ac));
+    setUploadAbort(ac.abort.bind(ac));
     try {
       await uploadTemplate.mutateAsync({ file, displayName, signal: ac.signal });
       if (logoSlug) setTemplateLogo(file.name, logoSlug);
