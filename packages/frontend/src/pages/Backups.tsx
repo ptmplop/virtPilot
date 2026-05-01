@@ -404,15 +404,17 @@ function BackupRow({
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{formatDate(backup.createdAt)}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-foreground">{formatDate(backup.createdAt)}</p>
+          {!backup.consistent && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+              <ShieldAlert size={9} />
+              No guest agent
+            </span>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground">
           {formatBytes(backup.sizeBytes)} · {backup.disks.length} disk{backup.disks.length !== 1 ? 's' : ''}
-          {' · '}
-          {backup.consistent ? (
-            <span className="text-emerald-400">App-consistent</span>
-          ) : (
-            <span className="text-amber-400">Crash-consistent</span>
-          )}
         </p>
       </div>
       <div className="flex items-center gap-1.5">
