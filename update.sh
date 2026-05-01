@@ -55,8 +55,13 @@ info "Ensuring system packages are present..."
 apt-get install -y -qq \
   ovmf \
   swtpm \
-  swtpm-tools
+  swtpm-tools \
+  qemu-utils
 log "System packages verified"
+
+# ─── Storage directories (idempotent) ────────────────────────────────────────
+STORAGE_ROOT="${STORAGE_ROOT:-/var/lib/virtpilot}"
+mkdir -p "${STORAGE_ROOT}/backups"
 
 # ─── Dependencies ─────────────────────────────────────────────────────────────
 info "Installing npm dependencies..."

@@ -2,6 +2,8 @@ import path from 'path';
 import dotenv from 'dotenv';
 dotenv.config();
 
+export const VERSION = '1.7.0';
+
 const storageRoot = process.env.STORAGE_ROOT ?? '/var/lib/virtpilot';
 
 export const config = {
@@ -11,6 +13,7 @@ export const config = {
   isosDir: process.env.ISOS_DIR ?? path.join(storageRoot, 'isos'),
   vmsDir: process.env.VMS_DIR ?? path.join(storageRoot, 'vms'),
   cloudInitDir: process.env.CLOUD_INIT_DIR ?? path.join(storageRoot, 'cloud-init'),
+  backupRoot: process.env.BACKUP_ROOT ?? path.join(storageRoot, 'backups'),
   defaultBridge: process.env.DEFAULT_BRIDGE ?? 'br0',
   libvirtUri: process.env.LIBVIRT_URI ?? 'qemu:///system',
   authPassword: process.env.AUTH_PASSWORD ?? '',

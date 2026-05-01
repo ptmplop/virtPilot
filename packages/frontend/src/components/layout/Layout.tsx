@@ -1,6 +1,7 @@
 import { useState, type ReactNode, type ComponentType } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
+  ArchiveIcon,
   Database,
   Disc,
   HardDrive,
@@ -131,6 +132,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             <CollapsedNavItem to="/templates" icon={HardDrive} label="Templates" />
             <CollapsedNavItem to="/isos" icon={Disc} label="ISOs" />
             <CollapsedNavItem to="/storage" icon={Database} label="Storage" />
+            <CollapsedNavItem to="/backups" icon={ArchiveIcon} label="Backups" />
             <div className="my-2 border-t border-sidebar-border" />
             <CollapsedNavItem to="/ssh-keys" icon={KeyRound} label="SSH Keys" />
             <CollapsedNavItem to="/logs" icon={ScrollText} label="Logs" />
@@ -148,6 +150,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               <NavItem to="/templates" label="Templates" icon={HardDrive} />
               <NavItem to="/isos" label="ISOs" icon={Disc} />
               <NavItem to="/storage" label="Storage" icon={Database} />
+              <NavItem to="/backups" label="Backups" icon={ArchiveIcon} />
             </NavSection>
             <NavSection label="System">
               <NavItem to="/ssh-keys" label="SSH Keys" icon={KeyRound} />

@@ -172,6 +172,11 @@ export interface FirewallConfig {
   allowEstablishedOutbound?: boolean;
 }
 
+export interface BackupSettings {
+  retentionDays: number;
+  compression: boolean;
+}
+
 export interface Settings {
   storageRoot: string;
   templatesDir: string;
@@ -180,9 +185,56 @@ export interface Settings {
   defaultBridge: string;
   libvirtUri: string;
   kvmAvailable: boolean;
+  backupRoot: string;
   maxLogs: number;
   ipWhitelist: string[];
   totpEnabled: boolean;
+  backup: BackupSettings;
+}
+
+export type BackupTrigger = 'manual' | 'scheduled';
+export type BackupFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly';
+
+export interface BackupDiskEntry {
+  target: string;
+  filename: string;
+  format: 'qcow2';
+  sizeBytes: number;
+  originalPath: string;
+}
+
+export interface BackupEntry {
+  id: string;
+  vmName: string;
+  createdAt: string;
+  sizeBytes: number;
+  consistent: boolean;
+  triggerType: BackupTrigger;
+  scheduleFrequency?: BackupFrequency;
+  vmStateAtBackup: string;
+  retentionDays: number;
+  disks: BackupDiskEntry[];
+}
+
+export interface BackupVmSummary {
+  vmName: string;
+  backupCount: number;
+  totalSizeBytes: number;
+  lastBackupAt: string | null;
+  schedule: BackupSchedule | null;
+}
+
+export interface BackupSchedule {
+  vmName: string;
+  frequency: BackupFrequency;
+  hour: number;
+  minute: number;
+  dayOfWeek: number;
+  dayOfMonth: number;
+  retentionDays: number | null;
+  enabled: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
 }
 
 export interface VmDiskFile {

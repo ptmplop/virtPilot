@@ -101,7 +101,8 @@ mkdir -p \
   /var/lib/virtpilot/templates \
   /var/lib/virtpilot/isos \
   /var/lib/virtpilot/vms \
-  /var/lib/virtpilot/cloud-init
+  /var/lib/virtpilot/cloud-init \
+  /var/lib/virtpilot/backups
 chmod -R 755 /var/lib/virtpilot
 log "Storage ready"
 
@@ -136,6 +137,8 @@ TEMPLATES_DIR=/var/lib/virtpilot/templates
 ISOS_DIR=/var/lib/virtpilot/isos
 VMS_DIR=/var/lib/virtpilot/vms
 CLOUD_INIT_DIR=/var/lib/virtpilot/cloud-init
+# To store backups on a separate disk or NFS mount, set BACKUP_ROOT:
+# BACKUP_ROOT=/mnt/nfs/virtpilot-backups
 
 DEFAULT_BRIDGE=br0
 LIBVIRT_URI=qemu:///system

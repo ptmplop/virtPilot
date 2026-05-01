@@ -5,7 +5,7 @@ import type { Iso, Template } from '../types.js';
 import { type TraceEntry, execTraced } from './traceService.js';
 
 export async function ensureDirs(): Promise<void> {
-  for (const dir of [config.templatesDir, config.isosDir, config.vmsDir, config.cloudInitDir]) {
+  for (const dir of [config.templatesDir, config.isosDir, config.vmsDir, config.cloudInitDir, config.backupRoot]) {
     await fs.mkdir(dir, { recursive: true });
   }
 }

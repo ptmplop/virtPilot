@@ -2,15 +2,26 @@ import fs from 'fs/promises';
 import path from 'path';
 import { config } from '../config.js';
 
+export interface BackupSettings {
+  retentionDays: number;
+  compression: boolean;
+}
+
 export interface UserSettings {
   maxLogs: number;
   ipWhitelist: string[];
   totpEnabled: boolean;
   totpSecret?: string;
   totpPendingSecret?: string;
+  backup: BackupSettings;
 }
 
-const DEFAULT: UserSettings = { maxLogs: 500, ipWhitelist: [], totpEnabled: false };
+const DEFAULT: UserSettings = {
+  maxLogs: 500,
+  ipWhitelist: [],
+  totpEnabled: false,
+  backup: { retentionDays: 7, compression: false },
+};
 
 const settingsFile = () => path.join(config.storageRoot, 'user-settings.json');
 
@@ -31,6 +42,11 @@ export async function saveUserSettings(updates: Partial<UserSettings>): Promise<
   if (updates.totpEnabled !== undefined) merged.totpEnabled = updates.totpEnabled;
   if ('totpSecret' in updates) merged.totpSecret = updates.totpSecret;
   if ('totpPendingSecret' in updates) merged.totpPendingSecret = updates.totpPendingSecret;
+  if (updates.backup !== undefined) {
+    merged.backup = { ...merged.backup, ...updates.backup };
+    if (typeof merged.backup.retentionDays !== 'number' || merged.backup.retentionDays < 0) merged.backup.retentionDays = 0;
+    merged.backup.compression = Boolean(merged.backup.compression);
+  }
   if (typeof merged.maxLogs !== 'number' || merged.maxLogs < 10) merged.maxLogs = 10;
   if (merged.maxLogs > 10_000) merged.maxLogs = 10_000;
   if (!Array.isArray(merged.ipWhitelist)) merged.ipWhitelist = [];

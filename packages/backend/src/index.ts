@@ -16,6 +16,7 @@ import { logsRouter } from './routes/logs.js';
 import { devicesRouter } from './routes/devices.js';
 import { sshKeysRouter } from './routes/sshKeys.js';
 import { totpRouter } from './routes/totp.js';
+import { backupsRouter } from './routes/backups.js';
 import { requireAuth, verifyWsToken, isIpAllowed } from './middleware/auth.js';
 import { getUserSettings } from './services/userSettingsService.js';
 import { createConsoleWss } from './console.js';
@@ -24,6 +25,7 @@ import { createVncWss } from './vnc.js';
 import { ensureDirs } from './services/storageService.js';
 import { applyAllRules } from './services/portForwardService.js';
 import { startSampling } from './services/statsService.js';
+import { startBackupScheduler } from './services/backupSchedulerService.js';
 
 const app = express();
 
@@ -47,6 +49,7 @@ app.use('/api/logs', requireAuth, logsRouter);
 app.use('/api/devices', requireAuth, devicesRouter);
 app.use('/api/ssh-keys', requireAuth, sshKeysRouter);
 app.use('/api/2fa', requireAuth, totpRouter);
+app.use('/api/backups', requireAuth, backupsRouter);
 
 // Serve built frontend in production
 const frontendDist = path.resolve(__dirname, '../../frontend/dist');
@@ -99,6 +102,7 @@ async function main() {
     console.warn('Could not apply port forward iptables rules:', err);
   }
   startSampling();
+  startBackupScheduler();
   server.listen(config.port, () => {
     console.log(`VirtPilot backend listening on port ${config.port}`);
   });

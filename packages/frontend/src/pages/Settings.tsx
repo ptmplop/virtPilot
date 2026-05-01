@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useSettings } from '@/hooks/useSettings';
 import { api } from '@/lib/api';
-import type { Settings } from '@/types';
+import type { Settings, BackupSettings } from '@/types';
 
 type TotpSetupState = 'idle' | 'setup';
 
@@ -136,11 +136,43 @@ export function SettingsPage() {
     onError: () => toast.error('Failed to remove 2FA'),
   });
 
+  // Backup settings
+  const [backupRetentionDays, setBackupRetentionDays] = useState<string>('');
+  const [backupCompression, setBackupCompression] = useState(false);
+  useEffect(() => {
+    if (settings?.backup != null) {
+      setBackupRetentionDays(String(settings.backup.retentionDays));
+      setBackupCompression(settings.backup.compression);
+    }
+  }, [settings?.backup]);
+
+  const saveBackupSettings = useMutation({
+    mutationFn: async (backup: BackupSettings) => {
+      const { data } = await api.put<{ settings: Settings }>('/api/settings', { backup });
+      return data.settings;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['settings'], (prev: typeof settings) => prev ? { ...prev, ...updated } : prev);
+      toast.success('Backup settings saved');
+    },
+    onError: () => toast.error('Failed to save backup settings'),
+  });
+
+  function handleSaveBackup() {
+    const n = parseInt(backupRetentionDays, 10);
+    if (isNaN(n) || n < 0) {
+      toast.error('Retention days must be 0 or more (0 = keep forever)');
+      return;
+    }
+    saveBackupSettings.mutate({ retentionDays: n, compression: backupCompression });
+  }
+
   const configRows: [string, string][] = settings ? [
     ['Storage Root',        settings.storageRoot],
     ['Templates Directory', settings.templatesDir],
     ['ISOs Directory',      settings.isosDir],
     ['VMs Directory',       settings.vmsDir],
+    ['Backup Root',         settings.backupRoot],
     ['Default Bridge',      settings.defaultBridge],
     ['Libvirt URI',         settings.libvirtUri],
   ] : [];
@@ -202,6 +234,54 @@ export function SettingsPage() {
                 size="sm"
                 onClick={handleSaveMaxLogs}
                 disabled={saveSettings.isPending}
+                className="gap-1.5"
+              >
+                <Save className="h-3.5 w-3.5" />
+                Save
+              </Button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Backup settings */}
+      <section className="mb-5">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-foreground">Backups</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Global defaults for all VM backups. Individual schedules can override the retention period.
+            Set retention to <span className="font-mono">0</span> to keep backups forever.
+          </p>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
+          {isLoading ? (
+            <Skeleton className="h-10 rounded-lg" />
+          ) : (
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="w-48">
+                <Input
+                  label="Default retention (days)"
+                  type="number"
+                  min={0}
+                  placeholder="7"
+                  value={backupRetentionDays}
+                  onChange={(e) => setBackupRetentionDays(e.target.value)}
+                />
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 pb-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={backupCompression}
+                  onChange={(e) => setBackupCompression(e.target.checked)}
+                  className="accent-primary"
+                />
+                <span className="text-foreground">Compress backups</span>
+                <span className="text-xs text-muted-foreground">(smaller files, slower)</span>
+              </label>
+              <Button
+                size="sm"
+                onClick={handleSaveBackup}
+                disabled={saveBackupSettings.isPending}
                 className="gap-1.5"
               >
                 <Save className="h-3.5 w-3.5" />
