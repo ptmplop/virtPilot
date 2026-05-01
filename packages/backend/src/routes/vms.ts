@@ -662,18 +662,27 @@ vmsRouter.post('/:name/snapshots/:snapshot/to-template', async (req, res) => {
     const safeName = templateName.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
     const filename = `${safeName}.qcow2`;
 
-    // Detect source template from qcow2 backing chain before flattening
+    // Source template recorded at VM-create time is the authoritative answer —
+    // unlike walking the qcow2 backing chain, it stays correct when external
+    // snapshots have inserted overlay layers between the active disk and the
+    // original template. Fall back to chain inspection only when metadata is
+    // missing (e.g. VMs created before metadata tracking was added).
     let sourceTemplateFilename: string | undefined;
     try {
-      const disks = await vmService.getVmDisks(name);
-      const primaryDisk = disks.find((d) => d.target === 'vda' && d.source);
-      if (primaryDisk?.source) {
-        const { stdout } = await execAsync(`qemu-img info --output=json "${primaryDisk.source}"`);
-        const info = JSON.parse(stdout) as { 'backing-filename'?: string };
-        const backingFile = info['backing-filename'];
-        if (backingFile) {
-          const candidate = path.basename(backingFile);
-          if (candidate.match(/\.(qcow2|img)$/)) sourceTemplateFilename = candidate;
+      const meta = await vmMetaService.getVmMeta(name);
+      if (meta?.sourceTemplateFilename) {
+        sourceTemplateFilename = meta.sourceTemplateFilename;
+      } else {
+        const disks = await vmService.getVmDisks(name);
+        const primaryDisk = disks.find((d) => d.target === 'vda' && d.source);
+        if (primaryDisk?.source) {
+          const { stdout } = await execAsync(`qemu-img info --output=json "${primaryDisk.source}"`);
+          const info = JSON.parse(stdout) as { 'backing-filename'?: string };
+          const backingFile = info['backing-filename'];
+          if (backingFile) {
+            const candidate = path.basename(backingFile);
+            if (candidate.match(/\.(qcow2|img)$/)) sourceTemplateFilename = candidate;
+          }
         }
       }
     } catch { /* non-fatal — proceed without logo hint */ }

@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.9.3',
+    date: '2026-05-01',
+    changes: [
+      { type: 'changed', text: 'Templates created from a snapshot now inherit the logo from the VM’s original template by reading the recorded metadata, instead of probing the qcow2 backing chain (which broke once external snapshot overlays sat between the active disk and the template)' },
+    ],
+  },
+  {
     version: '1.9.2',
     date: '2026-05-01',
     changes: [
