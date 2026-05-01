@@ -1,9 +1,6 @@
-```
-  __   _      _   ___  _  _     _
-  \ \ / /_ __| |_| _ \(_)| |___| |_
-   \ V /| |  _|  _|  _/ | | / _ \  _|
-    \_/ |_|\__|\__|_| |_|_|_\___/\__|
-```
+<p align="center">
+  <img src="packages/frontend/public/vlogo-big.png" alt="VirtPilot" width="500">
+</p>
 
 # VirtPilot
 
