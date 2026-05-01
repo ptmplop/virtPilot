@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
-  Copy, Cpu, Disc, Eye, EyeOff, HardDrive, MemoryStick, Network, Pencil, Plus,
+  Copy, Cpu, Disc, Eye, EyeOff, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
   Power, PowerOff, RotateCcw, Server, Shield, Terminal, Trash2, Usb, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -17,7 +17,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
   useVm, useVmMeta, useVmAction, useAddDisk, useDetachDisk,
-  useAttachCdrom, useDetachCdrom, useAddNic, useDetachNic,
+  useAttachCdrom, useDetachCdrom, useAddNic, useDetachNic, useSetNicBandwidth,
   useSetBootOrder, useBootOnce,
   useSnapshots, useCreateSnapshot, useDeleteSnapshot, useRevertSnapshot, useSnapshotToTemplate,
   useVmIfAddrs, useVmReservations,
@@ -1618,16 +1618,36 @@ function buildNetplanSnippet(mac: string, network: NetworkConfig, staticIp?: str
   return lines.join('\n');
 }
 
+// Convert KiB/s ↔ MB/s with two decimal places where needed (libvirt uses KiB/s).
+function mbpsFromKbps(kbps: number): string {
+  const mb = kbps / 1024;
+  return mb >= 10 ? mb.toFixed(0) : mb.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function kbpsFromMbpsInput(input: string): number {
+  const trimmed = input.trim();
+  if (!trimmed) return 0;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.floor(n * 1024);
+}
+
 function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; meta: VmMeta | null }) {
   const [addOpen, setAddOpen] = useState(false);
   const [selectedNetworkId, setSelectedNetworkId] = useState('');
   const [selectedStaticIp, setSelectedStaticIp] = useState('');
+  const [addInbound, setAddInbound] = useState('');
+  const [addOutbound, setAddOutbound] = useState('');
   const [addedNic, setAddedNic] = useState<{ mac: string; network: NetworkConfig; staticIp?: string } | null>(null);
+  const [bandwidthNic, setBandwidthNic] = useState<VmNic | null>(null);
+  const [bwInbound, setBwInbound] = useState('');
+  const [bwOutbound, setBwOutbound] = useState('');
   const { data: networks } = useNetworks();
   const { data: ifAddrs = {} } = useVmIfAddrs(vmName);
   const { data: reservations = [] } = useVmReservations(vmName);
   const addNic = useAddNic(vmName);
   const detachNic = useDetachNic(vmName);
+  const setBandwidth = useSetNicBandwidth(vmName);
 
   const attachedBridges = new Set(nics.map((n) => n.source));
   const availableNetworks = (networks ?? []).filter((n) => !attachedBridges.has(n.bridge));
@@ -1646,6 +1666,8 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
     const first = availableNetworks[0];
     setSelectedNetworkId(first?.id ?? '');
     setSelectedStaticIp('');
+    setAddInbound('');
+    setAddOutbound('');
     setAddedNic(null);
     setAddOpen(true);
   };
@@ -1654,7 +1676,36 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
     setAddOpen(false);
     setSelectedNetworkId('');
     setSelectedStaticIp('');
+    setAddInbound('');
+    setAddOutbound('');
     setAddedNic(null);
+  };
+
+  const openBandwidth = (nic: VmNic) => {
+    setBandwidthNic(nic);
+    setBwInbound(nic.inboundKbps ? mbpsFromKbps(nic.inboundKbps) : '');
+    setBwOutbound(nic.outboundKbps ? mbpsFromKbps(nic.outboundKbps) : '');
+  };
+
+  const closeBandwidth = () => {
+    setBandwidthNic(null);
+    setBwInbound('');
+    setBwOutbound('');
+  };
+
+  const submitBandwidth = async () => {
+    if (!bandwidthNic) return;
+    try {
+      await setBandwidth.mutateAsync({
+        mac: bandwidthNic.mac,
+        inboundKbps: kbpsFromMbpsInput(bwInbound),
+        outboundKbps: kbpsFromMbpsInput(bwOutbound),
+      });
+      toast.success('Rate limit updated');
+      closeBandwidth();
+    } catch {
+      toast.error('Failed to update rate limit');
+    }
   };
 
   const handleNetworkSelect = (id: string) => {
@@ -1665,9 +1716,13 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
   const handleAddNic = async () => {
     if (!selectedNetwork) return;
     try {
+      const inboundKbps = kbpsFromMbpsInput(addInbound);
+      const outboundKbps = kbpsFromMbpsInput(addOutbound);
       const result = await addNic.mutateAsync({
         networkId: selectedNetworkId,
         staticIp: isStaticNetwork ? selectedStaticIp : undefined,
+        inboundKbps: inboundKbps > 0 ? inboundKbps : undefined,
+        outboundKbps: outboundKbps > 0 ? outboundKbps : undefined,
       });
       setAddedNic({ mac: result.mac, network: selectedNetwork, staticIp: isStaticNetwork ? selectedStaticIp : undefined });
     } catch {
@@ -1694,7 +1749,7 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  {['MAC Address', 'Network', 'IP Address', 'Model', ''].map((h) => (
+                  {['MAC Address', 'Network', 'IP Address', 'Model', 'Rate Limit', ''].map((h) => (
                     <th
                       key={h}
                       className={cn(
@@ -1745,23 +1800,45 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
                         />
                       </td>
                       <td className="px-5 py-3.5 text-xs text-muted-foreground">{nic.model}</td>
+                      <td className="px-5 py-3.5 text-xs text-muted-foreground">
+                        {nic.inboundKbps || nic.outboundKbps ? (
+                          <span className="font-mono">
+                            ↓ {nic.inboundKbps ? `${mbpsFromKbps(nic.inboundKbps)} MB/s` : 'unlimited'}
+                            {' · '}
+                            ↑ {nic.outboundKbps ? `${mbpsFromKbps(nic.outboundKbps)} MB/s` : 'unlimited'}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/60">unlimited</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3.5 text-right">
-                        <Tooltip label="Remove NIC">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await detachNic.mutateAsync(nic.mac);
-                                toast.success('NIC removed');
-                              } catch {
-                                toast.error('Failed to remove NIC');
-                              }
-                            }}
-                            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </Tooltip>
+                        <div className="flex items-center justify-end gap-1">
+                          <Tooltip label="Edit rate limit">
+                            <button
+                              type="button"
+                              onClick={() => openBandwidth(nic)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            >
+                              <Gauge size={13} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip label="Remove NIC">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await detachNic.mutateAsync(nic.mac);
+                                  toast.success('NIC removed');
+                                } catch {
+                                  toast.error('Failed to remove NIC');
+                                }
+                              }}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </Tooltip>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1883,11 +1960,69 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
                 ))}
               </Select>
             )}
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Inbound limit (MB/s)"
+                placeholder="unlimited"
+                inputMode="decimal"
+                value={addInbound}
+                onChange={(e) => setAddInbound(e.target.value)}
+              />
+              <Input
+                label="Outbound limit (MB/s)"
+                placeholder="unlimited"
+                inputMode="decimal"
+                value={addOutbound}
+                onChange={(e) => setAddOutbound(e.target.value)}
+              />
+            </div>
             <p className="rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-500 dark:text-amber-400">
               Cloud-init will not configure this NIC automatically. Configuration steps will be shown after adding.
             </p>
           </div>
         )}
+      </Dialog>
+
+      <Dialog
+        open={!!bandwidthNic}
+        onClose={closeBandwidth}
+        title="Rate Limit"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={closeBandwidth}>Cancel</Button>
+            <Button size="sm" onClick={submitBandwidth} disabled={setBandwidth.isPending}>
+              {setBandwidth.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Cap traffic on{' '}
+            <span className="font-mono text-foreground">{bandwidthNic?.mac}</span>. Leave a field blank for
+            unlimited. Inbound and outbound are from the guest's perspective. Limits apply live and persist
+            across reboots.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Inbound (MB/s)"
+              placeholder="unlimited"
+              inputMode="decimal"
+              value={bwInbound}
+              onChange={(e) => setBwInbound(e.target.value)}
+            />
+            <Input
+              label="Outbound (MB/s)"
+              placeholder="unlimited"
+              inputMode="decimal"
+              value={bwOutbound}
+              onChange={(e) => setBwOutbound(e.target.value)}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground/80">
+            libvirt enforces these via Linux tc (token bucket). Useful for fairness; not strict policing.
+          </p>
+        </div>
       </Dialog>
     </div>
   );

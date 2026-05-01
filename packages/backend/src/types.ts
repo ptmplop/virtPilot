@@ -14,6 +14,8 @@ export interface VmNic {
   source: string;   // bridge name
   model: string;
   target?: string;  // tap device
+  inboundKbps?: number;   // average inbound rate limit, KiB/s (from guest perspective)
+  outboundKbps?: number;  // average outbound rate limit, KiB/s
 }
 
 export interface Vm {

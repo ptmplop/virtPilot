@@ -186,10 +186,48 @@ export async function getVmNics(nameOrId: string): Promise<VmNic[]> {
       const mac = parts[4];
       nics.push({ mac, source, model, target });
     }
+
+    // Pull <bandwidth> from the inactive XML so values are correct whether the VM is running or stopped.
+    try {
+      const xml = await virsh(`dumpxml ${nameOrId} --inactive`);
+      const bandwidthByMac = parseNicBandwidthFromXml(xml);
+      for (const nic of nics) {
+        const bw = bandwidthByMac.get(nic.mac.toLowerCase());
+        if (bw) {
+          if (bw.inboundKbps !== undefined) nic.inboundKbps = bw.inboundKbps;
+          if (bw.outboundKbps !== undefined) nic.outboundKbps = bw.outboundKbps;
+        }
+      }
+    } catch {
+      // bandwidth info is best-effort; ignore if dumpxml fails
+    }
+
     return nics;
   } catch {
     return [];
   }
+}
+
+function parseNicBandwidthFromXml(xml: string): Map<string, { inboundKbps?: number; outboundKbps?: number }> {
+  const result = new Map<string, { inboundKbps?: number; outboundKbps?: number }>();
+  const ifaceRegex = /<interface\b[^>]*>([\s\S]*?)<\/interface>/g;
+  let match;
+  while ((match = ifaceRegex.exec(xml)) !== null) {
+    const block = match[1];
+    const macMatch = block.match(/<mac\s+address=['"]([^'"]+)['"]/);
+    if (!macMatch) continue;
+    const mac = macMatch[1].toLowerCase();
+    const bwMatch = block.match(/<bandwidth\b[^>]*>([\s\S]*?)<\/bandwidth>/);
+    if (!bwMatch) continue;
+    const bw = bwMatch[1];
+    const inbAvg = bw.match(/<inbound\b[^>]*\baverage=['"](\d+)['"]/);
+    const outbAvg = bw.match(/<outbound\b[^>]*\baverage=['"](\d+)['"]/);
+    result.set(mac, {
+      inboundKbps: inbAvg ? parseInt(inbAvg[1], 10) : undefined,
+      outboundKbps: outbAvg ? parseInt(outbAvg[1], 10) : undefined,
+    });
+  }
+  return result;
 }
 
 export async function getVmInterfaceIps(nameOrId: string): Promise<Record<string, string>> {
@@ -304,16 +342,49 @@ export async function detachCdrom(nameOrId: string, targetDev = 'sdb'): Promise<
   return formatTrace(trace);
 }
 
-export async function attachNic(nameOrId: string, bridge: string, model = 'virtio', mac?: string): Promise<string> {
+export async function attachNic(
+  nameOrId: string,
+  bridge: string,
+  model = 'virtio',
+  mac?: string,
+  bandwidth?: { inboundKbps?: number; outboundKbps?: number },
+): Promise<string> {
   const trace: TraceEntry[] = [];
   const macFlag = mac ? ` --mac ${mac}` : '';
   await virsh(`attach-interface ${nameOrId} bridge ${bridge} --model ${model}${macFlag} --persistent`, trace);
+
+  if (mac && bandwidth && (bandwidth.inboundKbps || bandwidth.outboundKbps)) {
+    await setNicBandwidth(nameOrId, mac, bandwidth, trace);
+  }
+
   return formatTrace(trace);
 }
 
 export async function detachNic(nameOrId: string, mac: string): Promise<string> {
   const trace: TraceEntry[] = [];
   await virsh(`detach-interface ${nameOrId} bridge --mac ${mac} --persistent`, trace);
+  return formatTrace(trace);
+}
+
+export async function setNicBandwidth(
+  nameOrId: string,
+  mac: string,
+  bandwidth: { inboundKbps?: number; outboundKbps?: number },
+  existingTrace?: TraceEntry[],
+): Promise<string> {
+  const trace = existingTrace ?? [];
+  const state = await virsh(`domstate ${nameOrId}`);
+  const isRunning = parseStatus(state) === 'running';
+  const scope = isRunning ? '--live --config' : '--config';
+
+  // domiftune average=0 clears the limit. Use 0 for unlimited so the user can clear caps.
+  const inboundKbps = bandwidth.inboundKbps ?? 0;
+  const outboundKbps = bandwidth.outboundKbps ?? 0;
+
+  await virsh(
+    `domiftune ${nameOrId} ${mac} --inbound ${inboundKbps} --outbound ${outboundKbps} ${scope}`,
+    trace,
+  );
   return formatTrace(trace);
 }
 

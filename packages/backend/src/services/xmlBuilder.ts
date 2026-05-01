@@ -64,6 +64,8 @@ export interface NicDefinition {
   bridge: string;
   mac: string;
   model?: string;
+  inboundKbps?: number;
+  outboundKbps?: number;
 }
 
 interface DomainXmlOptions {
@@ -114,13 +116,16 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
   }
 
   const nicsXml = opts.nics
-    .map((nic) =>
-      `    <interface type="bridge">
+    .map((nic) => {
+      const inb = nic.inboundKbps && nic.inboundKbps > 0 ? `<inbound average="${nic.inboundKbps}"/>` : '';
+      const outb = nic.outboundKbps && nic.outboundKbps > 0 ? `<outbound average="${nic.outboundKbps}"/>` : '';
+      const bandwidthXml = inb || outb ? `\n      <bandwidth>${inb}${outb}</bandwidth>` : '';
+      return `    <interface type="bridge">
       <mac address="${nic.mac}"/>
       <source bridge="${nic.bridge}"/>
-      <model type="${nic.model ?? 'virtio'}"/>
-    </interface>`
-    )
+      <model type="${nic.model ?? 'virtio'}"/>${bandwidthXml}
+    </interface>`;
+    })
     .join('\n');
 
   const isIsoInstall = !!opts.installIsoPath;

@@ -542,7 +542,13 @@ vmsRouter.post('/:name/nics', async (req, res) => {
   const start = Date.now();
   const { name } = req.params;
   try {
-    const { networkId, model, staticIp } = req.body as { networkId: string; model?: string; staticIp?: string };
+    const { networkId, model, staticIp, inboundKbps, outboundKbps } = req.body as {
+      networkId: string;
+      model?: string;
+      staticIp?: string;
+      inboundKbps?: number;
+      outboundKbps?: number;
+    };
     if (!networkId) return res.status(400).json({ error: 'networkId is required' });
 
     const network = await networkService.getNetwork(networkId);
@@ -557,7 +563,10 @@ vmsRouter.post('/:name/nics', async (req, res) => {
       allocatedIp = staticIp;
     }
 
-    const output = await vmService.attachNic(name, network.bridge, model ?? 'virtio', mac);
+    const bandwidth = (inboundKbps && inboundKbps > 0) || (outboundKbps && outboundKbps > 0)
+      ? { inboundKbps, outboundKbps }
+      : undefined;
+    const output = await vmService.attachNic(name, network.bridge, model ?? 'virtio', mac, bandwidth);
 
     const meta = await vmMetaService.getVmMeta(name);
     if (meta) {
@@ -595,6 +604,22 @@ vmsRouter.delete('/:name/nics/:mac', async (req, res) => {
     res.json({ ok: true });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.nic.detach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+vmsRouter.put('/:name/nics/:mac/bandwidth', async (req, res) => {
+  const start = Date.now();
+  const { name, mac } = req.params;
+  try {
+    const { inboundKbps, outboundKbps } = req.body as { inboundKbps?: number; outboundKbps?: number };
+    const inb = typeof inboundKbps === 'number' && inboundKbps > 0 ? Math.floor(inboundKbps) : 0;
+    const outb = typeof outboundKbps === 'number' && outboundKbps > 0 ? Math.floor(outboundKbps) : 0;
+    const output = await vmService.setNicBandwidth(name, mac, { inboundKbps: inb, outboundKbps: outb });
+    void logService.appendLog({ type: 'vm.nic.bandwidth', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    res.json({ ok: true, inboundKbps: inb, outboundKbps: outb });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.nic.bandwidth', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });

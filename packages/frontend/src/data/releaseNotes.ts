@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.10.0',
+    date: '2026-05-01',
+    changes: [
+      { type: 'added', text: 'Per-NIC bandwidth shaping — set inbound and outbound rate limits in MB/s on each network interface; values apply live (no shutdown needed) via libvirt’s tc-based shaper and persist across reboots' },
+      { type: 'added', text: 'Rate Limit column on the VM Network tab shows the current cap per NIC; pencil/gauge button opens an inline editor; the same fields are available when adding a new NIC' },
+    ],
+  },
+  {
     version: '1.9.3',
     date: '2026-05-01',
     changes: [

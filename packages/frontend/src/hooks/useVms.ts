@@ -140,7 +140,13 @@ export function useDetachCdrom(name: string) {
 export function useAddNic(name: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { networkId: string; model?: string; staticIp?: string }) => {
+    mutationFn: async (payload: {
+      networkId: string;
+      model?: string;
+      staticIp?: string;
+      inboundKbps?: number;
+      outboundKbps?: number;
+    }) => {
       const { data } = await api.post<{ ok: boolean; mac: string }>(`/api/vms/${name}/nics`, payload);
       return data;
     },
@@ -153,6 +159,17 @@ export function useDetachNic(name: string) {
   return useMutation({
     mutationFn: async (mac: string) => {
       await api.delete(`/api/vms/${name}/nics/${mac}`);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.vm(name) }),
+  });
+}
+
+export function useSetNicBandwidth(name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { mac: string; inboundKbps: number; outboundKbps: number }) => {
+      const { mac, ...body } = payload;
+      await api.put(`/api/vms/${name}/nics/${mac}/bandwidth`, body);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.vm(name) }),
   });

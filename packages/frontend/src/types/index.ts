@@ -14,6 +14,8 @@ export interface VmNic {
   source: string;
   model: string;
   target?: string;
+  inboundKbps?: number;
+  outboundKbps?: number;
 }
 
 export interface Vm {
