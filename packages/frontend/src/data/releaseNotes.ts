@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.8.4',
+    date: '2026-05-01',
+    changes: [
+      { type: 'changed', text: 'Settings page sections redesigned to match the Dashboard layout — space-y-8 between sections, small uppercase tracking label with primary left accent bar replacing plain headings' },
+    ],
+  },
+  {
     version: '1.8.3',
     date: '2026-05-01',
     changes: [
