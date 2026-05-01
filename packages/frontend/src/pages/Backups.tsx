@@ -9,6 +9,7 @@ import {
   HardDrive,
   Info,
   Play,
+  Power,
   ShieldAlert,
   Trash2,
   Zap,
@@ -152,8 +153,21 @@ function BackupInfoPanel() {
                 <p className="text-xs font-semibold text-foreground">App-consistent</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   The VM's filesystems were frozen via the QEMU guest agent before the disk was
-                  copied. All writes were flushed and paused, so the backup is guaranteed to be
-                  in a clean state — safe to restore databases and any application without extra steps.
+                  copied. All writes were flushed and paused — the backup is guaranteed to be in a
+                  clean state, safe to restore databases and any application without extra steps.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+                <Power size={13} className="text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground">VM offline</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  The VM was powered off when the backup ran. The disk was idle with no writes in
+                  flight, so the backup is always clean and safe to restore — no guest agent needed.
                 </p>
               </div>
             </div>
@@ -163,12 +177,18 @@ function BackupInfoPanel() {
                 <ShieldAlert size={13} className="text-amber-400" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-foreground">No guest agent <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400"><ShieldAlert size={8} />No guest agent</span></p>
+                <p className="text-xs font-semibold text-foreground">
+                  No guest agent{' '}
+                  <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                    <ShieldAlert size={8} />No guest agent
+                  </span>
+                </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  The QEMU guest agent was not available, so filesystems were not frozen before
-                  copying. The backup may capture a disk mid-write. Simple workloads and stopped
-                  VMs recover cleanly; databases or applications with open transactions may need
-                  a consistency check (e.g. <code className="rounded bg-muted px-1 font-mono">fsck</code>,{' '}
+                  The VM was running but the QEMU guest agent was not available, so filesystems
+                  were not frozen before copying. The backup may capture a disk mid-write. Simple
+                  workloads recover cleanly; databases or applications with open transactions may
+                  need a consistency check (e.g.{' '}
+                  <code className="rounded bg-muted px-1 font-mono">fsck</code>,{' '}
                   <code className="rounded bg-muted px-1 font-mono">mysqlcheck</code>) after restore.
                 </p>
                 <p className="mt-1.5 text-xs text-muted-foreground/70">
@@ -463,16 +483,14 @@ function BackupRow({
   return (
     <div className="flex items-center gap-4 rounded-xl border border-border bg-card px-4 py-3">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/50">
-        {backup.consistent ? (
-          <Check size={14} className="text-emerald-400" />
-        ) : (
-          <ShieldAlert size={14} className="text-amber-400" />
-        )}
+        {backup.consistency === 'app-consistent' && <Check size={14} className="text-emerald-400" />}
+        {backup.consistency === 'offline' && <Power size={14} className="text-muted-foreground" />}
+        {backup.consistency === 'crash-consistent' && <ShieldAlert size={14} className="text-amber-400" />}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-foreground">{formatDate(backup.createdAt)}</p>
-          {!backup.consistent && (
+          {backup.consistency === 'crash-consistent' && (
             <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
               <ShieldAlert size={9} />
               No guest agent

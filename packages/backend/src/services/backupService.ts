@@ -15,6 +15,12 @@ const execAsync = promisify(exec);
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type BackupTrigger = 'manual' | 'scheduled';
+export type BackupConsistency = 'app-consistent' | 'offline' | 'crash-consistent';
+
+function deriveConsistency(vmStateAtBackup: string, consistent: boolean): BackupConsistency {
+  if (vmStateAtBackup !== 'running') return 'offline';
+  return consistent ? 'app-consistent' : 'crash-consistent';
+}
 export type BackupFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly';
 
 export interface BackupDiskEntry {
@@ -51,7 +57,7 @@ export interface BackupEntry {
   vmName: string;
   createdAt: string;
   sizeBytes: number;
-  consistent: boolean;
+  consistency: BackupConsistency;
   triggerType: BackupTrigger;
   scheduleFrequency?: BackupFrequency;
   vmStateAtBackup: string;
@@ -154,7 +160,7 @@ export async function listBackupsForVm(vmName: string): Promise<BackupEntry[]> {
           vmName: manifest.vmName,
           createdAt: manifest.createdAt,
           sizeBytes,
-          consistent: manifest.consistent,
+          consistency: deriveConsistency(manifest.vmStateAtBackup ?? 'running', manifest.consistent),
           triggerType: manifest.triggerType,
           scheduleFrequency: manifest.scheduleFrequency,
           vmStateAtBackup: manifest.vmStateAtBackup,
@@ -339,7 +345,7 @@ async function _createBackupInner(
       vmName,
       createdAt: manifest.createdAt,
       sizeBytes,
-      consistent,
+      consistency: deriveConsistency(vmStateAtBackup, consistent),
       triggerType: opts.triggerType,
       scheduleFrequency: opts.scheduleFrequency,
       vmStateAtBackup,

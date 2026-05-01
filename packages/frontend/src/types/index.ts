@@ -203,12 +203,14 @@ export interface BackupDiskEntry {
   originalPath: string;
 }
 
+export type BackupConsistency = 'app-consistent' | 'offline' | 'crash-consistent';
+
 export interface BackupEntry {
   id: string;
   vmName: string;
   createdAt: string;
   sizeBytes: number;
-  consistent: boolean;
+  consistency: BackupConsistency;
   triggerType: BackupTrigger;
   scheduleFrequency?: BackupFrequency;
   vmStateAtBackup: string;
