@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.1',
+    date: '2026-05-02',
+    changes: [
+      { type: 'changed', text: 'VirtPilot version card on the Dashboard is now always visible — when up to date it shows a compact green strip with the current version and a link to the latest release. Previously it was hidden entirely until an update was available, which made it look like the feature wasn\'t there' },
+    ],
+  },
+  {
     version: '1.13.0',
     date: '2026-05-01',
     changes: [

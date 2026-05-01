@@ -951,11 +951,52 @@ function VirtPilotUpdateCard() {
 
   if (isLoading || !data) return null;
 
-  // Hide entirely when there's nothing to do — keep the dashboard quiet.
-  if (!data.updateAvailable) return null;
-
   const targetVersion = data.latest ?? '';
 
+  // ── Up to date ───────────────────────────────────────────────────────────
+  if (!data.updateAvailable) {
+    const accent = data.repoOk
+      ? { stripe: 'from-emerald-500/60 via-emerald-500/20', iconBg: 'bg-emerald-500/10', icon: 'text-emerald-500' }
+      : { stripe: 'from-amber-500/60 via-amber-500/20', iconBg: 'bg-amber-500/10', icon: 'text-amber-500' };
+    return (
+      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <div className={cn('h-[3px] w-full bg-gradient-to-r to-transparent', accent.stripe)} />
+        <div className="flex items-center gap-3 px-5 py-3">
+          <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', accent.iconBg)}>
+            {data.repoOk
+              ? <CheckCircle2 className={cn('h-3.5 w-3.5', accent.icon)} />
+              : <AlertTriangle className={cn('h-3.5 w-3.5', accent.icon)} />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-foreground">VirtPilot</span>
+              <span className="font-mono text-xs text-muted-foreground">v{data.current}</span>
+              <span className="text-[11px] text-muted-foreground/70">·</span>
+              <span className="text-xs text-muted-foreground">
+                {data.repoOk ? 'Up to date' : 'Up to date — in-app upgrades unavailable'}
+              </span>
+            </div>
+            {!data.repoOk && data.repoReason && (
+              <p className="mt-0.5 text-[11px] text-muted-foreground/70">{data.repoReason}</p>
+            )}
+          </div>
+          {data.releaseUrl && (
+            <a
+              href={data.releaseUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Latest release
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Update available, repo broken (manual upgrade required) ──────────────
   if (!data.repoOk) {
     return (
       <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] shadow-sm overflow-hidden">
