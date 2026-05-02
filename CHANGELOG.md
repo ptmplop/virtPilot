@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.1] — 2026-05-02
+
+### Fixed
+- **Self-update no longer aborts when `package-lock.json` has been mutated by a previous `npm install` on the host.** The first `npm install` after a fresh checkout regenerates `package-lock.json` with the host's platform-specific binary entries (e.g. linux-x64) that aren't in the macOS-generated lockfile committed upstream — leaving the working tree dirty and causing the next `git pull --ff-only` to abort with "Your local changes to the following files would be overwritten by merge: package-lock.json". `update.sh` now does `git checkout -- package-lock.json` immediately before the pull so any drift from the previous run is discarded. Existing stuck installs need a one-time manual unblock: `cd /usr/local/virtpilot && git checkout -- package-lock.json && bash update.sh` (path is wherever the install lives — `/root/ptm/virtPilot` in some cases)
+
 ## [1.15.0] — 2026-05-02
 
 ### Changed

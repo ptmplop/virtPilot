@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.15.1',
+    date: '2026-05-02',
+    changes: [
+      { type: 'fixed', text: 'Self-update no longer aborts when `package-lock.json` has been mutated by a previous `npm install` on the host. The first `npm install` after a fresh checkout regenerates the lockfile with host-specific binary entries (e.g. linux-x64) that aren\'t in the macOS-generated lockfile committed upstream — leaving the working tree dirty and causing the next `git pull --ff-only` to abort. `update.sh` now discards lockfile drift before pulling. Existing stuck installs need a one-time manual unblock: `git checkout -- package-lock.json && bash update.sh` in the install directory' },
+    ],
+  },
+  {
     version: '1.15.0',
     date: '2026-05-02',
     changes: [

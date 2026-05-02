@@ -33,6 +33,11 @@ info "Project root: ${INSTALL_DIR}"
 info "Pulling latest changes..."
 cd "$INSTALL_DIR"
 
+# `npm install` below rewrites package-lock.json on the install host (e.g. adds
+# linux-x64 binary entries that aren't in the macOS-generated lockfile). Discard
+# that drift so the next `git pull --ff-only` doesn't abort on a dirty tree.
+git checkout -- package-lock.json 2>/dev/null || true
+
 BEFORE=$(git rev-parse HEAD)
 git pull --ff-only
 AFTER=$(git rev-parse HEAD)
