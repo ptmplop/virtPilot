@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.0] — 2026-05-02
+
+### Changed
+- **Per-VM metric charts redesigned for clarity.** The four charts on the VM Metrics tab (CPU, Memory, Disk I/O, Network I/O) now stack one per row instead of a 2×2 grid, giving each chart the full content width. Each chart gained a labelled Y axis (5 ticks: 0/25/50/75/100 % for CPU and Memory; auto-scaled byte values for Disk and Network), a labelled X axis with timestamps (`HH:MM:SS` for Live, `HH:MM` for 1h, `DD/MM HH:MM` for 24h), and dashed horizontal grid lines so the eye can read off values without hovering. Plot height grew from 72 px to 200 px. Disk and Network charts now scale their Y axis to a "nice" round maximum derived from the actual data (1, 2, 5 or 10 × 10ⁿ) rather than the largest value in the series — small spikes no longer compress flat traffic into the baseline. New `MetricChart` component in `components/ui/`; the existing `AreaChart` sparkline (used by the Dashboard live tiles) is unchanged
+
 ## [1.14.0] — 2026-05-02
 
 ### Added

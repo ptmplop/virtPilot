@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.15.0',
+    date: '2026-05-02',
+    changes: [
+      { type: 'changed', text: 'Per-VM metric charts redesigned for clarity. The four charts on the VM Metrics tab (CPU, Memory, Disk I/O, Network I/O) now stack one per row instead of a 2×2 grid, giving each chart the full content width. Each chart gained a labelled Y axis (0/25/50/75/100 % for CPU and Memory; auto-scaled byte values for Disk and Network), a labelled X axis with timestamps, and dashed horizontal grid lines. Plot height grew from 72 px to 200 px. Disk and Network charts auto-scale to a "nice" round maximum so small spikes no longer flatten the baseline' },
+    ],
+  },
+  {
     version: '1.14.0',
     date: '2026-05-02',
     changes: [

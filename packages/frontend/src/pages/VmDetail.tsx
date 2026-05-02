@@ -2881,7 +2881,7 @@ function DevicesTab({ vmName }: { vmName: string }) {
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
-import { AreaChart } from '@/components/ui/AreaChart';
+import { MetricChart } from '@/components/ui/MetricChart';
 
 function fmtBps(bps: number): string {
   if (bps < 1024) return `${Math.round(bps)} B/s`;
@@ -2892,6 +2892,7 @@ function fmtBps(bps: number): string {
 type ChartRange = 'live' | VmMetricsRange;
 
 interface ChartPoint {
+  ts: number;
   cpuPercent: number;
   memUsedMb: number;
   memTotalMb: number;
@@ -2899,6 +2900,23 @@ interface ChartPoint {
   diskWriteBps: number;
   netRxBps: number;
   netTxBps: number;
+}
+
+function formatChartTime(ts: number, range: ChartRange): string {
+  const d = new Date(ts);
+  const hh = d.getHours().toString().padStart(2, '0');
+  const mm = d.getMinutes().toString().padStart(2, '0');
+  if (range === 'live') {
+    const ss = d.getSeconds().toString().padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  }
+  if (range === '24h') {
+    // Show day boundary so a midnight crossover is obvious.
+    const dd = d.getDate().toString().padStart(2, '0');
+    const mo = (d.getMonth() + 1).toString().padStart(2, '0');
+    return `${dd}/${mo} ${hh}:${mm}`;
+  }
+  return `${hh}:${mm}`;
 }
 
 function MetricsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }) {
@@ -2917,15 +2935,17 @@ function MetricsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }
   const current = stats?.current;
 
   const points: ChartPoint[] = range === 'live'
-    ? liveHistory
+    ? liveHistory.map((s) => ({ ...s, ts: s.timestamp }))
     : (metrics?.history ?? []);
 
+  const timestamps = points.map((s) => s.ts);
   const cpuData = points.map((s) => s.cpuPercent);
   const memData = points.map((s) => (s.memTotalMb > 0 ? (s.memUsedMb / s.memTotalMb) * 100 : 0));
   const diskRdData = points.map((s) => s.diskReadBps);
   const diskWrData = points.map((s) => s.diskWriteBps);
   const netRxData = points.map((s) => s.netRxBps);
   const netTxData = points.map((s) => s.netTxBps);
+  const formatX = (ts: number) => formatChartTime(ts, range);
 
   if (!isRunning) {
     return (
@@ -3007,28 +3027,46 @@ function MetricsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }
 
       {/* Charts */}
       {points.length > 1 ? (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-          <ChartCard title="CPU Usage" unit="%" data={cpuData} color="hsl(214 100% 52%)" max={100} />
-          <ChartCard title="Memory Usage" unit="%" data={memData} color="hsl(158 60% 34%)" max={100} />
+        <div className="flex flex-col gap-5">
+          <ChartCard
+            title="CPU Usage"
+            data={cpuData}
+            timestamps={timestamps}
+            color="hsl(214 100% 52%)"
+            max={100}
+            formatY={(v) => `${Math.round(v)}%`}
+            formatX={formatX}
+          />
+          <ChartCard
+            title="Memory Usage"
+            data={memData}
+            timestamps={timestamps}
+            color="hsl(158 60% 34%)"
+            max={100}
+            formatY={(v) => `${Math.round(v)}%`}
+            formatX={formatX}
+          />
           <ChartCard
             title="Disk I/O"
-            unit=""
             data={diskRdData}
             data2={diskWrData}
+            timestamps={timestamps}
             color="hsl(214 100% 52%)"
             color2="hsl(0 72% 51%)"
             legend={['Read', 'Write']}
-            formatVal={fmtBps}
+            formatY={fmtBps}
+            formatX={formatX}
           />
           <ChartCard
             title="Network I/O"
-            unit=""
             data={netRxData}
             data2={netTxData}
+            timestamps={timestamps}
             color="hsl(214 100% 52%)"
             color2="hsl(280 65% 55%)"
             legend={['RX', 'TX']}
-            formatVal={fmtBps}
+            formatY={fmtBps}
+            formatX={formatX}
           />
         </div>
       ) : (
@@ -3079,23 +3117,21 @@ function MetricCard({
 }
 
 function ChartCard({
-  title, data, data2, color, color2, legend, formatVal, max,
+  title, data, data2, timestamps, color, color2, legend, formatY, formatX, max,
 }: {
   title: string;
-  unit: string;
   data: number[];
   data2?: number[];
+  timestamps: number[];
   color: string;
   color2?: string;
   legend?: string[];
-  formatVal?: (v: number) => string;
+  formatY: (v: number) => string;
+  formatX: (ts: number) => string;
   max?: number;
 }) {
-  const displayData = max != null ? data.map((v) => Math.min(v, max)) : data;
-  const displayData2 = max != null && data2 ? data2.map((v) => Math.min(v, max)) : data2;
   const last = data[data.length - 1];
   const last2 = data2?.[data2.length - 1];
-  const fmt = formatVal ?? ((v: number) => `${Math.round(v)}%`);
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
@@ -3106,21 +3142,31 @@ function ChartCard({
             <>
               <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span className="h-1.5 w-3 rounded-full" style={{ background: color }} />
-                {legend[0]} {fmt(last)}
+                {legend[0]} {formatY(last)}
               </span>
               <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span className="h-px w-3 rounded-full" style={{ background: color2, borderBottom: `1px dashed ${color2}` }} />
-                {legend[1]} {fmt(last2)}
+                {legend[1]} {formatY(last2)}
               </span>
             </>
           )}
           {!legend && last != null && (
-            <span className="nums text-xs font-semibold text-foreground">{fmt(last)}</span>
+            <span className="nums text-xs font-semibold text-foreground">{formatY(last)}</span>
           )}
         </div>
       </div>
-      <div className="h-[72px] w-full">
-        <AreaChart id={`vm-${title.replace(/\s/g, '-')}`} data={displayData} color={color} data2={displayData2} color2={color2} />
+      <div className="px-3 pb-2 pt-3">
+        <MetricChart
+          id={`vm-${title.replace(/\s/g, '-')}`}
+          data={data}
+          data2={data2}
+          timestamps={timestamps}
+          color={color}
+          color2={color2}
+          formatY={formatY}
+          formatX={formatX}
+          max={max}
+        />
       </div>
     </div>
   );
