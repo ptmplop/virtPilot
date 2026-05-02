@@ -180,7 +180,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           <div className="space-y-1">
             <div className="flex items-center gap-1 px-1">
               <ThemeToggle />
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.13.9</span>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v1.14.0</span>
             </div>
             <button
               type="button"

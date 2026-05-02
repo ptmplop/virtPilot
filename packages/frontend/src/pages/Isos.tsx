@@ -145,7 +145,7 @@ export function IsosPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setPendingFile(file);
-    setUploadDisplayName(file.name.replace(/\.iso$/i, ''));
+    setUploadDisplayName(file.name.replace(/\.(iso\.tar\.gz|iso\.tgz|iso\.gz|tar\.gz|tgz|gz|iso)$/i, ''));
     setUploadLogoSlug(null);
     e.target.value = '';
   };
@@ -153,7 +153,7 @@ export function IsosPage() {
   const handleUploadConfirm = async () => {
     if (!pendingFile) return;
     const file = pendingFile;
-    const displayName = uploadDisplayName.trim() || file.name.replace(/\.iso$/i, '');
+    const displayName = uploadDisplayName.trim() || file.name.replace(/\.(iso\.tar\.gz|iso\.tgz|iso\.gz|tar\.gz|tgz|gz|iso)$/i, '');
     const logoSlug = uploadLogoSlug;
     const ac = new AbortController();
     setPendingFile(null);
@@ -245,10 +245,10 @@ export function IsosPage() {
   return (
     <Layout
       title="ISOs"
-      subtitle="Manage ISO images for attaching as CDROMs to VMs."
+      subtitle="Manage ISO images for attaching as CDROMs to VMs. Supports .iso, .iso.gz, and .iso.tar.gz (compressed uploads are decompressed automatically)."
       actions={
         <>
-          <input ref={fileRef} type="file" accept=".iso" className="hidden" onChange={handleFilePick} />
+          <input ref={fileRef} type="file" accept=".iso,.gz,.tgz" className="hidden" onChange={handleFilePick} />
           <Button variant="secondary" onClick={() => setUrlDialogOpen(true)}>
             <Download size={14} /> From URL
           </Button>
@@ -294,25 +294,32 @@ export function IsosPage() {
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-2 text-xs font-medium text-foreground">
               <Spinner className="h-3 w-3" />
-              Downloading {activeJob.job.filename}
+              {activeJob.job.status === 'processing' ? 'Decompressing' : 'Downloading'} {activeJob.job.filename}
             </span>
             <div className="ml-4 flex shrink-0 items-center gap-3">
-              <span className="font-mono text-xs text-muted-foreground">
-                {activeJob.job.totalBytes > 0
-                  ? `${formatBytes(activeJob.job.bytesDownloaded)} / ${formatBytes(activeJob.job.totalBytes)}`
-                  : formatBytes(activeJob.job.bytesDownloaded)}
-              </span>
-              <button
-                type="button"
-                onClick={() => cancelDownload.mutate(activeJob.jobId)}
-                title="Cancel download"
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-              >
-                <X size={12} />
-              </button>
+              {activeJob.job.status !== 'processing' && (
+                <span className="font-mono text-xs text-muted-foreground">
+                  {activeJob.job.totalBytes > 0
+                    ? `${formatBytes(activeJob.job.bytesDownloaded)} / ${formatBytes(activeJob.job.totalBytes)}`
+                    : formatBytes(activeJob.job.bytesDownloaded)}
+                </span>
+              )}
+              {activeJob.job.status === 'downloading' && (
+                <button
+                  type="button"
+                  onClick={() => cancelDownload.mutate(activeJob.jobId)}
+                  title="Cancel download"
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <X size={12} />
+                </button>
+              )}
             </div>
           </div>
-          <ProgressBar pct={downloadPct} indeterminate={downloadPct === undefined} />
+          <ProgressBar
+            pct={activeJob.job.status === 'processing' ? undefined : downloadPct}
+            indeterminate={activeJob.job.status === 'processing' || downloadPct === undefined}
+          />
         </div>
       )}
 
@@ -329,7 +336,7 @@ export function IsosPage() {
             </div>
             <p className="text-sm font-semibold text-foreground">No ISOs yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Upload an ISO or download one from a URL.
+              Upload a .iso, .iso.gz or .iso.tar.gz file, or download one from a URL.
             </p>
           </div>
         ) : (
@@ -400,6 +407,11 @@ export function IsosPage() {
           <p className="text-xs text-muted-foreground">
             File: <span className="font-mono">{pendingFile?.name}</span>
           </p>
+          {pendingFile && /\.(gz|tgz)$/i.test(pendingFile.name) && (
+            <p className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              This file will be decompressed on the server before being saved as a .iso.
+            </p>
+          )}
           <OsLogoPicker value={uploadLogoSlug} onChange={setUploadLogoSlug} />
         </div>
       </Dialog>
@@ -409,7 +421,7 @@ export function IsosPage() {
         open={urlDialogOpen}
         onClose={resetUrlDialog}
         title="Download ISO from URL"
-        description="The server will fetch the file directly. Supports HTTP and HTTPS with redirects."
+        description="The server will fetch the file directly. Supports HTTP and HTTPS with redirects. Compressed .iso.gz and .iso.tar.gz URLs are decompressed automatically."
         size="md"
         footer={
           <>

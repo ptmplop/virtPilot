@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.14.0',
+    date: '2026-05-02',
+    changes: [
+      { type: 'added', text: 'ISO uploads and URL downloads now accept compressed `.iso.gz` and `.iso.tar.gz` files (also `.gz` and `.tgz`). The server detects the format via gzip magic bytes plus the file extension, decompresses streamingly, and writes a plain `.iso` to the storage directory — no need to gunzip locally before uploading a pfSense or similar release. For tar.gz archives the first `.iso` entry is extracted (others are ignored). The ISOs page subtitle, empty state, upload dialog and URL download dialog all explain the supported formats. URL downloads now show a "Decompressing" status while the post-download decompression runs' },
+    ],
+  },
+  {
     version: '1.13.9',
     date: '2026-05-02',
     changes: [

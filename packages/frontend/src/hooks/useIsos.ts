@@ -55,7 +55,7 @@ export interface DownloadJob {
   filename: string;
   bytesDownloaded: number;
   totalBytes: number;
-  status: 'downloading' | 'done' | 'error' | 'cancelled';
+  status: 'downloading' | 'processing' | 'done' | 'error' | 'cancelled';
   error?: string;
 }
 

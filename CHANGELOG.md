@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.0] — 2026-05-02
+
+### Added
+- **ISO uploads and URL downloads now accept compressed `.iso.gz` and `.iso.tar.gz` files** (also bare `.gz` and `.tgz`). The server detects the format via gzip magic bytes (`0x1f 0x8b`) plus the file extension, decompresses streamingly using Node's built-in `zlib` for plain gzip and the `tar` package for `.tar.gz`, and writes a plain `.iso` to the storage directory. No need to gunzip a pfSense release locally before uploading. For tar.gz archives the first `.iso` entry is extracted (additional files in the archive are ignored). The ISOs page subtitle, empty state, upload dialog, and URL download dialog all explain the supported formats. URL downloads gained a `processing` status that surfaces a "Decompressing" indicator on the progress card while the post-download decompression runs. The frontend file picker `accept` attribute now allows `.iso,.gz,.tgz`, and the auto-derived display name strips compound extensions (`pfSense-CE-2.7.2-RELEASE-amd64.iso.gz` → `pfSense-CE-2.7.2-RELEASE-amd64`)
+
 ## [1.13.9] — 2026-05-02
 
 ### Fixed
