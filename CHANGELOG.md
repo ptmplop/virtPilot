@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.7] — 2026-05-02
+
+### Changed
+- Redesigned every tile on the Dashboard around the visual language of the "Update available" card. The Host identity card, the four small stat tiles (VMs, Disk, Memory, System Updates), and the four Live Metrics cards (CPU, Memory, Disk I/O, Network) all now share: rounded-2xl shells with layered radial gradient backgrounds plus two blurred colour orbs in opposing corners, a coloured top accent stripe, a glowing icon badge with gradient fill and ring, accent-coloured uppercase labels and big primary values, and a stronger hover glow. One source of truth (`ACCENT_CFG` in `Dashboard.tsx`) now powers every accent — `neutral`, `ok` (emerald), `warn` (amber), `blue`, and `violet` — so the palettes stay perfectly consistent. `MetricCard` lost four bespoke styling props (`color`, `accentBg`, `chartBgClass`, `glowClass`) in favour of a single `scheme` prop that picks the whole palette
+
 ## [1.13.6] — 2026-05-02
 
 ### Fixed

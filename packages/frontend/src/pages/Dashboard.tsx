@@ -89,59 +89,143 @@ function LegendItem({ color, label, dashed }: { color: string; label: string; da
   );
 }
 
-// ─── Stat tile ─────────────────────────────────────────────────────────────────
+// ─── Tile colour scheme ────────────────────────────────────────────────────────
+//
+// One source of truth for the visual language used by every tile on the
+// dashboard (StatTile, MetricCard, Host identity card). Mirrors the layered
+// look introduced by the VirtPilot update card: a subtle gradient wash, two
+// blurred colour orbs, a coloured top stripe, a glowing icon badge with
+// ring + gradient fill, and accent-coloured typography.
 
-type TileAccent = 'ok' | 'warn' | 'neutral' | 'blue' | 'violet';
+type TileAccent = 'neutral' | 'ok' | 'warn' | 'blue' | 'violet';
 
-const ACCENT_CFG: Record<TileAccent, {
-  border:     string;
-  cardBg:     string;
-  hoverGlow:  string;
-  iconBg:     string;
-  iconColor:  string;
-  labelColor: string;
-  dotColor:   string;
-  barColor:   string;
-  showDot:    boolean;
-}> = {
+interface SchemeConfig {
+  // Chart line colour (hex) — used by SVG components
+  chartHex:       string;
+  // Card chrome
+  border:         string;
+  hoverGlow:      string;
+  // Layered background overlays
+  gradientBg:     string;
+  blurOrbA:       string;
+  blurOrbB:       string;
+  // Top accent stripe
+  stripeBg:       string;
+  // Glowing icon badge
+  iconBadgeGlow:  string;
+  iconBadgeBg:    string;
+  iconBadgeRing:  string;
+  iconColor:      string;
+  // Typography
+  labelColor:     string;
+  valueColor:     string;
+  // Status dot + progress bar
+  dotColor:       string;
+  barColor:       string;
+  showDot:        boolean;
+  // Chart background tint (right-hand panel of MetricCard)
+  chartBgClass:   string;
+}
+
+const ACCENT_CFG: Record<TileAccent, SchemeConfig> = {
   neutral: {
-    border: 'border-border', cardBg: 'bg-card', hoverGlow: '',
-    iconBg: 'bg-muted', iconColor: 'text-muted-foreground',
-    labelColor: 'text-muted-foreground', dotColor: '', barColor: 'bg-border/60', showDot: false,
+    chartHex:      '#94a3b8',
+    border:        'border-border',
+    hoverGlow:     'hover:shadow-[0_4px_24px_-4px_rgb(0_0_0_/_0.12)]',
+    gradientBg:    'bg-gradient-to-br from-foreground/[0.025] to-transparent',
+    blurOrbA:      'bg-foreground/[0.04]',
+    blurOrbB:      'bg-foreground/[0.025]',
+    stripeBg:      'bg-gradient-to-r from-border via-border/50 to-transparent',
+    iconBadgeGlow: 'bg-foreground/10',
+    iconBadgeBg:   'bg-gradient-to-br from-muted via-muted/70 to-muted/40',
+    iconBadgeRing: 'ring-border',
+    iconColor:     'text-muted-foreground',
+    labelColor:    'text-muted-foreground',
+    valueColor:    'text-foreground',
+    dotColor:      '',
+    barColor:      'bg-border/60',
+    showDot:       false,
+    chartBgClass:  'bg-gradient-to-r from-foreground/[0.03] to-transparent',
   },
   ok: {
-    border: 'border-border', cardBg: 'bg-card',
-    hoverGlow: 'hover:shadow-[0_0_24px_-4px_rgb(52_211_153_/_0.15)]',
-    iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-500',
-    labelColor: 'text-muted-foreground',
-    dotColor: 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]',
-    barColor: 'bg-emerald-500/50', showDot: true,
+    chartHex:      '#10b981',
+    border:        'border-emerald-500/25',
+    hoverGlow:     'hover:shadow-[0_0_36px_-6px_rgb(52_211_153_/_0.30)]',
+    gradientBg:    'bg-gradient-to-br from-emerald-500/[0.07] via-teal-500/[0.03] to-transparent',
+    blurOrbA:      'bg-emerald-500/10',
+    blurOrbB:      'bg-teal-500/[0.07]',
+    stripeBg:      'bg-gradient-to-r from-emerald-500 via-teal-500/50 to-transparent',
+    iconBadgeGlow: 'bg-emerald-500/30',
+    iconBadgeBg:   'bg-gradient-to-br from-emerald-500/30 via-emerald-500/15 to-teal-500/20',
+    iconBadgeRing: 'ring-emerald-400/30',
+    iconColor:     'text-emerald-600 dark:text-emerald-300',
+    labelColor:    'text-emerald-700 dark:text-emerald-300',
+    valueColor:    'text-emerald-700 dark:text-emerald-200',
+    dotColor:      'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]',
+    barColor:      'bg-emerald-500/60',
+    showDot:       true,
+    chartBgClass:  'bg-gradient-to-r from-emerald-500/[0.07] dark:from-emerald-500/[0.05] to-transparent',
   },
   warn: {
-    border: 'border-amber-500/25', cardBg: 'bg-amber-500/5',
-    hoverGlow: 'hover:shadow-[0_0_24px_-4px_rgb(245_158_11_/_0.15)]',
-    iconBg: 'bg-amber-500/15', iconColor: 'text-amber-500',
-    labelColor: 'text-amber-500 dark:text-amber-400',
-    dotColor: 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
-    barColor: 'bg-amber-500/60', showDot: true,
+    chartHex:      '#f59e0b',
+    border:        'border-amber-500/30',
+    hoverGlow:     'hover:shadow-[0_0_36px_-6px_rgb(245_158_11_/_0.30)]',
+    gradientBg:    'bg-gradient-to-br from-amber-500/[0.07] via-orange-500/[0.03] to-transparent',
+    blurOrbA:      'bg-amber-500/12',
+    blurOrbB:      'bg-orange-500/[0.07]',
+    stripeBg:      'bg-gradient-to-r from-amber-500 via-orange-500/50 to-transparent',
+    iconBadgeGlow: 'bg-amber-500/30',
+    iconBadgeBg:   'bg-gradient-to-br from-amber-500/30 via-amber-500/15 to-orange-500/20',
+    iconBadgeRing: 'ring-amber-400/30',
+    iconColor:     'text-amber-600 dark:text-amber-300',
+    labelColor:    'text-amber-700 dark:text-amber-300',
+    valueColor:    'text-amber-700 dark:text-amber-200',
+    dotColor:      'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
+    barColor:      'bg-amber-500/60',
+    showDot:       true,
+    chartBgClass:  'bg-gradient-to-r from-amber-500/[0.07] dark:from-amber-500/[0.05] to-transparent',
   },
   blue: {
-    border: 'border-blue-500/20', cardBg: 'bg-blue-500/[0.03]',
-    hoverGlow: 'hover:shadow-[0_0_24px_-4px_rgb(59_130_246_/_0.15)]',
-    iconBg: 'bg-blue-500/10', iconColor: 'text-blue-500',
-    labelColor: 'text-muted-foreground',
-    dotColor: 'bg-blue-500 shadow-[0_0_6px_1px_rgb(59_130_246_/_0.5)]',
-    barColor: 'bg-blue-500/50', showDot: true,
+    chartHex:      '#3b82f6',
+    border:        'border-blue-500/25',
+    hoverGlow:     'hover:shadow-[0_0_36px_-6px_rgb(59_130_246_/_0.30)]',
+    gradientBg:    'bg-gradient-to-br from-blue-500/[0.07] via-indigo-500/[0.03] to-transparent',
+    blurOrbA:      'bg-blue-500/10',
+    blurOrbB:      'bg-indigo-500/[0.07]',
+    stripeBg:      'bg-gradient-to-r from-blue-500 via-indigo-500/50 to-transparent',
+    iconBadgeGlow: 'bg-blue-500/30',
+    iconBadgeBg:   'bg-gradient-to-br from-blue-500/30 via-blue-500/15 to-indigo-500/20',
+    iconBadgeRing: 'ring-blue-400/30',
+    iconColor:     'text-blue-600 dark:text-blue-300',
+    labelColor:    'text-blue-700 dark:text-blue-300',
+    valueColor:    'text-blue-700 dark:text-blue-200',
+    dotColor:      'bg-blue-500 shadow-[0_0_6px_1px_rgb(59_130_246_/_0.5)]',
+    barColor:      'bg-blue-500/60',
+    showDot:       true,
+    chartBgClass:  'bg-gradient-to-r from-blue-500/[0.07] dark:from-blue-500/[0.05] to-transparent',
   },
   violet: {
-    border: 'border-violet-500/20', cardBg: 'bg-violet-500/[0.03]',
-    hoverGlow: 'hover:shadow-[0_0_24px_-4px_rgb(139_92_246_/_0.15)]',
-    iconBg: 'bg-violet-500/10', iconColor: 'text-violet-500',
-    labelColor: 'text-muted-foreground',
-    dotColor: 'bg-violet-500 shadow-[0_0_6px_1px_rgb(139_92_246_/_0.5)]',
-    barColor: 'bg-violet-500/50', showDot: true,
+    chartHex:      '#8b5cf6',
+    border:        'border-violet-500/25',
+    hoverGlow:     'hover:shadow-[0_0_36px_-6px_rgb(139_92_246_/_0.30)]',
+    gradientBg:    'bg-gradient-to-br from-violet-500/[0.07] via-purple-500/[0.03] to-transparent',
+    blurOrbA:      'bg-violet-500/10',
+    blurOrbB:      'bg-purple-500/[0.07]',
+    stripeBg:      'bg-gradient-to-r from-violet-500 via-purple-500/50 to-transparent',
+    iconBadgeGlow: 'bg-violet-500/30',
+    iconBadgeBg:   'bg-gradient-to-br from-violet-500/30 via-violet-500/15 to-purple-500/20',
+    iconBadgeRing: 'ring-violet-400/30',
+    iconColor:     'text-violet-600 dark:text-violet-300',
+    labelColor:    'text-violet-700 dark:text-violet-300',
+    valueColor:    'text-violet-700 dark:text-violet-200',
+    dotColor:      'bg-violet-500 shadow-[0_0_6px_1px_rgb(139_92_246_/_0.5)]',
+    barColor:      'bg-violet-500/60',
+    showDot:       true,
+    chartBgClass:  'bg-gradient-to-r from-violet-500/[0.07] dark:from-violet-500/[0.05] to-transparent',
   },
 };
+
+// ─── Stat tile ─────────────────────────────────────────────────────────────────
 
 interface StatTileProps {
   icon: typeof Cpu;
@@ -157,32 +241,50 @@ interface StatTileProps {
 
 function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', bar, extra, href, delay = 0 }: StatTileProps) {
   const a = ACCENT_CFG[accent];
+  const interactive = !!href;
 
   const inner = (
     <div
       className={cn(
-        'group flex h-full flex-col overflow-hidden rounded-xl border bg-gradient-to-b from-white/60 dark:from-white/[0.04] to-transparent shadow-airy animate-fade-up',
-        'transition-all duration-200 ease-out',
-        href && 'cursor-pointer hover:-translate-y-px',
-        a.border, a.cardBg, a.hoverGlow,
+        'group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-card shadow-airy animate-fade-up',
+        'transition-all duration-300 ease-out',
+        interactive && 'cursor-pointer hover:-translate-y-px',
+        a.border, a.hoverGlow,
       )}
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="flex flex-1 flex-col justify-between px-5 py-4">
+      {/* Layered gradient background + blur orbs */}
+      <div className={cn('pointer-events-none absolute inset-0', a.gradientBg)} />
+      <div className={cn('pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full blur-3xl', a.blurOrbA)} />
+      <div className={cn('pointer-events-none absolute -left-12 -bottom-16 h-36 w-36 rounded-full blur-3xl', a.blurOrbB)} />
+
+      {/* Top accent stripe */}
+      <div className={cn('pointer-events-none absolute inset-x-0 top-0 z-10 h-[2px]', a.stripeBg)} />
+
+      <div className="relative flex flex-1 flex-col justify-between px-5 py-4">
         <div className="flex items-center gap-2.5">
-          <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg badge-radial-hover', a.iconBg)}>
-            <Icon className={cn('h-3.5 w-3.5', a.iconColor)} />
+          {/* Glowing icon badge */}
+          <div className="relative shrink-0">
+            <div className={cn('absolute inset-0 rounded-xl blur-md opacity-70', a.iconBadgeGlow)} />
+            <div className={cn(
+              'relative flex h-9 w-9 items-center justify-center rounded-xl ring-1',
+              a.iconBadgeBg, a.iconBadgeRing,
+            )}>
+              <Icon className={cn('h-4 w-4', a.iconColor)} />
+            </div>
           </div>
-          <span className={cn('truncate text-[10px] font-semibold uppercase tracking-widest', a.labelColor)}>
+
+          <span className={cn('truncate text-[10px] font-bold uppercase tracking-[0.18em]', a.labelColor)}>
             {label}
           </span>
+
           {a.showDot && (
             <span className={cn('ml-auto h-1.5 w-1.5 shrink-0 rounded-full animate-glow-pulse', a.dotColor)} />
           )}
         </div>
 
         <div className="mt-3.5 min-w-0">
-          <div className="truncate text-2xl font-bold leading-tight text-foreground">
+          <div className={cn('truncate text-2xl font-bold leading-tight tabular-nums', a.valueColor)}>
             {primary}
           </div>
           <div className="mt-0.5 truncate text-xs text-muted-foreground">{secondary}</div>
@@ -191,7 +293,7 @@ function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', b
       </div>
 
       {bar !== undefined && (
-        <div className="h-1 w-full bg-border/40">
+        <div className="relative h-1 w-full bg-border/40">
           <div
             className={cn('h-full transition-all duration-700', a.barColor)}
             style={{ width: `${Math.min(bar, 100)}%` }}
@@ -201,7 +303,7 @@ function StatTile({ icon: Icon, label, primary, secondary, accent = 'neutral', b
     </div>
   );
 
-  return href ? <Link to={href} className="block h-full">{inner}</Link> : inner;
+  return interactive ? <Link to={href!} className="block h-full">{inner}</Link> : inner;
 }
 
 // ─── Host overview ─────────────────────────────────────────────────────────────
@@ -312,30 +414,64 @@ function HostOverview() {
     <div className="grid grid-cols-[1fr_1.5fr] gap-4">
       {/* Host identity card */}
       <div className={cn(
-        'animate-fade-up overflow-hidden rounded-xl border border-border bg-card shadow-airy transition-all duration-200 ease-out',
+        'group relative animate-fade-up overflow-hidden rounded-2xl border bg-card shadow-airy transition-all duration-300 ease-out',
         isKvm
-          ? 'hover:shadow-[0_4px_28px_-4px_rgb(52_211_153_/_0.14)]'
-          : 'hover:shadow-[0_4px_28px_-4px_rgb(245_158_11_/_0.14)]',
+          ? 'border-emerald-500/25 hover:shadow-[0_0_36px_-6px_rgb(52_211_153_/_0.30)]'
+          : 'border-amber-500/30 hover:shadow-[0_0_36px_-6px_rgb(245_158_11_/_0.30)]',
       )}>
+        {/* Layered gradient background + blur orbs */}
         <div className={cn(
-          'h-[3px] w-full',
+          'pointer-events-none absolute inset-0 bg-gradient-to-br to-transparent',
           isKvm
-            ? 'bg-gradient-to-r from-emerald-500/80 via-emerald-500/30 to-transparent'
-            : 'bg-gradient-to-r from-amber-500/80 via-amber-500/30 to-transparent',
+            ? 'from-emerald-500/[0.07] via-teal-500/[0.03]'
+            : 'from-amber-500/[0.07] via-orange-500/[0.03]',
         )} />
-        <div className="flex flex-col gap-3 p-5">
+        <div className={cn(
+          'pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full blur-3xl',
+          isKvm ? 'bg-emerald-500/10' : 'bg-amber-500/12',
+        )} />
+        <div className={cn(
+          'pointer-events-none absolute -left-16 -bottom-20 h-48 w-48 rounded-full blur-3xl',
+          isKvm ? 'bg-teal-500/[0.07]' : 'bg-orange-500/[0.07]',
+        )} />
+
+        {/* Top accent stripe */}
+        <div className={cn(
+          'pointer-events-none absolute inset-x-0 top-0 z-10 h-[3px]',
+          isKvm
+            ? 'bg-gradient-to-r from-emerald-500 via-teal-500/50 to-transparent'
+            : 'bg-gradient-to-r from-amber-500 via-orange-500/50 to-transparent',
+        )} />
+
+        <div className="relative flex flex-col gap-3 p-5">
 
           {/* KVM / TCG badge */}
           <div className="flex items-center gap-3">
-            <div className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl',
-              isKvm ? 'bg-emerald-500/10' : 'bg-amber-500/10',
-            )}>
-              <VirtIcon className={cn('h-4.5 w-4.5', isKvm ? 'text-emerald-500' : 'text-amber-500')} />
+            <div className="relative shrink-0">
+              <div className={cn(
+                'absolute inset-0 rounded-2xl blur-xl',
+                isKvm ? 'bg-emerald-500/30' : 'bg-amber-500/30',
+              )} />
+              <div className={cn(
+                'relative flex h-11 w-11 items-center justify-center rounded-2xl ring-1 shadow-[0_4px_20px_-2px_rgb(0_0_0_/_0.2)]',
+                isKvm
+                  ? 'bg-gradient-to-br from-emerald-500/30 via-emerald-500/15 to-teal-500/20 ring-emerald-400/30'
+                  : 'bg-gradient-to-br from-amber-500/30 via-amber-500/15 to-orange-500/20 ring-amber-400/30',
+              )}>
+                <VirtIcon className={cn(
+                  'h-5 w-5',
+                  isKvm ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300',
+                )} />
+              </div>
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-base font-bold text-foreground">{isKvm ? 'KVM' : 'TCG'}</span>
+                <span className={cn(
+                  'text-base font-bold tracking-wide',
+                  isKvm ? 'text-emerald-700 dark:text-emerald-200' : 'text-amber-700 dark:text-amber-200',
+                )}>
+                  {isKvm ? 'KVM' : 'TCG'}
+                </span>
                 <span className={cn(
                   'h-1.5 w-1.5 rounded-full animate-glow-pulse',
                   isKvm
@@ -429,8 +565,7 @@ interface MetricCardProps {
   id: string;
   icon: typeof Cpu;
   label: string;
-  color: string;
-  accentBg: string;
+  scheme: TileAccent;
   primaryValue: string;
   secondaryValue?: string;
   detail?: React.ReactNode;
@@ -440,36 +575,46 @@ interface MetricCardProps {
   chartColor2?: string;
   loading?: boolean;
   delay?: number;
-  chartBgClass?: string;
-  glowClass?: string;
 }
 
 function MetricCard({
-  id, icon: Icon, label, color, accentBg,
+  id, icon: Icon, label, scheme,
   primaryValue, secondaryValue, detail, legend,
   chartData, chartData2, chartColor2, loading,
-  delay = 0, chartBgClass, glowClass,
+  delay = 0,
 }: MetricCardProps) {
+  const a = ACCENT_CFG[scheme];
+
   return (
     <div
       className={cn(
-        'relative flex h-[220px] overflow-hidden rounded-xl border border-border bg-card shadow-airy animate-fade-up transition-all duration-200 ease-out hover:-translate-y-px',
-        glowClass,
+        'group relative flex h-[220px] overflow-hidden rounded-2xl border bg-card shadow-airy animate-fade-up transition-all duration-300 ease-out hover:-translate-y-px',
+        a.border, a.hoverGlow,
       )}
       style={{ animationDelay: `${delay}ms` }}
     >
+      {/* Layered gradient background + blur orbs */}
+      <div className={cn('pointer-events-none absolute inset-0', a.gradientBg)} />
+      <div className={cn('pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full blur-3xl', a.blurOrbA)} />
+      <div className={cn('pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full blur-3xl', a.blurOrbB)} />
+
       {/* Coloured top accent stripe */}
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[3px]"
-        style={{ background: `linear-gradient(90deg, ${color}99 0%, ${color}33 55%, transparent 100%)` }}
-      />
+      <div className={cn('pointer-events-none absolute inset-x-0 top-0 z-10 h-[3px]', a.stripeBg)} />
+
       {/* Left panel */}
-      <div className="flex w-56 shrink-0 flex-col px-5 py-5">
+      <div className="relative flex w-56 shrink-0 flex-col px-5 py-5">
         <div className="flex items-center gap-2.5">
-          <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg', accentBg)}>
-            <Icon className="h-3.5 w-3.5" style={{ color }} />
+          {/* Glowing icon badge */}
+          <div className="relative shrink-0">
+            <div className={cn('absolute inset-0 rounded-xl blur-md opacity-70', a.iconBadgeGlow)} />
+            <div className={cn(
+              'relative flex h-9 w-9 items-center justify-center rounded-xl ring-1',
+              a.iconBadgeBg, a.iconBadgeRing,
+            )}>
+              <Icon className={cn('h-4 w-4', a.iconColor)} />
+            </div>
           </div>
-          <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          <span className={cn('text-[10px] font-bold uppercase tracking-[0.2em]', a.labelColor)}>
             {label}
           </span>
         </div>
@@ -483,7 +628,10 @@ function MetricCard({
           ) : (
             <>
               <div>
-                <span className="block whitespace-nowrap text-3xl font-bold tracking-tight tabular-nums bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
+                <span className={cn(
+                  'block whitespace-nowrap text-3xl font-bold tracking-tight tabular-nums',
+                  a.valueColor,
+                )}>
                   {primaryValue}
                 </span>
                 {secondaryValue && (
@@ -503,17 +651,17 @@ function MetricCard({
       </div>
 
       {/* Divider */}
-      <div className="my-5 w-px shrink-0 bg-gradient-to-b from-transparent via-border to-transparent" />
+      <div className="relative my-5 w-px shrink-0 bg-gradient-to-b from-transparent via-border to-transparent" />
 
       {/* Chart */}
-      <div className={cn('min-w-0 flex-1', chartBgClass)}>
+      <div className={cn('relative min-w-0 flex-1', a.chartBgClass)}>
         {loading ? (
           <div className="h-full w-full bg-muted/20" />
         ) : (
           <AreaChart
             id={id}
             data={chartData}
-            color={color}
+            color={a.chartHex}
             data2={chartData2}
             color2={chartColor2}
           />
@@ -1212,8 +1360,7 @@ export function DashboardPage() {
               id="cpu"
               icon={Cpu}
               label="CPU Usage"
-              color="#3b82f6"
-              accentBg="bg-blue-500/10"
+              scheme="blue"
               primaryValue={current ? fmtPct(current.cpuPercent) : '—'}
               detail={
                 <div>
@@ -1231,15 +1378,12 @@ export function DashboardPage() {
               chartData={cpuHistory.length ? cpuHistory : [0]}
               loading={isLoading}
               delay={0}
-              chartBgClass="bg-gradient-to-r from-blue-500/[0.06] dark:from-blue-500/[0.05] to-transparent"
-              glowClass="hover:shadow-[0_6px_30px_-4px_rgb(59_130_246_/_0.14)]"
             />
             <MetricCard
               id="ram"
               icon={MemoryStick}
               label="Memory"
-              color="#8b5cf6"
-              accentBg="bg-violet-500/10"
+              scheme="violet"
               primaryValue={current ? fmtMb(current.memUsedMb) : '—'}
               secondaryValue={current ? `of ${fmtMb(current.memTotalMb)}` : undefined}
               detail={
@@ -1256,15 +1400,12 @@ export function DashboardPage() {
               chartData={ramHistory.length ? ramHistory : [0]}
               loading={isLoading}
               delay={60}
-              chartBgClass="bg-gradient-to-r from-violet-500/[0.06] dark:from-violet-500/[0.05] to-transparent"
-              glowClass="hover:shadow-[0_6px_30px_-4px_rgb(139_92_246_/_0.14)]"
             />
             <MetricCard
               id="disk"
               icon={HardDrive}
               label="Disk I/O"
-              color="#f59e0b"
-              accentBg="bg-amber-500/10"
+              scheme="warn"
               primaryValue={current ? fmtBps(current.diskReadBps + current.diskWriteBps) : '—'}
               secondaryValue="total"
               detail={
@@ -1290,15 +1431,12 @@ export function DashboardPage() {
               chartColor2="#f97316"
               loading={isLoading}
               delay={120}
-              chartBgClass="bg-gradient-to-r from-amber-500/[0.06] dark:from-amber-500/[0.05] to-transparent"
-              glowClass="hover:shadow-[0_6px_30px_-4px_rgb(245_158_11_/_0.14)]"
             />
             <MetricCard
               id="net"
               icon={Activity}
               label="Network"
-              color="#10b981"
-              accentBg="bg-emerald-500/10"
+              scheme="ok"
               primaryValue={current ? fmtBps(current.netRxBps + current.netTxBps) : '—'}
               secondaryValue="total"
               detail={
@@ -1329,8 +1467,6 @@ export function DashboardPage() {
               chartColor2="#06b6d4"
               loading={isLoading}
               delay={180}
-              chartBgClass="bg-gradient-to-r from-emerald-500/[0.06] dark:from-emerald-500/[0.05] to-transparent"
-              glowClass="hover:shadow-[0_6px_30px_-4px_rgb(16_185_129_/_0.14)]"
             />
           </div>
         </section>

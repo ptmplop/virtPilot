@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.7',
+    date: '2026-05-02',
+    changes: [
+      { type: 'changed', text: 'Redesigned every tile on the Dashboard around the visual language of the "Update available" card — Host identity, the four stat tiles (VMs, Disk, Memory, System Updates), and the four Live Metrics cards (CPU, Memory, Disk I/O, Network) all now share rounded-2xl shells with layered radial gradients, blurred colour orbs, a coloured top accent stripe, a glowing icon badge with gradient fill and ring, and accent-coloured labels and big values. One palette config drives every tile so colours stay perfectly consistent' },
+    ],
+  },
+  {
     version: '1.13.6',
     date: '2026-05-02',
     changes: [
