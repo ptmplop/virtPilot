@@ -291,6 +291,18 @@ systemRouter.get('/upgrade', async (req, res) => {
   // Clear any prior failed state
   try { await execAsync(`systemctl reset-failed ${UPDATE_UNIT}.service`); } catch { /* may not exist */ }
 
+  // Defence-in-depth: discard any local drift to package-lock.json (rewritten by
+  // a previous `npm install` with host-specific binary entries) so update.sh's
+  // `git pull --ff-only` doesn't abort. update.sh from v1.15.1+ also does this
+  // internally; doing it here too means the backend orchestrator ensures the
+  // precondition even if a future update.sh ever loses its own cleanup.
+  try {
+    await execAsync('git checkout -- package-lock.json', {
+      cwd: config.repoDir,
+      timeout: 5_000,
+    });
+  } catch { /* lockfile may not be tracked or have no drift */ }
+
   const isActive = await execAsync(`systemctl is-active ${UPDATE_UNIT}.service`)
     .then(() => true).catch(() => false);
 

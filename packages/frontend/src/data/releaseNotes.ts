@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.15.2',
+    date: '2026-05-02',
+    changes: [
+      { type: 'fixed', text: 'Defence-in-depth for the self-update lockfile-drift abort fixed in v1.15.1. The backend\'s `/api/system/upgrade` handler now also discards `package-lock.json` drift before spawning `update.sh`, so the orchestrator ensures the precondition even if a future `update.sh` ever loses its own cleanup. No effect on installs already running cleanly' },
+    ],
+  },
+  {
     version: '1.15.1',
     date: '2026-05-02',
     changes: [

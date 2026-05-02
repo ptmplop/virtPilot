@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.2] — 2026-05-02
+
+### Fixed
+- **Defence-in-depth for the self-update lockfile-drift abort fixed in v1.15.1.** The backend's `/api/system/upgrade` handler now also runs `git checkout -- package-lock.json` in the repo dir immediately before spawning `update.sh` via `systemd-run`. v1.15.1's `update.sh` already does the same cleanup internally, so this is belt-and-braces — the orchestrator (backend) ensures the precondition even if a future `update.sh` ever loses its own cleanup. No effect on installs already running cleanly; existing installs stuck at ≤ v1.15.0 still need the one-time SSH unblock from the v1.15.1 release notes since their backend code predates this fix
+
 ## [1.15.1] — 2026-05-02
 
 ### Fixed
