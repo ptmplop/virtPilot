@@ -55,17 +55,23 @@ export interface DownloadJob {
   filename: string;
   bytesDownloaded: number;
   totalBytes: number;
-  status: 'downloading' | 'done' | 'error';
+  status: 'downloading' | 'done' | 'error' | 'cancelled';
   error?: string;
 }
 
 export function useDownloadIsoFromUrl() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ url, filename, name }: { url: string; filename?: string; name?: string }) => {
       const { data } = await api.post<{ jobId: string; filename: string }>('/api/isos/download', { url, filename, name });
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['isos'] }),
+  });
+}
+
+export function useCancelIsoDownload() {
+  return useMutation({
+    mutationFn: async (jobId: string) => {
+      await api.delete(`/api/isos/download/${jobId}`);
+    },
   });
 }

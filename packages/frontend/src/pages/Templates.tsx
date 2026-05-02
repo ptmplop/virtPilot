@@ -11,7 +11,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { api } from '@/lib/api';
 import {
   useTemplates, useDeleteTemplate, useUploadTemplate, useRenameTemplate,
-  useDownloadTemplateFromUrl, type DownloadJob,
+  useDownloadTemplateFromUrl, useCancelTemplateDownload, type DownloadJob,
 } from '@/hooks/useTemplates';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
@@ -185,6 +185,7 @@ export function TemplatesPage() {
   const [downloadDisplayName, setDownloadDisplayName] = useState('');
   const [downloadLogoSlug, setDownloadLogoSlug] = useState<string | null>(null);
   const downloadFromUrl = useDownloadTemplateFromUrl();
+  const cancelDownload = useCancelTemplateDownload();
   const qc = useQueryClient();
 
   const resetUrlDialog = () => {
@@ -220,6 +221,9 @@ export function TemplatesPage() {
         setActiveJob(null);
       } else if (data.status === 'error') {
         toast.error(`Download failed: ${data.error}`);
+        setActiveJob(null);
+      } else if (data.status === 'cancelled') {
+        toast.info('Download cancelled');
         setActiveJob(null);
       }
     } catch {
@@ -293,11 +297,21 @@ export function TemplatesPage() {
               <Spinner className="h-3 w-3" />
               Downloading {activeJob.job.filename}
             </span>
-            <span className="ml-4 shrink-0 font-mono text-xs text-muted-foreground">
-              {activeJob.job.totalBytes > 0
-                ? `${formatBytes(activeJob.job.bytesDownloaded)} / ${formatBytes(activeJob.job.totalBytes)}`
-                : formatBytes(activeJob.job.bytesDownloaded)}
-            </span>
+            <div className="ml-4 flex shrink-0 items-center gap-3">
+              <span className="font-mono text-xs text-muted-foreground">
+                {activeJob.job.totalBytes > 0
+                  ? `${formatBytes(activeJob.job.bytesDownloaded)} / ${formatBytes(activeJob.job.totalBytes)}`
+                  : formatBytes(activeJob.job.bytesDownloaded)}
+              </span>
+              <button
+                type="button"
+                onClick={() => cancelDownload.mutate(activeJob.jobId)}
+                title="Cancel download"
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              >
+                <X size={12} />
+              </button>
+            </div>
           </div>
           <ProgressBar pct={downloadPct} indeterminate={downloadPct === undefined} />
         </div>

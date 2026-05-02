@@ -4,7 +4,7 @@ interface JobState {
   filename: string;
   bytesDownloaded: number;
   totalBytes: number;
-  status: 'downloading' | 'done' | 'error';
+  status: 'downloading' | 'done' | 'error' | 'cancelled';
   error?: string;
 }
 

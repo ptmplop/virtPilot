@@ -18,21 +18,40 @@ const upload = multer({
 
 interface DownloadJob {
   filename: string;
+  partPath: string;
+  destPath: string;
   displayName?: string;
   bytesDownloaded: number;
   totalBytes: number;
-  status: 'downloading' | 'done' | 'error';
+  status: 'downloading' | 'done' | 'error' | 'cancelled';
   error?: string;
+  abort: () => void;
 }
 
 const activeDownloads = new Map<string, DownloadJob>();
 
+async function safeUnlink(p: string): Promise<void> {
+  try { await fsp.unlink(p); } catch { /* ignore */ }
+}
+
 function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<void> {
   return new Promise((resolve, reject) => {
+    let activeReq: http.ClientRequest | null = null;
+    let activeFile: fs.WriteStream | null = null;
+    let cancelled = false;
+
+    job.abort = () => {
+      cancelled = true;
+      activeReq?.destroy(new Error('cancelled'));
+      activeFile?.destroy();
+    };
+
     const attempt = (attemptUrl: string) => {
+      if (cancelled) { reject(new Error('cancelled')); return; }
       const client = attemptUrl.startsWith('https') ? https : http;
-      client.get(attemptUrl, (res) => {
+      activeReq = client.get(attemptUrl, (res) => {
         if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+          res.resume();
           attempt(res.headers.location);
           return;
         }
@@ -42,6 +61,7 @@ function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<voi
         }
         job.totalBytes = parseInt(res.headers['content-length'] ?? '0', 10);
         const file = fs.createWriteStream(destPath);
+        activeFile = file;
         res.on('data', (chunk: Buffer) => { job.bytesDownloaded += chunk.length; });
         res.pipe(file);
         file.on('finish', () => { file.close(); resolve(); });
@@ -63,6 +83,8 @@ templatesRouter.get('/', async (_req, res) => {
 });
 
 templatesRouter.post('/upload', upload.single('file'), async (req, res) => {
+  const tempPath = req.file?.path;
+  req.on('aborted', () => { if (tempPath) safeUnlink(tempPath); });
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const originalName = req.file.originalname;
@@ -74,6 +96,7 @@ templatesRouter.post('/upload', upload.single('file'), async (req, res) => {
     }
     res.json({ filename: originalName });
   } catch (err: unknown) {
+    if (tempPath) await safeUnlink(tempPath);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -92,32 +115,58 @@ templatesRouter.post('/download', async (req, res) => {
 
   const jobId = randomUUID();
   const destPath = path.join(config.templatesDir, savedFilename);
+  const partPath = `${destPath}.part`;
   const job: DownloadJob = {
     filename: savedFilename,
+    partPath,
+    destPath,
     displayName: name?.trim() || undefined,
     bytesDownloaded: 0,
     totalBytes: 0,
     status: 'downloading',
+    abort: () => { /* replaced once stream starts */ },
   };
   activeDownloads.set(jobId, job);
 
   res.json({ jobId, filename: savedFilename });
 
-  streamUrl(url, destPath, job)
+  streamUrl(url, partPath, job)
     .then(async () => {
+      await fsp.rename(partPath, destPath);
       job.status = 'done';
       if (job.displayName) {
         await storageService.setTemplateDisplayName(job.filename, job.displayName);
       }
     })
-    .catch((err) => { job.status = 'error'; job.error = String(err); })
+    .catch(async (err) => {
+      await safeUnlink(partPath);
+      if (String(err.message ?? err) === 'cancelled') {
+        job.status = 'cancelled';
+      } else {
+        job.status = 'error';
+        job.error = String(err);
+      }
+    })
     .finally(() => { setTimeout(() => activeDownloads.delete(jobId), 60_000); });
 });
 
 templatesRouter.get('/download/:jobId', (req, res) => {
   const job = activeDownloads.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job not found or already completed' });
-  res.json(job);
+  res.json({
+    filename: job.filename,
+    bytesDownloaded: job.bytesDownloaded,
+    totalBytes: job.totalBytes,
+    status: job.status,
+    error: job.error,
+  });
+});
+
+templatesRouter.delete('/download/:jobId', (req, res) => {
+  const job = activeDownloads.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found or already completed' });
+  if (job.status === 'downloading') job.abort();
+  res.json({ ok: true });
 });
 
 templatesRouter.patch('/:filename', async (req, res) => {

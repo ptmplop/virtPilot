@@ -13,6 +13,15 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.9',
+    date: '2026-05-02',
+    changes: [
+      { type: 'fixed', text: 'ISO/Template URL downloads no longer appear in the listing while still being downloaded. The server now streams to a `.part` file and atomically renames on completion, and the early invalidate that flashed the half-written file into the table on download start is gone' },
+      { type: 'added', text: 'Cancel button on the URL download progress card for both ISOs and Templates. The X stops the in-flight HTTP request, removes the partial `.part` file, and shows a "Download cancelled" toast' },
+      { type: 'fixed', text: 'Cancelled ISO/Template uploads no longer leave 32-hex multer temp files behind in the storage directory. Both upload routes now clean up `req.file.path` on connection abort or any error path. (One existing slc-gateway install had ~40 GB of these orphans accumulated.)' },
+    ],
+  },
+  {
     version: '1.13.8',
     date: '2026-05-02',
     changes: [

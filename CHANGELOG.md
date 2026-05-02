@@ -3,6 +3,14 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.9] — 2026-05-02
+
+### Fixed
+- **ISO and Template uploads/downloads no longer leak partial files into the listing or onto disk.** Three related issues across both routes:
+  - **URL downloads were appearing in the list while still in flight.** The download stream wrote straight to the final destination path with the real `.iso` / `.qcow2` extension, and `useDownload*FromUrl`'s `onSuccess` (which fires when the POST returns, i.e. when the download just *started* server-side) eagerly invalidated the listing query — so the half-written file showed up immediately. Server now streams to `${dest}.part` and atomically renames on completion; the early `invalidateQueries` is gone, so the listing only refreshes when polling sees `status === 'done'`.
+  - **No way to cancel a URL download.** Added `DELETE /api/{isos,templates}/download/:jobId`, which destroys the in-flight HTTP request and write stream and removes the `.part` file. The download progress card now renders the same X cancel button as the browser-upload card. Status enum gained `'cancelled'` and the polling hook surfaces it as a "Download cancelled" toast.
+  - **Cancelled browser uploads were leaving multer temp files behind.** With `multer({ dest })`, an aborted upload mid-stream leaves a 32-hex-named temp file in the storage directory forever — they don't show in the listing (no `.iso`/`.qcow2` extension) but they consume disk silently. Both upload routes now wire `req.on('aborted')` and the catch path to unlink `req.file.path`.
+
 ## [1.13.8] — 2026-05-02
 
 ### Added
