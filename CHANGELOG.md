@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.8] — 2026-05-02
+
+### Added
+- "Check now" button on the VirtPilot version card on the Dashboard. Bypasses the backend's 10-minute GitHub release cache so a freshly published release shows up immediately instead of waiting for the next 5-minute polling tick (which itself can hit a stale cache). Available in all three states of the card (up to date, update available, in-app upgrade unavailable). Backend gained a `?force=1` query param on `GET /api/system/version`; frontend exposes a new `useCheckVersionNow` mutation that primes the React Query cache with the fresh response
+
 ## [1.13.7] — 2026-05-02
 
 ### Changed

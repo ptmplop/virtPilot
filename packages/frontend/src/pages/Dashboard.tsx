@@ -28,7 +28,7 @@ import { AreaChart } from '@/components/ui/AreaChart';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
   useSystemStats, useSystemInfo, useAptPackages, useInvalidateApt,
-  useVirtPilotVersion, useInvalidateVersion,
+  useVirtPilotVersion, useInvalidateVersion, useCheckVersionNow,
   type StatsSample, type AptPackage, type VirtPilotVersion,
 } from '@/hooks/useSystemStats';
 import { useSettings } from '@/hooks/useSettings';
@@ -1085,6 +1085,37 @@ function VirtPilotUpgradeModal({
 function VirtPilotUpdateCard() {
   const { data, isLoading } = useVirtPilotVersion();
   const [upgrading, setUpgrading] = useState(false);
+  const checkNow = useCheckVersionNow();
+
+  const handleCheck = () => {
+    checkNow.mutate(undefined, {
+      onSuccess: (latest) => {
+        if (latest.updateAvailable) {
+          toast.success(`Update v${latest.latest} available`);
+        } else {
+          toast.success(`Up to date — v${latest.current}`);
+        }
+      },
+      onError: () => {
+        toast.error('Failed to check for updates');
+      },
+    });
+  };
+
+  const checkNowButton = (hoverClass: string) => (
+    <button
+      type="button"
+      onClick={handleCheck}
+      disabled={checkNow.isPending}
+      className={cn(
+        'inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-200 disabled:cursor-default disabled:opacity-50',
+        hoverClass,
+      )}
+    >
+      <RefreshCw className={cn('h-3 w-3', checkNow.isPending && 'animate-spin')} />
+      {checkNow.isPending ? 'Checking…' : 'Check now'}
+    </button>
+  );
 
   if (isLoading || !data) return null;
 
@@ -1169,8 +1200,9 @@ function VirtPilotUpdateCard() {
                   : `Running the latest release${data.publishedAt ? ` from ${new Date(data.publishedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}` : ''}`}
               </p>
 
-              {data.releaseUrl && (
-                <div className="mt-4">
+              <div className="mt-4 flex items-center gap-4">
+                {checkNowButton(broken ? 'hover:text-amber-600 dark:hover:text-amber-300' : 'hover:text-emerald-600 dark:hover:text-emerald-300')}
+                {data.releaseUrl && (
                   <a
                     href={data.releaseUrl}
                     target="_blank"
@@ -1183,8 +1215,8 @@ function VirtPilotUpdateCard() {
                     View latest release
                     <ExternalLink className="h-3 w-3" />
                   </a>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1211,6 +1243,9 @@ function VirtPilotUpdateCard() {
             <pre className="mt-2 rounded bg-muted/40 px-2.5 py-1.5 font-mono text-[11px] text-foreground">
               cd {data.repoPath} && sudo bash update.sh
             </pre>
+            <div className="mt-3">
+              {checkNowButton('hover:text-amber-600 dark:hover:text-amber-300')}
+            </div>
           </div>
         </div>
       </div>
@@ -1286,6 +1321,8 @@ function VirtPilotUpdateCard() {
                   <RefreshCw className="relative h-3.5 w-3.5" />
                   <span className="relative">Update now</span>
                 </button>
+
+                {checkNowButton('hover:text-blue-600 dark:hover:text-blue-300')}
 
                 {data.releaseUrl && (
                   <a

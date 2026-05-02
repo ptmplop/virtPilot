@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
 export interface SystemInfo {
@@ -97,4 +97,20 @@ export function useVirtPilotVersion() {
 export function useInvalidateVersion() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ['system', 'version'] });
+}
+
+// Forces the backend to bypass its 10-minute GitHub release cache. Used by the
+// "Check now" button on the dashboard so users don't have to wait for the
+// next polling interval to discover a new release.
+export function useCheckVersionNow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await api.get<VirtPilotVersion>('/api/system/version?force=1');
+      return data;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(['system', 'version'], data);
+    },
+  });
 }

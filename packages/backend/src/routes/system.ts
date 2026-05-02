@@ -189,8 +189,8 @@ interface CachedRelease {
 let releaseCache: CachedRelease | null = null;
 const RELEASE_CACHE_TTL_MS = 10 * 60 * 1000;
 
-async function getLatestRelease(): Promise<CachedRelease | null> {
-  if (releaseCache && Date.now() - releaseCache.fetchedAt < RELEASE_CACHE_TTL_MS) {
+async function getLatestRelease(force = false): Promise<CachedRelease | null> {
+  if (!force && releaseCache && Date.now() - releaseCache.fetchedAt < RELEASE_CACHE_TTL_MS) {
     return releaseCache;
   }
   try {
@@ -245,8 +245,9 @@ async function inspectRepo(): Promise<{ ok: boolean; reason?: string; remoteUrl?
   }
 }
 
-systemRouter.get('/version', async (_req, res) => {
-  const [latest, repo] = await Promise.all([getLatestRelease(), inspectRepo()]);
+systemRouter.get('/version', async (req, res) => {
+  const force = req.query.force === '1' || req.query.force === 'true';
+  const [latest, repo] = await Promise.all([getLatestRelease(force), inspectRepo()]);
   const updateAvailable = !!latest && compareVersions(latest.version, VERSION) > 0;
   res.json({
     current: VERSION,

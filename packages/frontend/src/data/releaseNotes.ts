@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.8',
+    date: '2026-05-02',
+    changes: [
+      { type: 'added', text: '"Check now" button on the VirtPilot version card. Bypasses the backend\'s 10-minute GitHub release cache so a freshly published release shows up immediately instead of waiting for the next 5-minute polling tick. Available in all three states of the card (up to date, update available, in-app upgrade unavailable)' },
+    ],
+  },
+  {
     version: '1.13.7',
     date: '2026-05-02',
     changes: [
