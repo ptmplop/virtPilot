@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.13.6',
+    date: '2026-05-02',
+    changes: [
+      { type: 'fixed', text: 'Login page no longer says "Invalid password" when the real reason is the IP allowlist. Backend now returns a distinct 403 with the client\'s IP, and the login form shows "Access denied — your IP address X.X.X.X is not on the allowlist. Contact your administrator." Same handling on the TOTP step' },
+    ],
+  },
+  {
     version: '1.13.5',
     date: '2026-05-02',
     changes: [

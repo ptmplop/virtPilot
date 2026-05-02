@@ -10,7 +10,7 @@ export const authRouter = Router();
 authRouter.post('/login', async (req, res) => {
   const { ipWhitelist } = await getUserSettings();
   if (!isIpAllowed(req.ip, ipWhitelist)) {
-    res.status(403).json({ error: 'Access denied' });
+    res.status(403).json({ error: 'IP not allowed', clientIp: normaliseIp(req.ip) });
     return;
   }
   const { password } = req.body as { password?: string };
@@ -64,10 +64,14 @@ authRouter.post('/verify-totp', async (req, res) => {
 
   const { ipWhitelist } = settings;
   if (!isIpAllowed(req.ip, ipWhitelist)) {
-    res.status(403).json({ error: 'Access denied' });
+    res.status(403).json({ error: 'IP not allowed', clientIp: normaliseIp(req.ip) });
     return;
   }
 
   const token = jwt.sign({}, config.jwtSecret, { expiresIn: '24h' });
   res.json({ token });
 });
+
+function normaliseIp(ip: string | undefined): string | undefined {
+  return ip?.replace(/^::ffff:/, '');
+}

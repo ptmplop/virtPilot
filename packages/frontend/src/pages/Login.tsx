@@ -1,10 +1,19 @@
 import { useState, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react';
 import { Spinner } from '@/components/ui/Spinner';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/ui/Button';
+
+function ipBlockedMessage(err: unknown): string | null {
+  if (!axios.isAxiosError(err) || err.response?.status !== 403) return null;
+  const ip = (err.response.data as { clientIp?: string })?.clientIp;
+  return ip
+    ? `Access denied — your IP address ${ip} is not on the allowlist. Contact your administrator.`
+    : 'Access denied — your IP address is not on the allowlist. Contact your administrator.';
+}
 
 type Step = 'password' | 'totp';
 
@@ -38,8 +47,8 @@ export function LoginPage() {
         setToken(data.token);
         navigate('/', { replace: true });
       }
-    } catch {
-      setError('Invalid password.');
+    } catch (err) {
+      setError(ipBlockedMessage(err) ?? 'Invalid password.');
     } finally {
       setLoading(false);
     }
@@ -56,10 +65,15 @@ export function LoginPage() {
       });
       setToken(data.token);
       navigate('/', { replace: true });
-    } catch {
-      setError('Invalid authenticator code.');
-      setTotpCode('');
-      totpInputRef.current?.focus();
+    } catch (err) {
+      const ipMsg = ipBlockedMessage(err);
+      if (ipMsg) {
+        setError(ipMsg);
+      } else {
+        setError('Invalid authenticator code.');
+        setTotpCode('');
+        totpInputRef.current?.focus();
+      }
     } finally {
       setLoading(false);
     }

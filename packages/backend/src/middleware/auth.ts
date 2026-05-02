@@ -49,7 +49,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
   const { ipWhitelist } = await getUserSettings();
   if (!isIpAllowed(req.ip, ipWhitelist)) {
-    res.status(403).json({ error: 'Access denied' });
+    res.status(403).json({ error: 'IP not allowed', clientIp: req.ip?.replace(/^::ffff:/, '') });
     return;
   }
   next();
