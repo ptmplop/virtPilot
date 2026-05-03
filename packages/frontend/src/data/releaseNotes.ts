@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.7',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: 'Cloud-init now uses `/bin/sh` for the default user so SSH works on Alpine. v1.19.6 fixed Alpine\'s BIOS/UEFI mismatch and the VM booted, but SSH still rejected every attempt with `Permission denied`. The auth log had the real reason: `User virtpilot not allowed because shell /bin/bash does not exist`. The cloud-init template hardcoded `shell: /bin/bash`, which doesn\'t exist on Alpine — sshd refuses login for any user whose shell is missing, regardless of how good the keys or password are. Switched the user shell to `/bin/sh` (the only shell guaranteed everywhere) and added a `runcmd` that does `chsh -s "$(command -v bash)" virtpilot` on systems where bash is installed, so interactive shells on Ubuntu/Debian/RHEL/Alma/Rocky/Fedora/openSUSE still get bash. Only affects newly-created VMs; existing Alpine VMs need their shell updated by hand or to be recreated' },
+    ],
+  },
+  {
     version: '1.19.6',
     date: '2026-05-03',
     changes: [

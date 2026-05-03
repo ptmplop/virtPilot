@@ -98,6 +98,9 @@ export async function buildCloudInitIso(vmName: string, cfg: CloudInitConfig, tr
   const metaData = `instance-id: ${vmName}\nlocal-hostname: ${cfg.hostname}\n`;
 
   const sshKeyLines = (cfg.sshKeys ?? []).map((k) => `      - ${k}`).join('\n');
+  // /bin/sh is the only shell guaranteed to exist on every distro (Alpine has no bash by default,
+  // and sshd refuses login if the user's shell is missing). The runcmd upgrades to bash where
+  // installed so interactive shells on Ubuntu/Debian/RHEL/etc. still get bash.
   const userData = [
     '#cloud-config',
     `hostname: ${cfg.hostname}`,
@@ -105,7 +108,7 @@ export async function buildCloudInitIso(vmName: string, cfg: CloudInitConfig, tr
     `users:`,
     `  - name: ${cfg.username}`,
     `    sudo: ['ALL=(ALL) NOPASSWD:ALL']`,
-    `    shell: /bin/bash`,
+    `    shell: /bin/sh`,
     `    lock_passwd: false`,
     ...(sshKeyLines ? [`    ssh_authorized_keys:\n${sshKeyLines}`] : []),
     `chpasswd:`,
@@ -114,6 +117,8 @@ export async function buildCloudInitIso(vmName: string, cfg: CloudInitConfig, tr
     `  expire: False`,
     `ssh_pwauth: True`,
     `package_update: false`,
+    `runcmd:`,
+    `  - sh -c 'command -v bash >/dev/null && chsh -s "$(command -v bash)" ${cfg.username} || true'`,
   ].join('\n');
 
   await fs.writeFile(path.join(dir, 'meta-data'), metaData, 'utf8');
