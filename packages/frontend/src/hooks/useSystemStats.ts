@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
@@ -95,9 +96,13 @@ export function useSystemInfo() {
   });
 }
 
+// Stable across renders so consumers can list it in useEffect deps without
+// triggering re-runs every render. Without useCallback the returned arrow is a
+// fresh ref every call, which silently breaks any effect that depends on it
+// (e.g. the upgrade-modal polling loop).
 export function useInvalidateApt() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: ['system', 'apt'] });
+  return useCallback(() => qc.invalidateQueries({ queryKey: ['system', 'apt'] }), [qc]);
 }
 
 export interface VirtPilotVersion {
@@ -127,7 +132,7 @@ export function useVirtPilotVersion() {
 
 export function useInvalidateVersion() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: ['system', 'version'] });
+  return useCallback(() => qc.invalidateQueries({ queryKey: ['system', 'version'] }), [qc]);
 }
 
 // Forces the backend to bypass its 10-minute GitHub release cache. Used by the

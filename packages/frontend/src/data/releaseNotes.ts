@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.17.1',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: 'Self-update modal no longer hangs on "Restarting service…". The polling loop that waits for the new backend to come back up listed `invalidateVersion` (returned by `useInvalidateVersion()`) in its `useEffect` deps. The hook returned a fresh function reference on every render, so every 2 s — when the dashboard re-rendered because of `useSystemStats` polling — the effect re-ran: the previous polling tick was cancelled mid-flight, and the 90 s timeout deadline was reset. Two fixes applied: `useInvalidateVersion` and `useInvalidateApt` are now wrapped in `useCallback` so they return stable refs across renders, and the redundant `invalidateVersion()` call right before `window.location.reload()` was removed — the reload throws away the cache anyway. Existing stuck modals can be unstuck by reloading the page; the new backend was already running' },
+    ],
+  },
+  {
     version: '1.17.0',
     date: '2026-05-03',
     changes: [

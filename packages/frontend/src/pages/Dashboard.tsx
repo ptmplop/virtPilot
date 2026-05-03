@@ -28,7 +28,7 @@ import { MetricChart } from '@/components/ui/MetricChart';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
   useSystemStats, useSystemInfo, useAptPackages, useInvalidateApt,
-  useVirtPilotVersion, useInvalidateVersion, useCheckVersionNow,
+  useVirtPilotVersion, useCheckVersionNow,
   useSystemMetricsHistory,
   type AptPackage, type VirtPilotVersion,
   type SystemMetricsRange,
@@ -920,7 +920,6 @@ function VirtPilotUpgradeModal({
   const [phase, setPhase] = useState<'streaming' | 'restarting' | 'done-success' | 'done-fail'>('streaming');
   const [exitCode, setExitCode] = useState<number | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
-  const invalidateVersion = useInvalidateVersion();
 
   useEffect(() => {
     const token = localStorage.getItem('virtpilotToken') ?? '';
@@ -966,7 +965,6 @@ function VirtPilotUpgradeModal({
           const data = (await res.json()) as VirtPilotVersion;
           if (data.current === targetVersion) {
             setPhase('done-success');
-            invalidateVersion();
             setLines((prev) => [...prev, { type: 'meta', text: `\nNow running ${targetVersion}. Reloading…\n` }]);
             setTimeout(() => window.location.reload(), 1500);
             return;
@@ -983,7 +981,7 @@ function VirtPilotUpgradeModal({
 
     void tick();
     return () => { cancelled = true; };
-  }, [phase, targetVersion, invalidateVersion]);
+  }, [phase, targetVersion]);
 
   useEffect(() => {
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;

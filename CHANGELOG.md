@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.17.1] — 2026-05-03
+
+### Fixed
+- **Self-update modal no longer hangs on "Restarting service…".** The polling loop that waits for the new backend to come back up listed `invalidateVersion` (returned by `useInvalidateVersion()`) in its `useEffect` dependency array. The hook returned a fresh function reference on every render, so every 2 s — when the dashboard re-rendered because of `useSystemStats` polling — the effect re-ran: the previous polling tick was cancelled mid-flight, and the 90 s timeout deadline was reset. Result: success was never registered (because every fetch's resolution found `cancelled === true`) and the timeout never fired (because the deadline kept moving). Existing stuck modals can be unstuck by reloading the page; the new backend was already running. Two fixes applied: (1) `useInvalidateVersion` and `useInvalidateApt` are now wrapped in `useCallback` so they return stable refs across renders, and (2) the redundant `invalidateVersion()` call right before `window.location.reload()` was removed — the reload throws away the React Query cache anyway, so cache invalidation immediately before is unnecessary, and dropping it lets the polling effect avoid depending on the hook entirely
+
 ## [1.17.0] — 2026-05-03
 
 ### Changed
