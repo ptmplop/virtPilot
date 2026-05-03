@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.4] — 2026-05-03
+
+### Fixed
+- **CentOS Stream 10 download was being silently rejected with HTTP 403 because the backend sent no User-Agent header.** A v1.19.3 production run finished 7 of 9 — the two failures (CentOS Stream 10 and Fedora 41) both retried 3× and 3× hit the same status code, ruling out transient causes. With backend logging in place we caught the actual error: `cloud.centos.org` rejects requests with no User-Agent header. Verified by `curl -H "User-Agent:"` from the production host: 403 every time. With curl's default UA: 200 every time. Node's `http.get` doesn't send a User-Agent by default. Backend now sets `User-Agent: VirtPilot/1.19.4 (+https://github.com/ptmplop/virtPilot)` on every outbound `streamUrl` request — fixes CentOS instantly, identifies us in mirror access logs for traceability, and is generally good citizenship.
+- **Fedora 41 download was 404'ing because the redirector geo-routes US clients to a mirror that doesn't carry Fedora.** `download.fedoraproject.org` redirected the production host to `ftp-chi.osuosl.org`, which forwarded to `ftp2.osuosl.org/pub/fedora/...` — a path that returns 404 because OSU OSL's actual Fedora mirror lives at `fedora.osuosl.org` (different subdomain). The redirector is sticky per client IP, so retries hit the same broken mirror every time (5/5 probes from the host). I tested several other US mirrors directly (`mirror.facebook.net`, `mirrors.kernel.org`, `mirror.fcix.net`, `mirror.us-midwest-1.nexcess.net`) — all 404 too, suggesting Fedora 41 simply hasn't propagated to most US mirrors yet. EU mirrors all carry it. Pinned the URL to `gemmei.ftp.acc.umu.se` (Umeå University, Sweden — long-running academic mirror) to bypass the redirector entirely.
+
 ## [1.19.3] — 2026-05-03
 
 ### Fixed

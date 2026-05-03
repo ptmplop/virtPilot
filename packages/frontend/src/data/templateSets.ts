@@ -62,7 +62,13 @@ export const TEMPLATE_SET: TemplateSet = {
       logo: 'opensuse',
     },
     {
-      url: 'https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2',
+      // Pinned to a direct mirror because Fedora's `download.fedoraproject.org`
+      // redirector geo-routes US clients to `ftp-chi.osuosl.org` →
+      // `ftp2.osuosl.org`, which doesn't carry Fedora at all (their Fedora
+      // mirror moved to `fedora.osuosl.org`). The redirector is sticky per
+      // client IP, so retries don't help. gemmei.ftp.acc.umu.se is a stable
+      // long-running academic mirror at Umeå University.
+      url: 'https://gemmei.ftp.acc.umu.se/mirror/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2',
       filename: 'fedora-41.qcow2',
       name: 'Fedora 41 Cloud',
       logo: 'fedora',

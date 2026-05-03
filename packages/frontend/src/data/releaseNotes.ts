@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.4',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: 'CentOS Stream 10 was silently 403\'ing because the backend sent no User-Agent header — `cloud.centos.org` rejects requests with no UA. Verified by `curl -H "User-Agent:"` from the production host: 403 every time, with default UA: 200 every time. Node\'s `http.get` doesn\'t send a User-Agent by default. Backend now identifies as `VirtPilot/<version>` on every outbound download — fixes CentOS instantly and is good citizenship for mirror operators' },
+      { type: 'fixed', text: 'Fedora 41 was 404\'ing because the `download.fedoraproject.org` redirector geo-routes US clients to a mirror that doesn\'t carry Fedora at all (`ftp2.osuosl.org` — OSU OSL\'s real Fedora mirror moved to `fedora.osuosl.org`). The redirector is sticky per client IP, so retries hit the same broken mirror every time (5/5 probes). Most other US mirrors I tested also 404 for Fedora 41 — propagation is still incomplete. Pinned the URL to gemmei.ftp.acc.umu.se (Umeå University, Sweden — long-running academic mirror) to bypass the redirector entirely' },
+    ],
+  },
+  {
     version: '1.19.3',
     date: '2026-05-03',
     changes: [

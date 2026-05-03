@@ -10,6 +10,12 @@ import { config } from '../config.js';
 import * as storageService from '../services/storageService.js';
 import { saveUserSettings } from '../services/userSettingsService.js';
 
+// Some mirrors (notably cloud.centos.org) reject requests with no User-Agent
+// header — Node's http.get sends none by default, which silently 403s every
+// download attempt. Identify ourselves so we play nice with mirror operators
+// and so the failure is traceable in their access logs if anything goes wrong.
+const USER_AGENT = 'VirtPilot/1.19.4 (+https://github.com/ptmplop/virtPilot)';
+
 export const templatesRouter = Router();
 
 const upload = multer({
@@ -62,7 +68,7 @@ function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<voi
     const attempt = (attemptUrl: string) => {
       if (cancelled) { reject(new Error('cancelled')); return; }
       const client = attemptUrl.startsWith('https') ? https : http;
-      activeReq = client.get(attemptUrl, (res) => {
+      activeReq = client.get(attemptUrl, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
         if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
           res.resume();
           attempt(res.headers.location);
