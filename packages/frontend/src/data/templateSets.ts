@@ -74,7 +74,9 @@ export const TEMPLATE_SET: TemplateSet = {
       logo: 'fedora',
     },
     {
-      url: 'https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.0-x86_64-bios-cloudinit-r0.qcow2',
+      // UEFI variant — VirtPilot defines all VMs with `<os firmware='efi'>` (OVMF),
+      // so the BIOS image (which uses SYSLINUX in MBR with no GPT/ESP) won't boot.
+      url: 'https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.7-x86_64-uefi-cloudinit-r0.qcow2',
       filename: 'alpine-3.21.qcow2',
       name: 'Alpine Linux 3.21',
       logo: 'alpinelinux',

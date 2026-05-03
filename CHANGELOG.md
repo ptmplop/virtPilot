@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.6] — 2026-05-03
+
+### Fixed
+- **Alpine 3.21 starter template now boots.** The pinned URL was the BIOS-only artifact (`nocloud_alpine-3.21.0-x86_64-bios-cloudinit-r0.qcow2`), which writes SYSLINUX into the MBR of an unpartitioned ext4 disk — no GPT, no EFI System Partition. VirtPilot defines every VM with `<os firmware='efi'>` (OVMF/UEFI), and OVMF can't chain a SYSLINUX MBR, so guests stayed in the firmware boot manager forever — `virsh dominfo` reported `running` while the VM never reached a kernel. Confirmed on the production host: a `test3` VM created from this template sat in this state with no errors in `/var/log/libvirt/qemu/test3.log`. Switched the URL to the UEFI variant (`nocloud_alpine-3.21.7-x86_64-uefi-cloudinit-r0.qcow2`, also bumped to the latest 3.21 patch). Existing installs need to delete the old `alpine-3.21.qcow2` from `$STORAGE_ROOT/templates/` and re-download (the bulk card will resurface once it's gone); any VMs already created from the bad template must be recreated, since their `disk.qcow2` overlays the broken backing image.
+
 ## [1.19.5] — 2026-05-03
 
 ### Added

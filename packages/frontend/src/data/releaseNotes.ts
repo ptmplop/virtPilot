@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.6',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: 'Alpine 3.21 starter template now boots. The pinned URL was the BIOS-only artifact (`nocloud_alpine-3.21.0-x86_64-bios-cloudinit-r0.qcow2`), which writes SYSLINUX into the MBR of an unpartitioned ext4 disk — no GPT, no EFI System Partition. VirtPilot defines every VM with `<os firmware=\'efi\'>` (OVMF/UEFI), and OVMF can\'t chain a SYSLINUX MBR, so guests stayed in the firmware boot manager forever — `virsh dominfo` reported `running` while the VM never reached a kernel. Switched the URL to the UEFI variant (`nocloud_alpine-3.21.7-x86_64-uefi-cloudinit-r0.qcow2`, also bumped to the latest 3.21 patch). Existing installs: delete the old `alpine-3.21.qcow2` from `$STORAGE_ROOT/templates/` and re-download (the bulk card resurfaces once it\'s gone). Any VMs already created from the bad template must be recreated, since their `disk.qcow2` overlays the broken backing image' },
+    ],
+  },
+  {
     version: '1.19.5',
     date: '2026-05-03',
     changes: [
