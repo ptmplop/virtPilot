@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { recordSystemSample } from './systemMetricsService.js';
 
 const SAMPLE_INTERVAL_MS = 2000;
 const HISTORY_LENGTH = 60;
@@ -137,6 +138,7 @@ export async function takeSample(): Promise<StatsSample> {
 
   history.push(sample);
   if (history.length > HISTORY_LENGTH) history.shift();
+  recordSystemSample(sample);
   return sample;
 }
 

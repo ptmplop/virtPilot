@@ -3,6 +3,19 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.17.0] — 2026-05-03
+
+### Changed
+- **Dashboard "Live Metrics" section restyled to match the per-VM Metrics tab.** Renamed to "Host Metrics" and given a Live / 1h / 24h range selector in the section header. The 2×2 grid of cards (each with a sparkline area chart) is replaced by a single column of full-width cards stacked one per row — CPU Usage, Memory, Disk I/O, Network. Each chart now uses the same `MetricChart` component as the per-VM tab: labelled Y axis (0/25/50/75/100 % for CPU and Memory; auto-scaled byte values for Disk and Network), labelled X axis with timestamps (`HH:MM:SS` for Live, `HH:MM` for 1h, `DD/MM HH:MM` for 24h), dashed horizontal grid lines, and a "nice" round Y-max so small spikes don't flatten the baseline. Card chrome (coloured top stripe, glowing icon badge, accent typography) is preserved
+- **Live mode still draws from the in-memory 2-second sampler** (60 samples, ~2 minutes), so the existing live tile refresh cadence is unchanged. Switching to 1h or 24h reads from the new persistent store
+
+### Added
+- **Persistent host metrics storage.** A new SQLite table `system_metrics` (migration v2) records one host sample every 30 s with the same fields as the per-VM table — CPU %, memory used/total, disk read/write Bps, network RX/TX Bps. 24-hour retention, pruned in the same loop. Persistence is wired into the existing 2-second `statsService.takeSample()` and gated by a 30 s minimum interval, so no new sampler runs
+- **`GET /api/system/metrics?range=1h|24h`** endpoint. Returns `{ range, history }` mirroring the per-VM `/api/vms/:name/metrics` shape. `1h` returns raw 30 s points; `24h` aggregates into 5-minute buckets via `AVG()` so the chart stays at ~288 points
+
+### Removed
+- **`AreaChart` component deleted.** It was only used by the dashboard's old chart-bearing card; the per-VM Metrics tab already uses `MetricChart`. Now everything goes through `MetricChart`
+
 ## [1.16.0] — 2026-05-03
 
 ### Added

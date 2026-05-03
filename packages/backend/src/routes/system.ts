@@ -8,6 +8,7 @@ import { Router } from 'express';
 import { config, VERSION } from '../config.js';
 import { listPhysicalNics } from '../services/networkService.js';
 import { getHistory, takeSample } from '../services/statsService.js';
+import { getSystemMetricsHistory } from '../services/systemMetricsService.js';
 import * as logService from '../services/logService.js';
 
 const execAsync = promisify(exec);
@@ -72,6 +73,19 @@ systemRouter.get('/stats', async (_req, res) => {
     const current = await takeSample();
     const history = getHistory();
     res.json({ current, history });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Persistent host metrics history (SQLite-backed). Mirrors the per-VM
+// /api/vms/:name/metrics endpoint so the dashboard can offer the same
+// Live / 1h / 24h ranges as the per-VM Metrics tab.
+systemRouter.get('/metrics', (req, res) => {
+  const range = req.query.range === '24h' ? '24h' : '1h';
+  try {
+    const history = getSystemMetricsHistory(range);
+    res.json({ range, history });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

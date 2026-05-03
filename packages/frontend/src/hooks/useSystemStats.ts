@@ -41,6 +41,37 @@ export function useSystemStats() {
   });
 }
 
+export type SystemMetricsRange = '1h' | '24h';
+
+export interface SystemMetricsPoint {
+  ts: number;
+  cpuPercent: number;
+  memUsedMb: number;
+  memTotalMb: number;
+  diskReadBps: number;
+  diskWriteBps: number;
+  netRxBps: number;
+  netTxBps: number;
+}
+
+interface SystemMetricsResponse {
+  range: SystemMetricsRange;
+  history: SystemMetricsPoint[];
+}
+
+export function useSystemMetricsHistory(range: SystemMetricsRange, enabled = true) {
+  return useQuery({
+    queryKey: ['system', 'metrics', range],
+    queryFn: async () => {
+      const { data } = await api.get<SystemMetricsResponse>('/api/system/metrics', { params: { range } });
+      return data;
+    },
+    enabled,
+    refetchInterval: range === '1h' ? 30_000 : 5 * 60_000,
+    retry: false,
+  });
+}
+
 export function useAptPackages() {
   return useQuery({
     queryKey: ['system', 'apt'],

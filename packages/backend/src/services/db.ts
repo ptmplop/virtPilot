@@ -49,6 +49,23 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 2,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE system_metrics (
+          ts             INTEGER PRIMARY KEY,
+          cpu_percent    REAL    NOT NULL,
+          mem_used_mb    INTEGER NOT NULL,
+          mem_total_mb   INTEGER NOT NULL,
+          disk_read_bps  REAL    NOT NULL,
+          disk_write_bps REAL    NOT NULL,
+          net_rx_bps     REAL    NOT NULL,
+          net_tx_bps     REAL    NOT NULL
+        );
+      `);
+    },
+  },
 ];
 
 function runMigrations(db: Db): void {

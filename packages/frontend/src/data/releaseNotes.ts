@@ -13,6 +13,15 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.17.0',
+    date: '2026-05-03',
+    changes: [
+      { type: 'changed', text: 'Dashboard "Live Metrics" section restyled to match the per-VM Metrics tab. Renamed to "Host Metrics" and given a Live / 1h / 24h range selector in the section header. The 2×2 grid of cards (each with a sparkline area chart) is replaced by a single column of full-width cards stacked one per row — CPU Usage, Memory, Disk I/O, Network. Each chart now uses the same `MetricChart` component as the per-VM tab: labelled Y axis (5 ticks: 0/25/50/75/100 % for CPU and Memory; auto-scaled byte values for Disk and Network), labelled X axis with timestamps, dashed horizontal grid lines, and a "nice" round Y-max so small spikes don\'t flatten the baseline. Card chrome (coloured top stripe, glowing icon badge, accent typography) is preserved' },
+      { type: 'added', text: 'Persistent host metrics storage. A new SQLite table `system_metrics` (migration v2) records one host sample every 30 s with CPU %, memory, disk and network throughput. 24-hour retention. Persistence is wired into the existing 2-second `statsService.takeSample()` and gated by a 30 s minimum interval, so no new sampler runs. New `GET /api/system/metrics?range=1h|24h` endpoint returns 30 s points for `1h` and 5-minute aggregated buckets for `24h`' },
+      { type: 'removed', text: 'Internal: deleted the `AreaChart` component. It was only used by the dashboard\'s old chart-bearing card; everything now goes through the per-VM `MetricChart`' },
+    ],
+  },
+  {
     version: '1.16.0',
     date: '2026-05-03',
     changes: [

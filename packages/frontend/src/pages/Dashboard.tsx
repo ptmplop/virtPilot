@@ -24,12 +24,14 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
-import { AreaChart } from '@/components/ui/AreaChart';
+import { MetricChart } from '@/components/ui/MetricChart';
 import { Skeleton } from '@/components/ui/Skeleton';
 import {
   useSystemStats, useSystemInfo, useAptPackages, useInvalidateApt,
   useVirtPilotVersion, useInvalidateVersion, useCheckVersionNow,
-  type StatsSample, type AptPackage, type VirtPilotVersion,
+  useSystemMetricsHistory,
+  type AptPackage, type VirtPilotVersion,
+  type SystemMetricsRange,
 } from '@/hooks/useSystemStats';
 import { useSettings } from '@/hooks/useSettings';
 import { useVms } from '@/hooks/useVms';
@@ -559,36 +561,47 @@ function HostOverview() {
   );
 }
 
-// ─── Metric card ───────────────────────────────────────────────────────────────
+// ─── Host metric card ──────────────────────────────────────────────────────────
+//
+// One full-width row per metric (CPU / Memory / Disk / Network). Header bar
+// keeps the dashboard's coloured chrome (top stripe, icon badge, accent label
+// + big primary value); the chart below is a `MetricChart` matching the per-VM
+// Metrics tab — Y/X axis labels, dashed grid lines, auto-scaled "nice" max.
 
-interface MetricCardProps {
+interface HostMetricCardProps {
   id: string;
   icon: typeof Cpu;
   label: string;
   scheme: TileAccent;
   primaryValue: string;
   secondaryValue?: string;
-  detail?: React.ReactNode;
   legend?: React.ReactNode;
-  chartData: number[];
-  chartData2?: number[];
-  chartColor2?: string;
+  data: number[];
+  data2?: number[];
+  color: string;
+  color2?: string;
+  timestamps: number[];
+  formatY: (v: number) => string;
+  formatX: (ts: number) => string;
+  /** Fixed Y-axis max (e.g. 100 for percentage charts). Auto-scales when omitted. */
+  max?: number;
   loading?: boolean;
   delay?: number;
 }
 
-function MetricCard({
+function HostMetricCard({
   id, icon: Icon, label, scheme,
-  primaryValue, secondaryValue, detail, legend,
-  chartData, chartData2, chartColor2, loading,
-  delay = 0,
-}: MetricCardProps) {
+  primaryValue, secondaryValue, legend,
+  data, data2, color, color2,
+  timestamps, formatY, formatX, max,
+  loading, delay = 0,
+}: HostMetricCardProps) {
   const a = ACCENT_CFG[scheme];
 
   return (
     <div
       className={cn(
-        'group relative flex h-[220px] overflow-hidden rounded-2xl border bg-card shadow-airy animate-fade-up transition-all duration-300 ease-out hover:-translate-y-px',
+        'group relative overflow-hidden rounded-2xl border bg-card shadow-airy animate-fade-up transition-all duration-300 ease-out hover:-translate-y-px',
         a.border, a.hoverGlow,
       )}
       style={{ animationDelay: `${delay}ms` }}
@@ -601,9 +614,9 @@ function MetricCard({
       {/* Coloured top accent stripe */}
       <div className={cn('pointer-events-none absolute inset-x-0 top-0 z-10 h-[3px]', a.stripeBg)} />
 
-      {/* Left panel */}
-      <div className="relative flex w-56 shrink-0 flex-col px-5 py-5">
-        <div className="flex items-center gap-2.5">
+      <div className="relative px-5 pb-3 pt-5">
+        {/* Header row */}
+        <div className="flex items-center gap-3">
           {/* Glowing icon badge */}
           <div className="relative shrink-0">
             <div className={cn('absolute inset-0 rounded-xl blur-md opacity-70', a.iconBadgeGlow)} />
@@ -617,80 +630,52 @@ function MetricCard({
           <span className={cn('text-[10px] font-bold uppercase tracking-[0.2em]', a.labelColor)}>
             {label}
           </span>
-        </div>
 
-        <div className="mt-4 flex-1">
-          {loading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-8 w-24 rounded-lg" />
-              <Skeleton className="h-3.5 w-32 rounded" />
+          {legend && !loading && (
+            <div className="ml-3 hidden sm:flex">
+              {legend}
             </div>
-          ) : (
-            <>
-              <div>
-                <span className={cn(
-                  'block whitespace-nowrap text-3xl font-bold tracking-tight tabular-nums',
-                  a.valueColor,
-                )}>
+          )}
+
+          <div className="ml-auto text-right">
+            {loading ? (
+              <div className="space-y-1">
+                <Skeleton className="ml-auto h-6 w-20 rounded" />
+                <Skeleton className="ml-auto h-3 w-14 rounded" />
+              </div>
+            ) : (
+              <>
+                <span className={cn('block whitespace-nowrap text-2xl font-bold tracking-tight tabular-nums', a.valueColor)}>
                   {primaryValue}
                 </span>
                 {secondaryValue && (
-                  <span className="block text-sm text-muted-foreground">{secondaryValue}</span>
+                  <span className="block text-xs text-muted-foreground">{secondaryValue}</span>
                 )}
-              </div>
-              {detail && <div className="mt-1.5">{detail}</div>}
-            </>
-          )}
+              </>
+            )}
+          </div>
         </div>
 
-        {legend && !loading && (
-          <div className="mt-auto border-t border-border/40 pt-3">
-            {legend}
-          </div>
-        )}
-      </div>
-
-      {/* Divider */}
-      <div className="relative my-5 w-px shrink-0 bg-gradient-to-b from-transparent via-border to-transparent" />
-
-      {/* Chart */}
-      <div className={cn('relative min-w-0 flex-1', a.chartBgClass)}>
-        {loading ? (
-          <div className="h-full w-full bg-muted/20" />
-        ) : (
-          <AreaChart
-            id={id}
-            data={chartData}
-            color={a.chartHex}
-            data2={chartData2}
-            color2={chartColor2}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Two-value detail (for disk / net) ─────────────────────────────────────────
-
-function BiValue({
-  upLabel, upValue, downLabel, downValue, upColor, downColor,
-}: {
-  upLabel: string; upValue: string;
-  downLabel: string; downValue: string;
-  upColor: string; downColor: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1">
-        <ArrowUp className="h-2.5 w-2.5 shrink-0" style={{ color: upColor }} />
-        <span className="font-mono text-[10px] text-muted-foreground">{upLabel}</span>
-        <span className="whitespace-nowrap font-mono text-[10px] font-semibold text-foreground tabular-nums">{upValue}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <ArrowDown className="h-2.5 w-2.5 shrink-0" style={{ color: downColor }} />
-        <span className="font-mono text-[10px] text-muted-foreground">{downLabel}</span>
-        <span className="whitespace-nowrap font-mono text-[10px] font-semibold text-foreground tabular-nums">{downValue}</span>
+        {/* Chart */}
+        <div className="mt-4">
+          {loading || data.length < 2 ? (
+            <div className="flex h-[218px] items-center justify-center text-xs text-muted-foreground">
+              {loading ? 'Loading…' : 'Waiting for samples…'}
+            </div>
+          ) : (
+            <MetricChart
+              id={id}
+              data={data}
+              data2={data2}
+              color={color}
+              color2={color2}
+              timestamps={timestamps}
+              formatY={formatY}
+              formatX={formatX}
+              max={max}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1353,25 +1338,68 @@ function VirtPilotUpdateCard() {
 
 // ─── Dashboard page ────────────────────────────────────────────────────────────
 
-function extract(history: StatsSample[], key: keyof StatsSample): number[] {
-  return history.map((s) => s[key] as number);
+type HostMetricsRange = 'live' | SystemMetricsRange;
+
+interface HostMetricsPoint {
+  ts: number;
+  cpuPercent: number;
+  memUsedMb: number;
+  memTotalMb: number;
+  diskReadBps: number;
+  diskWriteBps: number;
+  netRxBps: number;
+  netTxBps: number;
+}
+
+function formatChartTime(ts: number, range: HostMetricsRange): string {
+  const d = new Date(ts);
+  const hh = d.getHours().toString().padStart(2, '0');
+  const mm = d.getMinutes().toString().padStart(2, '0');
+  if (range === 'live') {
+    const ss = d.getSeconds().toString().padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  }
+  if (range === '24h') {
+    const dd = d.getDate().toString().padStart(2, '0');
+    const mo = (d.getMonth() + 1).toString().padStart(2, '0');
+    return `${dd}/${mo} ${hh}:${mm}`;
+  }
+  return `${hh}:${mm}`;
 }
 
 export function DashboardPage() {
   const { data, isLoading } = useSystemStats();
-  const history = data?.history ?? [];
+  const liveHistory = data?.history ?? [];
   const current = data?.current;
 
-  const cpuHistory       = extract(history, 'cpuPercent');
-  const ramHistory       = extract(history, 'memUsedMb');
-  const diskReadHistory  = extract(history, 'diskReadBps');
-  const diskWriteHistory = extract(history, 'diskWriteBps');
-  const netRxHistory     = extract(history, 'netRxBps');
-  const netTxHistory     = extract(history, 'netTxBps');
+  const [range, setRange] = useState<HostMetricsRange>('live');
+  const historyEnabled = range !== 'live';
+  const { data: persisted } = useSystemMetricsHistory(
+    range === 'live' ? '1h' : range,
+    historyEnabled,
+  );
 
-  const ramPct = current
-    ? Math.round((current.memUsedMb / Math.max(current.memTotalMb, 1)) * 100)
-    : 0;
+  const points: HostMetricsPoint[] = range === 'live'
+    ? liveHistory.map((s) => ({
+        ts: s.timestamp,
+        cpuPercent: s.cpuPercent,
+        memUsedMb: s.memUsedMb,
+        memTotalMb: s.memTotalMb,
+        diskReadBps: s.diskReadBps,
+        diskWriteBps: s.diskWriteBps,
+        netRxBps: s.netRxBps,
+        netTxBps: s.netTxBps,
+      }))
+    : (persisted?.history ?? []);
+
+  const timestamps = points.map((p) => p.ts);
+  const cpuData    = points.map((p) => p.cpuPercent);
+  const memPctData = points.map((p) => (p.memTotalMb > 0 ? (p.memUsedMb / p.memTotalMb) * 100 : 0));
+  const diskRdData = points.map((p) => p.diskReadBps);
+  const diskWrData = points.map((p) => p.diskWriteBps);
+  const netRxData  = points.map((p) => p.netRxBps);
+  const netTxData  = points.map((p) => p.netTxBps);
+  const formatX = (ts: number) => formatChartTime(ts, range);
 
   return (
     <Layout title="Dashboard" subtitle="Live server metrics and system status.">
@@ -1389,119 +1417,104 @@ export function DashboardPage() {
           <VirtPilotUpdateCard />
         </section>
 
-        {/* ── Live Metrics ── */}
+        {/* ── Host Metrics ── */}
         <section className="space-y-3">
-          <SectionLabel label="Live Metrics" />
-          <div className="grid grid-cols-2 gap-4">
-            <MetricCard
-              id="cpu"
+          <div className="flex items-center justify-between">
+            <SectionLabel label="Host Metrics" />
+            <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-card">
+              {(['live', '1h', '24h'] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRange(r)}
+                  className={cn(
+                    'rounded-md px-3 py-1 text-[10px] font-semibold uppercase tracking-widest transition',
+                    range === r
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {r === 'live' ? 'Live' : r}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <HostMetricCard
+              id="host-cpu"
               icon={Cpu}
               label="CPU Usage"
               scheme="blue"
               primaryValue={current ? fmtPct(current.cpuPercent) : '—'}
-              detail={
-                <div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-blue-500/70 transition-all duration-700"
-                      style={{ width: `${current?.cpuPercent ?? 0}%` }}
-                    />
-                  </div>
-                  <span className="font-mono text-[10px] text-muted-foreground">
-                    {current ? fmtPct(current.cpuPercent) : '—'} of capacity
-                  </span>
-                </div>
-              }
-              chartData={cpuHistory.length ? cpuHistory : [0]}
+              data={cpuData}
+              timestamps={timestamps}
+              color={ACCENT_CFG.blue.chartHex}
+              formatY={(v) => `${Math.round(v)}%`}
+              formatX={formatX}
+              max={100}
               loading={isLoading}
               delay={0}
             />
-            <MetricCard
-              id="ram"
+            <HostMetricCard
+              id="host-mem"
               icon={MemoryStick}
               label="Memory"
               scheme="violet"
               primaryValue={current ? fmtMb(current.memUsedMb) : '—'}
               secondaryValue={current ? `of ${fmtMb(current.memTotalMb)}` : undefined}
-              detail={
-                <div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-violet-500/70 transition-all duration-700"
-                      style={{ width: `${ramPct}%` }}
-                    />
-                  </div>
-                  <span className="font-mono text-[10px] text-muted-foreground">{ramPct}% used</span>
-                </div>
-              }
-              chartData={ramHistory.length ? ramHistory : [0]}
+              data={memPctData}
+              timestamps={timestamps}
+              color={ACCENT_CFG.violet.chartHex}
+              formatY={(v) => `${Math.round(v)}%`}
+              formatX={formatX}
+              max={100}
               loading={isLoading}
               delay={60}
             />
-            <MetricCard
-              id="disk"
+            <HostMetricCard
+              id="host-disk"
               icon={HardDrive}
               label="Disk I/O"
               scheme="warn"
               primaryValue={current ? fmtBps(current.diskReadBps + current.diskWriteBps) : '—'}
               secondaryValue="total"
-              detail={
-                current ? (
-                  <BiValue
-                    upLabel="R"
-                    upValue={fmtBps(current.diskReadBps)}
-                    downLabel="W"
-                    downValue={fmtBps(current.diskWriteBps)}
-                    upColor="#f59e0b"
-                    downColor="#f97316"
-                  />
-                ) : null
-              }
               legend={
                 <div className="flex items-center gap-3">
                   <LegendItem color="#f59e0b" label="Read" />
                   <LegendItem color="#f97316" label="Write" dashed />
                 </div>
               }
-              chartData={diskReadHistory.length ? diskReadHistory : [0]}
-              chartData2={diskWriteHistory.length ? diskWriteHistory : [0]}
-              chartColor2="#f97316"
+              data={diskRdData}
+              data2={diskWrData}
+              color="#f59e0b"
+              color2="#f97316"
+              timestamps={timestamps}
+              formatY={fmtBps}
+              formatX={formatX}
               loading={isLoading}
               delay={120}
             />
-            <MetricCard
-              id="net"
+            <HostMetricCard
+              id="host-net"
               icon={Activity}
               label="Network"
               scheme="ok"
               primaryValue={current ? fmtBps(current.netRxBps + current.netTxBps) : '—'}
               secondaryValue="total"
-              detail={
-                current ? (
-                  <BiValue
-                    upLabel="↑"
-                    upValue={fmtBps(current.netTxBps)}
-                    downLabel="↓"
-                    downValue={fmtBps(current.netRxBps)}
-                    upColor="#06b6d4"
-                    downColor="#10b981"
-                  />
-                ) : null
-              }
               legend={
-                <div className="space-y-1">
-                  <div className="flex items-center gap-3">
-                    <LegendItem color="#10b981" label="RX" />
-                    <LegendItem color="#06b6d4" label="TX" dashed />
-                  </div>
-                  <span className="font-mono text-[10px] text-muted-foreground/50">
-                    2 s · {history.length} samples
-                  </span>
+                <div className="flex items-center gap-3">
+                  <LegendItem color="#10b981" label="RX" />
+                  <LegendItem color="#06b6d4" label="TX" dashed />
                 </div>
               }
-              chartData={netRxHistory.length ? netRxHistory : [0]}
-              chartData2={netTxHistory.length ? netTxHistory : [0]}
-              chartColor2="#06b6d4"
+              data={netRxData}
+              data2={netTxData}
+              color="#10b981"
+              color2="#06b6d4"
+              timestamps={timestamps}
+              formatY={fmtBps}
+              formatX={formatX}
               loading={isLoading}
               delay={180}
             />
