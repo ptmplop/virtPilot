@@ -1,13 +1,17 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Client as SshClient } from 'ssh2';
 import fs from 'fs/promises';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import * as vmMetaService from './services/vmMetaService.js';
 import { ensureHostSshKeypair } from './services/cloudInitService.js';
-import { config } from './config.js';
+import { virsh } from './services/safeExec.js';
+import { validateVmName } from './lib/validate.js';
 
-const execAsync = promisify(exec);
+function pickProtocol(protocols: Set<string>): string | false {
+  for (const p of protocols) {
+    if (p.startsWith('virtpilot.token.')) return p;
+  }
+  return false;
+}
 
 async function resolveVmIp(vmName: string): Promise<string | null> {
   try {
@@ -19,8 +23,8 @@ async function resolveVmIp(vmName: string): Promise<string | null> {
   } catch { /* ignore */ }
 
   try {
-    const { stdout } = await execAsync(`virsh -c ${config.libvirtUri} domifaddr "${vmName}" --source arp`);
-    const match = stdout.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
+    const out = await virsh(['domifaddr', vmName, '--source', 'arp']);
+    const match = out.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
     if (match) return match[1];
   } catch { /* VM not running or no ARP entry yet */ }
 
@@ -36,14 +40,21 @@ export async function findHostPrivateKey(): Promise<Buffer | null> {
 }
 
 export function createSshWss(): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+  const wss = new WebSocketServer({
+    noServer: true,
+    perMessageDeflate: false,
+    maxPayload: 1024 * 1024,
+    handleProtocols: pickProtocol,
+  });
 
   wss.on('connection', async (ws, req) => {
     const url = new URL(req.url ?? '', 'http://localhost');
-    const vmName = url.searchParams.get('vm');
-
-    if (!vmName) {
-      ws.close(1008, 'Missing vm parameter');
+    const rawVm = url.searchParams.get('vm');
+    let vmName: string;
+    try {
+      vmName = validateVmName(rawVm);
+    } catch {
+      ws.close(1008, 'Invalid vm parameter');
       return;
     }
 

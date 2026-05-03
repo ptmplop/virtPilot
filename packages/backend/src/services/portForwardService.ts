@@ -1,13 +1,17 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { getNetwork, parseCidr, enumerateUsableIps } from './networkService.js';
-
-const execAsync = promisify(exec);
+import { run, runSafe, virsh } from './safeExec.js';
+import {
+  validateVmName,
+  validateMac,
+  validateIpv4,
+  validatePort,
+  validateProtocol,
+} from '../lib/validate.js';
 
 export interface PortForward {
   id: string;
@@ -65,7 +69,7 @@ function ipToNum(ip: string): number {
 
 async function resolveCurrentVmIp(vmName: string, mac: string): Promise<string | null> {
   try {
-    const { stdout } = await execAsync(`virsh -c qemu:///system domifaddr "${vmName}" --source arp`);
+    const stdout = await virsh(['domifaddr', validateVmName(vmName), '--source', 'arp']);
     for (const line of stdout.split('\n')) {
       if (line.toLowerCase().includes(mac.toLowerCase())) {
         const m = line.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
@@ -77,21 +81,24 @@ async function resolveCurrentVmIp(vmName: string, mac: string): Promise<string |
 }
 
 async function virshNetUpdate(libvirtName: string, op: 'add' | 'delete', xml: string): Promise<void> {
+  // libvirtName is generated server-side as `virtpilot-<uuid8>` but we still
+  // restrict it to the libvirt-allowed character set.
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(libvirtName)) throw new Error('Invalid libvirt network name');
   const tmpFile = path.join(os.tmpdir(), `virtpilot-host-${randomUUID()}.xml`);
   await fs.writeFile(tmpFile, xml, 'utf8');
   try {
     try {
-      await execAsync(`virsh net-update "${libvirtName}" ${op} ip-dhcp-host "${tmpFile}" --live --config`);
+      await virsh(['net-update', libvirtName, op, 'ip-dhcp-host', tmpFile, '--live', '--config']);
     } catch {
-      // Network may not be running — fall back to config-only
-      await execAsync(`virsh net-update "${libvirtName}" ${op} ip-dhcp-host "${tmpFile}" --config`);
+      await virsh(['net-update', libvirtName, op, 'ip-dhcp-host', tmpFile, '--config']);
     }
   } finally {
     await fs.unlink(tmpFile).catch(() => {});
   }
 }
 
-async function ensureReservation(networkId: string, vmName: string, mac: string): Promise<string> {
+async function ensureReservation(networkId: string, vmName: string, macRaw: string): Promise<string> {
+  const mac = validateMac(macRaw);
   const reservations = await readReservations();
   const existing = reservations.find((r) => r.networkId === networkId && r.mac === mac);
   if (existing) return existing.ip;
@@ -102,13 +109,7 @@ async function ensureReservation(networkId: string, vmName: string, mac: string)
   }
 
   const { first } = parseCidr(network.cidr);
-  const dhcpStart = network.gateway === first
-    ? String.fromCharCode(0) // placeholder — recalculate below
-    : first;
-
-  const gatewayNum = ipToNum(network.gateway);
   const firstNum = ipToNum(first);
-  // DHCP range starts just after gateway if gateway == first, else from first
   const dhcpStartNum = network.gateway === first ? firstNum + 1 : firstNum;
 
   const takenIps = new Set([
@@ -116,8 +117,6 @@ async function ensureReservation(networkId: string, vmName: string, mac: string)
     ...reservations.filter((r) => r.networkId === networkId).map((r) => r.ip),
   ]);
 
-  // Prefer the VM's current DHCP-assigned IP so the iptables rule works immediately
-  // without requiring the VM to renew its lease.
   const currentIp = await resolveCurrentVmIp(vmName, mac);
   const available = (currentIp && !takenIps.has(currentIp))
     ? currentIp
@@ -130,7 +129,10 @@ async function ensureReservation(networkId: string, vmName: string, mac: string)
     throw new Error('No free IP addresses available in this NAT network for a DHCP reservation');
   }
 
-  await virshNetUpdate(network.libvirtName, 'add', `<host mac='${mac}' ip='${available}'/>`);
+  // Build the XML using only validated values — no string interpolation of raw
+  // user input.
+  const safeIp = validateIpv4(available);
+  await virshNetUpdate(network.libvirtName, 'add', `<host mac='${mac}' ip='${safeIp}'/>`);
 
   const reservation: DhcpReservation = {
     networkId,
@@ -161,26 +163,55 @@ async function releaseReservationIfUnused(networkId: string, mac: string): Promi
   );
 }
 
-function natRuleCmd(fwd: PortForward, op: '-A' | '-D' | '-C'): string {
-  return `iptables -t nat ${op} PREROUTING -p ${fwd.protocol} --dport ${fwd.hostPort} -j DNAT --to-destination ${fwd.vmIp}:${fwd.vmPort} -m comment --comment virtpilot-${fwd.id}`;
+function natRuleArgs(fwd: PortForward, op: '-A' | '-D' | '-C'): string[] {
+  // All values were validated when the forward was created and persisted, but
+  // re-validate at every shell boundary so a tampered JSON file can't smuggle
+  // shell metacharacters back in.
+  const proto = validateProtocol(fwd.protocol);
+  if (proto !== 'tcp' && proto !== 'udp') throw new Error('Only tcp/udp supported');
+  const hostPort = validatePort(fwd.hostPort);
+  const vmPort = validatePort(fwd.vmPort);
+  const vmIp = validateIpv4(fwd.vmIp);
+  if (!/^[A-Za-z0-9._-]+$/.test(fwd.id)) throw new Error('Invalid forward id');
+  return [
+    '-t', 'nat',
+    op, 'PREROUTING',
+    '-p', proto,
+    '--dport', String(hostPort),
+    '-j', 'DNAT',
+    '--to-destination', `${vmIp}:${vmPort}`,
+    '-m', 'comment', '--comment', `virtpilot-${fwd.id}`,
+  ];
 }
 
-function forwardRuleCmd(fwd: PortForward, op: '-A' | '-D' | '-C'): string {
-  return `iptables ${op} FORWARD -d ${fwd.vmIp} -p ${fwd.protocol} --dport ${fwd.vmPort} -j ACCEPT -m comment --comment virtpilot-${fwd.id}`;
+function forwardRuleArgs(fwd: PortForward, op: '-A' | '-D' | '-C'): string[] {
+  const proto = validateProtocol(fwd.protocol);
+  if (proto !== 'tcp' && proto !== 'udp') throw new Error('Only tcp/udp supported');
+  const vmPort = validatePort(fwd.vmPort);
+  const vmIp = validateIpv4(fwd.vmIp);
+  if (!/^[A-Za-z0-9._-]+$/.test(fwd.id)) throw new Error('Invalid forward id');
+  return [
+    op, 'FORWARD',
+    '-d', vmIp,
+    '-p', proto,
+    '--dport', String(vmPort),
+    '-j', 'ACCEPT',
+    '-m', 'comment', '--comment', `virtpilot-${fwd.id}`,
+  ];
 }
 
 async function addIptablesRules(fwd: PortForward): Promise<void> {
   const [natExists, fwdExists] = await Promise.all([
-    execAsync(natRuleCmd(fwd, '-C')).then(() => true).catch(() => false),
-    execAsync(forwardRuleCmd(fwd, '-C')).then(() => true).catch(() => false),
+    runSafe('iptables', natRuleArgs(fwd, '-C')).then((r) => r !== null),
+    runSafe('iptables', forwardRuleArgs(fwd, '-C')).then((r) => r !== null),
   ]);
-  if (!natExists) await execAsync(natRuleCmd(fwd, '-A'));
-  if (!fwdExists) await execAsync(forwardRuleCmd(fwd, '-A'));
+  if (!natExists) await run('iptables', natRuleArgs(fwd, '-A'));
+  if (!fwdExists) await run('iptables', forwardRuleArgs(fwd, '-A'));
 }
 
 async function removeIptablesRules(fwd: PortForward): Promise<void> {
-  await execAsync(natRuleCmd(fwd, '-D')).catch(() => {});
-  await execAsync(forwardRuleCmd(fwd, '-D')).catch(() => {});
+  await runSafe('iptables', natRuleArgs(fwd, '-D'));
+  await runSafe('iptables', forwardRuleArgs(fwd, '-D'));
 }
 
 export async function listPortForwards(networkId?: string): Promise<PortForward[]> {
@@ -202,26 +233,30 @@ export async function createPortForward(opts: {
   vmPort: number;
   description?: string;
 }): Promise<PortForward> {
-  if (opts.hostPort < 1 || opts.hostPort > 65535) throw new Error('Host port must be between 1 and 65535');
-  if (opts.vmPort < 1 || opts.vmPort > 65535) throw new Error('VM port must be between 1 and 65535');
+  const vmName = validateVmName(opts.vmName);
+  const mac = validateMac(opts.mac);
+  const protocol = validateProtocol(opts.protocol);
+  if (protocol !== 'tcp' && protocol !== 'udp') throw new Error('Only tcp/udp supported');
+  const hostPort = validatePort(opts.hostPort);
+  const vmPort = validatePort(opts.vmPort);
 
   const forwards = await readForwards();
-  const conflict = forwards.find((f) => f.hostPort === opts.hostPort && f.protocol === opts.protocol);
+  const conflict = forwards.find((f) => f.hostPort === hostPort && f.protocol === protocol);
   if (conflict) {
-    throw new Error(`Host port ${opts.hostPort}/${opts.protocol} is already forwarded to VM "${conflict.vmName}"`);
+    throw new Error(`Host port ${hostPort}/${protocol} is already forwarded to VM "${conflict.vmName}"`);
   }
 
-  const vmIp = await ensureReservation(opts.networkId, opts.vmName, opts.mac);
+  const vmIp = await ensureReservation(opts.networkId, vmName, mac);
 
   const forward: PortForward = {
     id: randomUUID(),
     networkId: opts.networkId,
-    vmName: opts.vmName,
-    mac: opts.mac,
+    vmName,
+    mac,
     vmIp,
-    protocol: opts.protocol,
-    hostPort: opts.hostPort,
-    vmPort: opts.vmPort,
+    protocol,
+    hostPort,
+    vmPort,
     description: opts.description,
     createdAt: new Date().toISOString(),
   };
@@ -249,7 +284,6 @@ export async function deletePortForwardsForVm(vmName: string): Promise<void> {
   }
   const remaining = forwards.filter((f) => f.vmName !== vmName);
   await writeForwards(remaining);
-  // Clean up DHCP reservations for all removed forwards
   for (const fwd of mine) {
     await releaseReservationIfUnused(fwd.networkId, fwd.mac);
   }

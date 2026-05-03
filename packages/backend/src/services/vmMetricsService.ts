@@ -1,10 +1,7 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import type { Statement } from 'better-sqlite3';
-import { config } from '../config.js';
 import { getDb } from './db.js';
-
-const execAsync = promisify(exec);
+import { virsh } from './safeExec.js';
+import { validateVmName } from '../lib/validate.js';
 
 const SAMPLE_INTERVAL_MS = 30_000;
 const RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -43,19 +40,14 @@ function parseDomStats(out: string): Map<string, number> {
 }
 
 async function listRunningVmNames(): Promise<string[]> {
-  const { stdout } = await execAsync(
-    `virsh -c ${config.libvirtUri} list --state-running --name`,
-    { timeout: 10_000 },
-  );
+  const stdout = await virsh(['list', '--state-running', '--name'], { timeout: 10_000 });
   return stdout.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
 async function sampleVm(vmName: string): Promise<VmMetricsPoint | null> {
   try {
-    const { stdout } = await execAsync(
-      `virsh -c ${config.libvirtUri} domstats ${vmName}`,
-      { timeout: 10_000 },
-    );
+    const safeName = validateVmName(vmName);
+    const stdout = await virsh(['domstats', safeName], { timeout: 10_000 });
     const s = parseDomStats(stdout);
     const get = (k: string) => s.get(k) ?? 0;
 

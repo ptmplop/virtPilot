@@ -39,6 +39,7 @@ import {
 import { useSettings } from '@/hooks/useSettings';
 import { useVms } from '@/hooks/useVms';
 import { cn } from '@/lib/cn';
+import { streamSse } from '@/lib/sseStream';
 
 // ─── Formatters ────────────────────────────────────────────────────────────────
 
@@ -698,28 +699,26 @@ function UpgradeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
 
   useEffect(() => {
     const token = localStorage.getItem('virtpilotToken') ?? '';
-    const es = new EventSource(`/api/system/apt/upgrade?token=${encodeURIComponent(token)}`);
-
-    es.onmessage = (e) => {
-      const msg = JSON.parse(e.data) as { type: string; text: string };
-      if (msg.type === 'done') {
-        const code = parseInt(msg.text, 10);
-        setExitCode(code);
+    const handle = streamSse(
+      '/api/system/apt/upgrade',
+      token,
+      (msg) => {
+        if (msg.type === 'done') {
+          const code = parseInt(msg.text, 10);
+          setExitCode(code);
+          setDone(true);
+          handle.close();
+          if (code === 0) onDone();
+        } else {
+          setLines((prev) => [...prev, { type: msg.type === 'err' ? 'err' : 'out', text: msg.text }]);
+        }
+      },
+      () => {
+        setLines((prev) => [...prev, { type: 'err', text: '\nConnection lost.\n' }]);
         setDone(true);
-        es.close();
-        if (code === 0) onDone();
-      } else {
-        setLines((prev) => [...prev, { type: msg.type === 'err' ? 'err' : 'out', text: msg.text }]);
-      }
-    };
-
-    es.onerror = () => {
-      setLines((prev) => [...prev, { type: 'err', text: '\nConnection lost.\n' }]);
-      setDone(true);
-      es.close();
-    };
-
-    return () => es.close();
+      },
+    );
+    return () => handle.close();
   }, []);
 
   useEffect(() => {
@@ -928,29 +927,27 @@ function VirtPilotUpgradeModal({
 
   useEffect(() => {
     const token = localStorage.getItem('virtpilotToken') ?? '';
-    const es = new EventSource(`/api/system/upgrade?token=${encodeURIComponent(token)}`);
-
-    es.onmessage = (e) => {
-      const msg = JSON.parse(e.data) as { type: string; text: string };
-      if (msg.type === 'done') {
-        const code = parseInt(msg.text, 10);
-        setExitCode(code);
-        setPhase(code === 0 ? 'restarting' : 'done-fail');
-        es.close();
-      } else {
-        setLines((prev) => [...prev, { type: msg.type === 'err' ? 'err' : msg.type === 'meta' ? 'meta' : 'out', text: msg.text }]);
-      }
-    };
-
-    es.onerror = () => {
-      // Connection dropped — likely because the backend just restarted.
-      // Switch to "restarting" phase and let the version-poll loop confirm.
-      setLines((prev) => [...prev, { type: 'meta', text: '\nBackend restarted. Waiting for new version…\n' }]);
-      setPhase('restarting');
-      es.close();
-    };
-
-    return () => es.close();
+    const handle = streamSse(
+      '/api/system/upgrade',
+      token,
+      (msg) => {
+        if (msg.type === 'done') {
+          const code = parseInt(msg.text, 10);
+          setExitCode(code);
+          setPhase(code === 0 ? 'restarting' : 'done-fail');
+          handle.close();
+        } else {
+          setLines((prev) => [...prev, { type: msg.type === 'err' ? 'err' : msg.type === 'meta' ? 'meta' : 'out', text: msg.text }]);
+        }
+      },
+      () => {
+        // Connection dropped — likely because the backend just restarted.
+        // Switch to "restarting" phase and let the version-poll loop confirm.
+        setLines((prev) => [...prev, { type: 'meta', text: '\nBackend restarted. Waiting for new version…\n' }]);
+        setPhase('restarting');
+      },
+    );
+    return () => handle.close();
   }, []);
 
   // Once we believe the upgrade has finished, poll /api/system/version until

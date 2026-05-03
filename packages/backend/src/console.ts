@@ -1,16 +1,36 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import * as pty from 'node-pty';
 import { config } from './config.js';
+import { validateVmName } from './lib/validate.js';
+
+// Pick the token-bearing subprotocol so the ws library echoes it back in the
+// 101 Switching Protocols response. Without this the browser tears the
+// connection down with "subprotocol not accepted".
+function pickProtocol(protocols: Set<string>): string | false {
+  for (const p of protocols) {
+    if (p.startsWith('virtpilot.token.')) return p;
+  }
+  return false;
+}
 
 export function createConsoleWss(): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+  const wss = new WebSocketServer({
+    noServer: true,
+    perMessageDeflate: false,
+    // Cap to ~1 MB per message — terminal input is tiny, so this just defends
+    // against memory exhaustion from a malicious client.
+    maxPayload: 1024 * 1024,
+    handleProtocols: pickProtocol,
+  });
 
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url ?? '', 'http://localhost');
-    const vmName = url.searchParams.get('vm');
-
-    if (!vmName) {
-      ws.close(1008, 'Missing vm parameter');
+    const rawVm = url.searchParams.get('vm');
+    let vmName: string;
+    try {
+      vmName = validateVmName(rawVm);
+    } catch {
+      ws.close(1008, 'Invalid vm parameter');
       return;
     }
 

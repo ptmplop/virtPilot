@@ -74,9 +74,12 @@ mkdir -p "${TLS_DIR}"
 chmod 700 "${TLS_DIR}"
 
 if [[ ! -f "${TLS_DIR}/cert.pem" || ! -f "${TLS_DIR}/key.pem" ]]; then
-  HOST_NAME="$(hostname)"
+  HOST_NAME="$(hostname -f 2>/dev/null || hostname)"
   PRIMARY_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
   PRIMARY_IP="${PRIMARY_IP:-127.0.0.1}"
+  if [[ -z "${HOST_NAME}" || "${HOST_NAME}" == "test" ]]; then
+    HOST_NAME="${PRIMARY_IP}"
+  fi
   info "Generating self-signed TLS certificate (10 year validity, CN=${HOST_NAME})..."
   openssl req -x509 -nodes -newkey rsa:2048 \
     -keyout "${TLS_DIR}/key.pem" \
@@ -89,14 +92,50 @@ if [[ ! -f "${TLS_DIR}/cert.pem" || ! -f "${TLS_DIR}/key.pem" ]]; then
   chmod 644 "${TLS_DIR}/cert.pem"
   log "TLS certificate generated at ${TLS_DIR}/"
 fi
+# If nginx is fronting the backend, the cert needs to be group-readable by www-data.
+if [[ -e /etc/nginx/sites-enabled/virtpilot ]]; then
+  chgrp www-data "${TLS_DIR}/key.pem" 2>/dev/null || true
+  chmod 640 "${TLS_DIR}/key.pem"
+fi
+
+# ─── .env compat shim for installs that pre-date the v1.21 hardening ─────────
+# Older .env files don't have BIND_ADDRESS at all. The new backend defaults to
+# 127.0.0.1, which would silently make the dashboard unreachable on a public
+# IP after upgrade. Detect the pre-1.21 layout and add the right defaults so
+# the operator's existing access stays intact.
+ENV_FILE="${INSTALL_DIR}/packages/backend/.env"
+if [[ -f "${ENV_FILE}" ]] && ! grep -q '^BIND_ADDRESS=' "${ENV_FILE}"; then
+  if [[ -e /etc/nginx/sites-enabled/virtpilot ]]; then
+    info "Existing nginx site detected — pinning backend to 127.0.0.1:3002 plain HTTP"
+    echo "BIND_ADDRESS=127.0.0.1" >> "${ENV_FILE}"
+    sed -i 's|^PORT=.*|PORT=3002|' "${ENV_FILE}"
+    sed -i 's|^TLS_CERT_PATH=.*|TLS_CERT_PATH=|' "${ENV_FILE}"
+    sed -i 's|^TLS_KEY_PATH=.*|TLS_KEY_PATH=|' "${ENV_FILE}"
+    grep -q '^TLS_CERT_PATH=' "${ENV_FILE}" || echo "TLS_CERT_PATH=" >> "${ENV_FILE}"
+    grep -q '^TLS_KEY_PATH=' "${ENV_FILE}" || echo "TLS_KEY_PATH=" >> "${ENV_FILE}"
+  else
+    info "Preserving existing 0.0.0.0:3001 binding (no nginx detected)"
+    echo "BIND_ADDRESS=0.0.0.0" >> "${ENV_FILE}"
+  fi
+fi
 
 # ─── Dependencies ─────────────────────────────────────────────────────────────
-info "Installing npm dependencies..."
-npm install --no-fund --no-audit
+# Run npm as the service user so installed packages match the runtime owner.
+# Use `npm ci` when a lockfile is present so the lockfile is treated as
+# authoritative — refuses to install if package.json drifts from the lock.
+SERVICE_USER="${SERVICE_USER:-virtpilot}"
+info "Installing npm dependencies (as ${SERVICE_USER})..."
+if [[ -f package-lock.json ]]; then
+  sudo -u "${SERVICE_USER}" npm ci --no-fund --no-audit
+else
+  sudo -u "${SERVICE_USER}" npm install --no-fund --no-audit
+fi
+# Re-fix ownership in case anything was created as root.
+chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}/node_modules" "${INSTALL_DIR}/packages" 2>/dev/null || true
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 info "Building VirtPilot..."
-npm run build 2>&1
+sudo -u "${SERVICE_USER}" npm run build 2>&1
 log "Build complete"
 
 # ─── Restart service ──────────────────────────────────────────────────────────

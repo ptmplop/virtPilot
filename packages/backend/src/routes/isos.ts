@@ -11,6 +11,8 @@ import * as tar from 'tar';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import * as storageService from '../services/storageService.js';
+import { assertSafeDownloadUrl } from '../lib/safeUrl.js';
+import { validateFilename } from '../lib/validate.js';
 
 export const isosRouter = Router();
 
@@ -36,19 +38,32 @@ function isGzip(magic: Buffer): boolean {
   return magic.length >= 2 && magic[0] === GZIP_MAGIC[0] && magic[1] === GZIP_MAGIC[1];
 }
 
-// Strip archive extensions and ensure the result ends with .iso.
+// Strip archive extensions and ensure the result ends with .iso. Always runs
+// path.basename() first so an attacker-supplied "originalname" containing
+// path separators ("../../etc/cron.d/x") collapses to a leaf name before we
+// build a destination path.
 // foo.iso.gz → foo.iso, foo.iso.tar.gz → foo.iso, foo.tar.gz → foo.iso, foo.gz → foo.iso
 function deriveIsoFilename(originalName: string): string {
-  let name = originalName;
+  let name = path.basename(originalName);
   const lower = name.toLowerCase();
   if (lower.endsWith('.tar.gz')) name = name.slice(0, -'.tar.gz'.length);
   else if (lower.endsWith('.tgz')) name = name.slice(0, -'.tgz'.length);
   else if (lower.endsWith('.gz')) name = name.slice(0, -'.gz'.length);
   if (!name.toLowerCase().endsWith('.iso')) name += '.iso';
+  // Reject anything that still contains a path separator after stripping,
+  // a control char, or is the empty string.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.iso$/i.test(name)) {
+    throw new Error('Invalid ISO filename');
+  }
   return name;
 }
 
 // Extract the first .iso entry from a gzipped tar into destPath.
+// Zip-slip defence: tar entry paths can contain `../` and absolute paths.
+// The destination is fixed (destPath) regardless of the entry's stored path,
+// but we still reject entries whose normalised path escapes a single name
+// component so a malicious archive can't trick the loop into creating
+// auxiliary files outside isosDir via symlinks or hardlinks.
 async function extractIsoFromTarGz(srcPath: string, destPath: string): Promise<void> {
   let extracted = false;
   let writeDone: Promise<void> = Promise.resolve();
@@ -57,10 +72,17 @@ async function extractIsoFromTarGz(srcPath: string, destPath: string): Promise<v
     file: srcPath,
     onentry: (entry) => {
       if (extracted) { entry.resume(); return; }
-      if (entry.type !== 'File' || !entry.path.toLowerCase().endsWith('.iso')) {
+      // Reject anything that's not a regular file (Symlinks/Links/Dirs/etc.
+      // can be used to escape the destination tree).
+      if (entry.type !== 'File') { entry.resume(); return; }
+      // Reject absolute paths and parent-references in the entry path.
+      const entryPath = entry.path ?? '';
+      const norm = path.posix.normalize(entryPath);
+      if (norm.startsWith('/') || norm.startsWith('..') || norm.includes('/../')) {
         entry.resume();
         return;
       }
+      if (!norm.toLowerCase().endsWith('.iso')) { entry.resume(); return; }
       extracted = true;
       const ws = fs.createWriteStream(destPath);
       writeDone = new Promise((resolve, reject) => {
@@ -77,8 +99,10 @@ async function extractIsoFromTarGz(srcPath: string, destPath: string): Promise<v
 }
 
 // Detect format and write to a `.iso` file in isosDir. Returns the final filename.
-// Removes the source temp file once finished.
-async function processUploadedFile(srcPath: string, originalName: string): Promise<string> {
+// Removes the source temp file once finished. originalName is treated as
+// untrusted: we only ever use its leaf-name and re-validate the result.
+async function processUploadedFile(srcPath: string, originalNameRaw: string): Promise<string> {
+  const originalName = path.basename(originalNameRaw);
   const lower = originalName.toLowerCase();
   const magic = await readMagic(srcPath);
   const looksGzipped = isGzip(magic);
@@ -118,6 +142,9 @@ async function processUploadedFile(srcPath: string, originalName: string): Promi
 
   // Plain ISO — keep as-is. Force .iso extension so listing picks it up.
   const destName = lower.endsWith('.iso') ? originalName : `${originalName}.iso`;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.iso$/i.test(destName)) {
+    throw new Error('Invalid ISO filename');
+  }
   const destPath = path.join(config.isosDir, destName);
   await fsp.rename(srcPath, destPath);
   return destName;
@@ -146,6 +173,7 @@ function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<voi
     let activeReq: http.ClientRequest | null = null;
     let activeFile: fs.WriteStream | null = null;
     let cancelled = false;
+    let redirectsLeft = 5;
 
     job.abort = () => {
       cancelled = true;
@@ -155,11 +183,21 @@ function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<voi
 
     const attempt = (attemptUrl: string) => {
       if (cancelled) { reject(new Error('cancelled')); return; }
-      const client = attemptUrl.startsWith('https') ? https : http;
-      activeReq = client.get(attemptUrl, (res) => {
+      let safeUrl: URL;
+      try {
+        safeUrl = assertSafeDownloadUrl(attemptUrl);
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      const client = safeUrl.protocol === 'https:' ? https : http;
+      activeReq = client.get(safeUrl.toString(), (res) => {
         if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
           res.resume();
-          attempt(res.headers.location);
+          if (redirectsLeft-- <= 0) { reject(new Error('Too many redirects')); return; }
+          // Re-validate the redirect target — defends against an upstream that
+          // 302s us to http://169.254.169.254/ etc.
+          attempt(new URL(res.headers.location, safeUrl).toString());
           return;
         }
         if (res.statusCode !== 200) {
@@ -283,9 +321,10 @@ isosRouter.delete('/download/:jobId', (req, res) => {
 
 isosRouter.patch('/:filename', async (req, res) => {
   try {
+    const filename = validateFilename(req.params.filename);
     const { name } = req.body as { name?: string };
     if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
-    await storageService.setIsoDisplayName(req.params.filename, name.trim());
+    await storageService.setIsoDisplayName(filename, name.trim());
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
@@ -294,7 +333,8 @@ isosRouter.patch('/:filename', async (req, res) => {
 
 isosRouter.delete('/:filename', async (req, res) => {
   try {
-    await storageService.deleteIso(req.params.filename);
+    const filename = validateFilename(req.params.filename);
+    await storageService.deleteIso(filename);
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });

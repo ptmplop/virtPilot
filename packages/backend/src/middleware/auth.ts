@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { getUserSettings } from '../services/userSettingsService.js';
+import { isRevoked } from '../lib/tokenStore.js';
 
 export function isIpAllowed(clientIp: string | undefined, whitelist: string[]): boolean {
   if (whitelist.length === 0) return true;
@@ -32,19 +33,36 @@ function ipInCidr(ip: string, cidr: string): boolean {
   return (ipNum & mask) === (rangeNum & mask);
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+// Extract a bearer token from Authorization header. Query-string fallback was
+// removed: tokens leak into proxy/CDN/journal logs and stick around in browser
+// history. WebSocket auth uses Sec-WebSocket-Protocol instead (see index.ts).
+function extractBearer(req: Request): string | null {
   const header = req.headers['authorization'];
-  const headerToken = header?.startsWith('Bearer ') ? header.slice(7) : null;
-  const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
-  const token = headerToken ?? queryToken;
+  if (header?.startsWith('Bearer ')) return header.slice(7);
+  return null;
+}
+
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const token = extractBearer(req);
   if (!token) {
     res.status(401).json({ error: 'Unauthorised' });
     return;
   }
+  if (isRevoked(token)) {
+    res.status(401).json({ error: 'Token revoked' });
+    return;
+  }
+  let payload: jwt.JwtPayload;
   try {
-    jwt.verify(token, config.jwtSecret);
+    payload = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload;
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
+    return;
+  }
+  // Pending-2FA tokens are short-lived and only valid for /verify-totp; reject
+  // them everywhere else even though they're signature-valid.
+  if (payload.pending2fa) {
+    res.status(401).json({ error: 'Two-factor verification required' });
     return;
   }
   const { ipWhitelist } = await getUserSettings();
@@ -57,8 +75,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
 export function verifyWsToken(token: string | null): boolean {
   if (!token) return false;
+  if (isRevoked(token)) return false;
   try {
-    jwt.verify(token, config.jwtSecret);
+    const payload = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload;
+    if (payload.pending2fa) return false;
     return true;
   } catch {
     return false;

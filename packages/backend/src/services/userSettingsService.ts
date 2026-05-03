@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { config } from '../config.js';
+import { encryptSecret, decryptSecret } from '../lib/secretsCrypto.js';
 
 export interface BackupSettings {
   retentionDays: number;
@@ -30,7 +31,12 @@ const settingsFile = () => path.join(config.storageRoot, 'user-settings.json');
 export async function getUserSettings(): Promise<UserSettings> {
   try {
     const raw = await fs.readFile(settingsFile(), 'utf8');
-    return { ...DEFAULT, ...(JSON.parse(raw) as Partial<UserSettings>) };
+    const parsed = JSON.parse(raw) as Partial<UserSettings>;
+    // Decrypt at-rest secrets transparently. Legacy plaintext values pass
+    // through unchanged so existing installs keep working.
+    if (parsed.totpSecret) parsed.totpSecret = decryptSecret(parsed.totpSecret);
+    if (parsed.totpPendingSecret) parsed.totpPendingSecret = decryptSecret(parsed.totpPendingSecret);
+    return { ...DEFAULT, ...parsed };
   } catch {
     return { ...DEFAULT };
   }
@@ -54,7 +60,15 @@ export async function saveUserSettings(updates: Partial<UserSettings>): Promise<
   if (merged.maxLogs > 10_000) merged.maxLogs = 10_000;
   if (!Array.isArray(merged.ipWhitelist)) merged.ipWhitelist = [];
   merged.ipWhitelist = merged.ipWhitelist.map(s => s.trim()).filter(isValidIpEntry);
-  await fs.writeFile(settingsFile(), JSON.stringify(merged, null, 2), 'utf8');
+
+  // Encrypt secrets *just before* writing — keep `merged` in plaintext for
+  // the return value so the caller's view is unchanged.
+  const onDisk = {
+    ...merged,
+    totpSecret: encryptSecret(merged.totpSecret),
+    totpPendingSecret: encryptSecret(merged.totpPendingSecret),
+  };
+  await fs.writeFile(settingsFile(), JSON.stringify(onDisk, null, 2), { encoding: 'utf8', mode: 0o600 });
   return merged;
 }
 

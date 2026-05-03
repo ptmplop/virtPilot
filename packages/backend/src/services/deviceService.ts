@@ -1,22 +1,22 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { config } from '../config.js';
 import type { HostDevice } from '../types.js';
-import { type TraceEntry, execTraced } from './traceService.js';
+import { type TraceEntry } from './traceService.js';
+import { virsh as safeVirsh } from './safeExec.js';
 import { listVmsRaw } from './vmService.js';
+import { validateVmName } from '../lib/validate.js';
 
-const execAsync = promisify(exec);
+async function virsh(args: readonly string[], trace?: TraceEntry[], timeout = 60_000): Promise<string> {
+  return safeVirsh(args, { timeout, trace });
+}
 
-async function virsh(args: string, trace?: TraceEntry[], timeout = 60_000): Promise<string> {
-  const cmd = `virsh -c ${config.libvirtUri} ${args}`;
-  if (!trace) {
-    const { stdout } = await execAsync(cmd, { timeout });
-    return stdout.trim();
-  }
-  return execTraced(cmd, trace, { timeout });
+// nodedev names are returned by libvirt itself (pci_0000_01_00_0,
+// usb_001_002, etc) — alphanumeric + underscore only. Validate before
+// passing back into argv.
+function validateNodedevName(s: string): string {
+  if (!/^[a-zA-Z0-9_]{1,128}$/.test(s)) throw new Error('Invalid nodedev name');
+  return s;
 }
 
 // ─── XML parsers ──────────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ async function buildAssignmentMap(): Promise<Map<string, string>> {
     vms.map(async ({ name }) => {
       let xml: string;
       try {
-        xml = await virsh(`dumpxml ${name}`);
+        xml = await virsh(['dumpxml', validateVmName(name)]);
       } catch {
         return;
       }
@@ -170,18 +170,18 @@ async function buildAssignmentMap(): Promise<Map<string, string>> {
 
 export async function listHostDevices(): Promise<HostDevice[]> {
   const [pciNames, usbNames, assignmentMap] = await Promise.all([
-    virsh('nodedev-list --cap pci')
+    virsh(['nodedev-list', '--cap', 'pci'])
       .then((o) => o.split('\n').filter(Boolean))
       .catch(() => [] as string[]),
-    virsh('nodedev-list --cap usb_device')
+    virsh(['nodedev-list', '--cap', 'usb_device'])
       .then((o) => o.split('\n').filter(Boolean))
       .catch(() => [] as string[]),
     buildAssignmentMap(),
   ]);
 
   const [pciResults, usbResults] = await Promise.all([
-    Promise.allSettled(pciNames.map((n) => virsh(`nodedev-dumpxml ${n}`).then(parsePciXml))),
-    Promise.allSettled(usbNames.map((n) => virsh(`nodedev-dumpxml ${n}`).then(parseUsbXml))),
+    Promise.allSettled(pciNames.map((n) => virsh(['nodedev-dumpxml', validateNodedevName(n)]).then(parsePciXml))),
+    Promise.allSettled(usbNames.map((n) => virsh(['nodedev-dumpxml', validateNodedevName(n)]).then(parseUsbXml))),
   ]);
 
   const devices: HostDevice[] = [];
@@ -238,11 +238,12 @@ export async function attachDevice(vmName: string, deviceId: string, trace?: Tra
     throw new Error(`Device is already assigned to VM '${device.assignedTo}'`);
   }
 
+  const safeVmName = validateVmName(vmName);
   const xml = device.type === 'pci' ? buildPciHostdevXml(device) : buildUsbHostdevXml(device);
   const tmpFile = path.join(os.tmpdir(), `vp-device-${Date.now()}.xml`);
   try {
     await fs.writeFile(tmpFile, xml, 'utf-8');
-    await virsh(`attach-device ${vmName} ${tmpFile} --persistent`, trace);
+    await virsh(['attach-device', safeVmName, tmpFile, '--persistent'], trace);
   } finally {
     await fs.unlink(tmpFile).catch(() => {});
   }
@@ -253,11 +254,12 @@ export async function detachDevice(vmName: string, deviceId: string, trace?: Tra
   const device = all.find((d) => d.id === deviceId);
   if (!device) throw new Error(`Device '${deviceId}' not found on this host`);
 
+  const safeVmName = validateVmName(vmName);
   const xml = device.type === 'pci' ? buildPciHostdevXml(device) : buildUsbHostdevXml(device);
   const tmpFile = path.join(os.tmpdir(), `vp-device-${Date.now()}.xml`);
   try {
     await fs.writeFile(tmpFile, xml, 'utf-8');
-    await virsh(`detach-device ${vmName} ${tmpFile} --persistent`, trace);
+    await virsh(['detach-device', safeVmName, tmpFile, '--persistent'], trace);
   } finally {
     await fs.unlink(tmpFile).catch(() => {});
   }

@@ -1,23 +1,25 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { config } from '../config.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
-import { type TraceEntry, formatTrace, execTraced } from './traceService.js';
-
-const execAsync = promisify(exec);
+import { type TraceEntry, formatTrace } from './traceService.js';
+import { run, virsh as safeVirsh } from './safeExec.js';
+import {
+  validateVmName,
+  validateSnapshotName,
+  validateBridgeName,
+  validateMac,
+  validateDiskTarget,
+  validateNonNegativeInt,
+} from '../lib/validate.js';
 
 // ─── Internal virsh helper ────────────────────────────────────────────────────
 
-async function virsh(args: string, trace?: TraceEntry[], timeout = 30_000): Promise<string> {
-  const cmd = `virsh -c ${config.libvirtUri} ${args}`;
-  if (!trace) {
-    const { stdout } = await execAsync(cmd, { timeout });
-    return stdout.trim();
-  }
-  return execTraced(cmd, trace, { timeout });
+// Thin wrapper over safeExec.virsh that records the invocation in `trace`
+// when one is supplied.
+async function virsh(args: readonly string[], trace?: TraceEntry[], timeout = 30_000): Promise<string> {
+  return safeVirsh(args, { timeout, trace });
 }
 
 // ─── Parsers ──────────────────────────────────────────────────────────────────
@@ -34,7 +36,7 @@ function parseStatus(state: string): VmStatus {
 // ─── Read-only queries ────────────────────────────────────────────────────────
 
 export async function listVms(): Promise<VmSummary[]> {
-  const out = await virsh('list --all --uuid');
+  const out = await virsh(['list', '--all', '--uuid']);
   const lines = out.split('\n').filter(Boolean);
   const vms: VmSummary[] = [];
 
@@ -54,7 +56,7 @@ export async function listVms(): Promise<VmSummary[]> {
 }
 
 export async function listVmsRaw(): Promise<VmSummary[]> {
-  const out = await virsh('list --all');
+  const out = await virsh(['list', '--all']);
   const lines = out.split('\n').slice(2).filter(Boolean);
   const vms: VmSummary[] = [];
 
@@ -91,7 +93,8 @@ export async function listVmsRaw(): Promise<VmSummary[]> {
 }
 
 export async function getVmInfo(nameOrId: string): Promise<Vm> {
-  const info = await virsh(`dominfo ${nameOrId}`);
+  const name = validateVmName(nameOrId);
+  const info = await virsh(['dominfo', name]);
   const lines = info.split('\n');
 
   const get = (key: string): string => {
@@ -100,18 +103,18 @@ export async function getVmInfo(nameOrId: string): Promise<Vm> {
   };
 
   const id = get('UUID');
-  const name = get('Name');
+  const vmName = get('Name');
   const stateStr = get('State');
   const cpus = parseInt(get('CPU(s)') || '0', 10);
   const memKb = parseInt(get('Used memory').replace(/[^0-9]/g, '') || '0', 10);
   const memoryMb = Math.round(memKb / 1024);
   const autostart = get('Autostart').toLowerCase() === 'enable';
 
-  const disks = await getVmDisks(nameOrId);
-  const nics = await getVmNics(nameOrId);
+  const disks = await getVmDisks(name);
+  const nics = await getVmNics(name);
 
   try {
-    const xml = await getVmXml(nameOrId);
+    const xml = await getVmXml(name);
     const bootMap = parseBootOrderFromXml(xml);
     for (const disk of disks) {
       disk.bootOrder = bootMap.get(disk.target);
@@ -123,7 +126,7 @@ export async function getVmInfo(nameOrId: string): Promise<Vm> {
   let vncDisplay: string | undefined;
   let vncPort: number | undefined;
   try {
-    const vnc = await virsh(`vncdisplay ${nameOrId}`);
+    const vnc = await virsh(['vncdisplay', name]);
     vncDisplay = vnc.trim();
     const portMatch = vncDisplay.match(/:(\d+)/);
     if (portMatch) vncPort = 5900 + parseInt(portMatch[1], 10);
@@ -132,14 +135,15 @@ export async function getVmInfo(nameOrId: string): Promise<Vm> {
   }
 
   const status = parseStatus(stateStr);
-  const guestAgent = status === 'running' ? await checkGuestAgent(nameOrId) : undefined;
+  const guestAgent = status === 'running' ? await checkGuestAgent(name) : undefined;
 
-  return { id, name, status, cpus, memoryMb, disks, nics, vncDisplay, vncPort, guestAgent, autostart };
+  return { id, name: vmName, status, cpus, memoryMb, disks, nics, vncDisplay, vncPort, guestAgent, autostart };
 }
 
 export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
+  const name = validateVmName(nameOrId);
   try {
-    const out = await virsh(`domblklist ${nameOrId} --details`);
+    const out = await virsh(['domblklist', name, '--details']);
     const lines = out.split('\n').slice(2).filter(Boolean);
     const disks: VmDisk[] = [];
     for (const line of lines) {
@@ -152,11 +156,10 @@ export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
       disks.push({ target, source, type, bus });
     }
 
-    // Fetch capacity for each disk in parallel via domblkinfo
     await Promise.all(
       disks.map(async (disk) => {
         try {
-          const info = await virsh(`domblkinfo ${nameOrId} ${disk.target}`);
+          const info = await virsh(['domblkinfo', name, disk.target]);
           const m = info.match(/Capacity:\s+(\d+)/);
           if (m) {
             const bytes = parseInt(m[1], 10);
@@ -173,8 +176,9 @@ export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
 }
 
 export async function getVmNics(nameOrId: string): Promise<VmNic[]> {
+  const name = validateVmName(nameOrId);
   try {
-    const out = await virsh(`domiflist ${nameOrId}`);
+    const out = await virsh(['domiflist', name]);
     const lines = out.split('\n').slice(2).filter(Boolean);
     const nics: VmNic[] = [];
     for (const line of lines) {
@@ -187,9 +191,8 @@ export async function getVmNics(nameOrId: string): Promise<VmNic[]> {
       nics.push({ mac, source, model, target });
     }
 
-    // Pull <bandwidth> from the inactive XML so values are correct whether the VM is running or stopped.
     try {
-      const xml = await virsh(`dumpxml ${nameOrId} --inactive`);
+      const xml = await virsh(['dumpxml', name, '--inactive']);
       const bandwidthByMac = parseNicBandwidthFromXml(xml);
       for (const nic of nics) {
         const bw = bandwidthByMac.get(nic.mac.toLowerCase());
@@ -231,9 +234,10 @@ function parseNicBandwidthFromXml(xml: string): Map<string, { inboundKbps?: numb
 }
 
 export async function getVmInterfaceIps(nameOrId: string): Promise<Record<string, string>> {
+  const name = validateVmName(nameOrId);
   for (const source of ['agent', 'arp'] as const) {
     try {
-      const out = await virsh(`domifaddr ${nameOrId} --source ${source}`);
+      const out = await virsh(['domifaddr', name, '--source', source]);
       const result: Record<string, string> = {};
       for (const line of out.split('\n').slice(2).filter(Boolean)) {
         const parts = line.trim().split(/\s+/);
@@ -255,10 +259,8 @@ export async function getVmInterfaceIps(nameOrId: string): Promise<Record<string
 // the VM is not running — intentionally swallows all errors.
 async function checkGuestAgent(nameOrId: string): Promise<boolean> {
   try {
-    await execAsync(
-      `virsh -c ${config.libvirtUri} qemu-agent-command "${nameOrId}" '{"execute":"guest-ping"}' --timeout 3`,
-      { timeout: 5000 },
-    );
+    const name = validateVmName(nameOrId);
+    await virsh(['qemu-agent-command', name, '{"execute":"guest-ping"}', '--timeout', '3'], undefined, 5000);
     return true;
   } catch {
     return false;
@@ -266,79 +268,93 @@ async function checkGuestAgent(nameOrId: string): Promise<boolean> {
 }
 
 export async function startVm(nameOrId: string): Promise<string> {
+  const name = validateVmName(nameOrId);
   const trace: TraceEntry[] = [];
-  await virsh(`start ${nameOrId}`, trace);
+  await virsh(['start', name], trace);
   return formatTrace(trace);
 }
 
 export async function stopVm(nameOrId: string, force = false): Promise<string> {
+  const name = validateVmName(nameOrId);
   const trace: TraceEntry[] = [];
   if (force) {
-    await virsh(`destroy ${nameOrId}`, trace);
+    await virsh(['destroy', name], trace);
   } else {
-    await virsh(`shutdown ${nameOrId}`, trace);
+    await virsh(['shutdown', name], trace);
   }
   return formatTrace(trace);
 }
 
 export async function rebootVm(nameOrId: string): Promise<string> {
+  const name = validateVmName(nameOrId);
   const trace: TraceEntry[] = [];
-  await virsh(`reboot ${nameOrId}`, trace);
+  await virsh(['reboot', name], trace);
   return formatTrace(trace);
 }
 
 export async function hardRebootVm(nameOrId: string): Promise<string> {
+  const name = validateVmName(nameOrId);
   const trace: TraceEntry[] = [];
-  await virsh(`reset ${nameOrId}`, trace);
+  await virsh(['reset', name], trace);
   return formatTrace(trace);
 }
 
 export async function deleteVm(nameOrId: string, deleteStorage = false): Promise<string> {
+  const name = validateVmName(nameOrId);
   const trace: TraceEntry[] = [];
-  try { await virsh(`destroy ${nameOrId}`, trace); } catch { /* already stopped */ }
-  const flags = [
-    '--snapshots-metadata',
-    '--nvram',
-    '--tpm',
-    deleteStorage ? '--remove-all-storage' : '',
-  ].filter(Boolean).join(' ');
-  await virsh(`undefine ${nameOrId} ${flags}`, trace);
+  try { await virsh(['destroy', name], trace); } catch { /* already stopped */ }
+  const flags = ['--snapshots-metadata', '--nvram', '--tpm'];
+  if (deleteStorage) flags.push('--remove-all-storage');
+  await virsh(['undefine', name, ...flags], trace);
   return formatTrace(trace);
 }
 
 export async function defineVm(xmlPath: string, trace?: TraceEntry[]): Promise<void> {
-  await virsh(`define ${xmlPath}`, trace);
+  // xmlPath is always under config.cloudInitDir/config.storageRoot — never
+  // user-controlled raw — but we still pass it as an array arg.
+  await virsh(['define', xmlPath], trace);
 }
 
 export async function attachDisk(nameOrId: string, sourcePath: string, targetDev: string): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const target = validateDiskTarget(targetDev);
   const trace: TraceEntry[] = [];
-  await virsh(
-    `attach-disk ${nameOrId} --source ${sourcePath} --target ${targetDev} ` +
-    `--driver qemu --subdriver qcow2 --persistent`,
-    trace
-  );
+  await virsh([
+    'attach-disk', name,
+    '--source', sourcePath,
+    '--target', target,
+    '--driver', 'qemu',
+    '--subdriver', 'qcow2',
+    '--persistent',
+  ], trace);
   return formatTrace(trace);
 }
 
 export async function detachDisk(nameOrId: string, targetDev: string): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const target = validateDiskTarget(targetDev);
   const trace: TraceEntry[] = [];
-  await virsh(`detach-disk ${nameOrId} ${targetDev} --persistent`, trace);
+  await virsh(['detach-disk', name, target, '--persistent'], trace);
   return formatTrace(trace);
 }
 
 export async function attachCdrom(nameOrId: string, isoPath: string, targetDev = 'sdb'): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const target = validateDiskTarget(targetDev);
   const trace: TraceEntry[] = [];
-  const state = await virsh(`domstate ${nameOrId}`);
-  const flags = parseStatus(state) === 'running' ? '--live --config' : '--config';
-  await virsh(`change-media ${nameOrId} ${targetDev} ${isoPath} ${flags}`, trace);
+  const state = await virsh(['domstate', name]);
+  const flags = parseStatus(state) === 'running' ? ['--live', '--config'] : ['--config'];
+  await virsh(['change-media', name, target, isoPath, ...flags], trace);
   return formatTrace(trace);
 }
 
 export async function detachCdrom(nameOrId: string, targetDev = 'sdb'): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const target = validateDiskTarget(targetDev);
   const trace: TraceEntry[] = [];
-  const state = await virsh(`domstate ${nameOrId}`);
-  const flags = parseStatus(state) === 'running' ? '--eject --live --config' : '--eject --config';
-  await virsh(`change-media ${nameOrId} ${targetDev} ${flags}`, trace);
+  const state = await virsh(['domstate', name]);
+  const flags = parseStatus(state) === 'running' ? ['--eject', '--live', '--config'] : ['--eject', '--config'];
+  await virsh(['change-media', name, target, ...flags], trace);
   return formatTrace(trace);
 }
 
@@ -349,20 +365,31 @@ export async function attachNic(
   mac?: string,
   bandwidth?: { inboundKbps?: number; outboundKbps?: number },
 ): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const br = validateBridgeName(bridge);
+  // Model is from a fixed set so a regex is sufficient.
+  if (!/^[a-z0-9-]{1,32}$/.test(model)) throw new Error('Invalid NIC model');
   const trace: TraceEntry[] = [];
-  const macFlag = mac ? ` --mac ${mac}` : '';
-  await virsh(`attach-interface ${nameOrId} bridge ${bridge} --model ${model}${macFlag} --persistent`, trace);
+  const args = ['attach-interface', name, 'bridge', br, '--model', model];
+  if (mac) {
+    const m = validateMac(mac);
+    args.push('--mac', m);
+  }
+  args.push('--persistent');
+  await virsh(args, trace);
 
   if (mac && bandwidth && (bandwidth.inboundKbps || bandwidth.outboundKbps)) {
-    await setNicBandwidth(nameOrId, mac, bandwidth, trace);
+    await setNicBandwidth(name, mac, bandwidth, trace);
   }
 
   return formatTrace(trace);
 }
 
 export async function detachNic(nameOrId: string, mac: string): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const m = validateMac(mac);
   const trace: TraceEntry[] = [];
-  await virsh(`detach-interface ${nameOrId} bridge --mac ${mac} --persistent`, trace);
+  await virsh(['detach-interface', name, 'bridge', '--mac', m, '--persistent'], trace);
   return formatTrace(trace);
 }
 
@@ -372,26 +399,29 @@ export async function setNicBandwidth(
   bandwidth: { inboundKbps?: number; outboundKbps?: number },
   existingTrace?: TraceEntry[],
 ): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const m = validateMac(mac);
+  const inboundKbps = validateNonNegativeInt(bandwidth.inboundKbps ?? 0, 100_000_000);
+  const outboundKbps = validateNonNegativeInt(bandwidth.outboundKbps ?? 0, 100_000_000);
   const trace = existingTrace ?? [];
-  const state = await virsh(`domstate ${nameOrId}`);
+  const state = await virsh(['domstate', name]);
   const isRunning = parseStatus(state) === 'running';
-  const scope = isRunning ? '--live --config' : '--config';
+  const scope = isRunning ? ['--live', '--config'] : ['--config'];
 
-  // domiftune average=0 clears the limit. Use 0 for unlimited so the user can clear caps.
-  const inboundKbps = bandwidth.inboundKbps ?? 0;
-  const outboundKbps = bandwidth.outboundKbps ?? 0;
-
-  await virsh(
-    `domiftune ${nameOrId} ${mac} --inbound ${inboundKbps} --outbound ${outboundKbps} ${scope}`,
-    trace,
-  );
+  await virsh([
+    'domiftune', name, m,
+    '--inbound', String(inboundKbps),
+    '--outbound', String(outboundKbps),
+    ...scope,
+  ], trace);
   return formatTrace(trace);
 }
 
 // ─── Boot Order ───────────────────────────────────────────────────────────────
 
 export async function getVmXml(nameOrId: string): Promise<string> {
-  return virsh(`dumpxml ${nameOrId} --inactive`);
+  const name = validateVmName(nameOrId);
+  return virsh(['dumpxml', name, '--inactive']);
 }
 
 export function parseBootOrderFromXml(xml: string): Map<string, number> {
@@ -428,12 +458,14 @@ function applyBootOrderToXml(xml: string, bootOrder: string[]): string {
 }
 
 async function setBootOrderInternal(nameOrId: string, bootOrder: string[], trace?: TraceEntry[]): Promise<void> {
-  const xml = await getVmXml(nameOrId);
+  const name = validateVmName(nameOrId);
+  for (const t of bootOrder) validateDiskTarget(t);
+  const xml = await getVmXml(name);
   const newXml = applyBootOrderToXml(xml, bootOrder);
-  const tmpPath = path.join(os.tmpdir(), `virtpilot-boot-${nameOrId}-${Date.now()}.xml`);
+  const tmpPath = path.join(os.tmpdir(), `virtpilot-boot-${name}-${Date.now()}.xml`);
   await fs.writeFile(tmpPath, newXml, 'utf8');
   try {
-    await virsh(`define ${tmpPath}`, trace);
+    await virsh(['define', tmpPath], trace);
   } finally {
     await fs.unlink(tmpPath).catch(() => {});
   }
@@ -455,12 +487,9 @@ export async function setBootOrder(nameOrId: string, bootOrder: string[]): Promi
 
 // ─── Snapshots ────────────────────────────────────────────────────────────────
 
-// UEFI VMs (pflash firmware) can't store internal snapshots — QEMU has nowhere
-// to put the savevm state alongside pflash. We fall back to external disk-only
-// snapshots, which create a new qcow2 overlay on top of each persistent disk.
 async function isUefiVm(nameOrId: string): Promise<boolean> {
   try {
-    const xml = await virsh(`dumpxml ${nameOrId}`);
+    const xml = await virsh(['dumpxml', validateVmName(nameOrId)]);
     return /<loader\b[^>]*type=['"]pflash['"]/i.test(xml);
   } catch {
     return false;
@@ -468,15 +497,13 @@ async function isUefiVm(nameOrId: string): Promise<boolean> {
 }
 
 async function getSnapshotXml(nameOrId: string, snapshotName: string): Promise<string> {
-  return virsh(`snapshot-dumpxml ${nameOrId} ${snapshotName}`);
+  return virsh(['snapshot-dumpxml', validateVmName(nameOrId), validateSnapshotName(snapshotName)]);
 }
 
 function isExternalSnapshotXml(snapshotXml: string): boolean {
   return /snapshot=['"]external['"]/.test(snapshotXml);
 }
 
-// Pulls each external-disk entry out of a snapshot XML's <disks> section.
-// `file` is the new overlay that became active when the snapshot was taken.
 function parseExternalSnapshotDisks(snapshotXml: string): { target: string; file: string }[] {
   const disks: { target: string; file: string }[] = [];
   const diskRegex = /<disk\b[^>]*\bname=['"]([^'"]+)['"][^>]*\bsnapshot=['"]external['"][^>]*>([\s\S]*?)<\/disk>/g;
@@ -489,7 +516,6 @@ function parseExternalSnapshotDisks(snapshotXml: string): { target: string; file
   return disks;
 }
 
-// Extracts the source file for a given disk target from a domain XML blob.
 function parseDiskSourceFromDomainXml(domainXml: string, target: string): string | undefined {
   const blockRegex = /<disk\b[^>]*>([\s\S]*?)<\/disk>/g;
   let m: RegExpExecArray | null;
@@ -508,25 +534,24 @@ function extractSavedDomainXml(snapshotXml: string): string | undefined {
 }
 
 export async function listSnapshots(nameOrId: string): Promise<VmSnapshot[]> {
+  const name = validateVmName(nameOrId);
   try {
-    const out = await virsh(`snapshot-list ${nameOrId}`);
+    const out = await virsh(['snapshot-list', name]);
     const lines = out.split('\n').slice(2).filter(Boolean);
     const snapshots: VmSnapshot[] = [];
     const lineRegex = /^\s*(\S+)\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{4})\s+(\S+)\s*$/;
     for (const line of lines) {
       const match = line.match(lineRegex);
       if (!match) continue;
-      const [, name, createdAt, vmState] = match;
-      snapshots.push({ name, createdAt: new Date(createdAt).toISOString(), vmState });
+      const [, snapName, createdAt, vmState] = match;
+      snapshots.push({ name: snapName, createdAt: new Date(createdAt).toISOString(), vmState });
     }
 
-    // Resolve sizes in parallel. Internal snapshots need disk paths to look up
-    // vm-state-size via qemu-img; fetch them once and reuse.
     if (snapshots.length > 0) {
-      const vmDisks = await getVmDisks(nameOrId);
+      const vmDisks = await getVmDisks(name);
       await Promise.all(
         snapshots.map(async (snap) => {
-          snap.sizeBytes = await getSnapshotSizeBytes(nameOrId, snap.name, vmDisks);
+          snap.sizeBytes = await getSnapshotSizeBytes(name, snap.name, vmDisks);
         }),
       );
     }
@@ -537,11 +562,6 @@ export async function listSnapshots(nameOrId: string): Promise<VmSnapshot[]> {
   }
 }
 
-// Returns the on-disk cost of a snapshot.
-// External: sum of overlay file sizes (post-snapshot writes — i.e. the extra
-//   space the snapshot is keeping around).
-// Internal: vm-state-size from qemu-img info (saved RAM). Per-snapshot disk
-//   delta isn't exposed by qcow2, so this is the closest meaningful figure.
 async function getSnapshotSizeBytes(
   nameOrId: string,
   snapshotName: string,
@@ -568,7 +588,7 @@ async function getSnapshotSizeBytes(
         .filter((d) => d.type !== 'cdrom' && d.source)
         .map(async (d) => {
           try {
-            const { stdout } = await execAsync(`qemu-img info --force-share --output=json "${d.source}"`);
+            const stdout = await run('qemu-img', ['info', '--force-share', '--output=json', d.source]);
             const info = JSON.parse(stdout) as { snapshots?: Array<{ name: string; 'vm-state-size'?: number }> };
             const snap = info.snapshots?.find((s) => s.name === snapshotName);
             if (snap && typeof snap['vm-state-size'] === 'number') total += snap['vm-state-size'];
@@ -581,14 +601,14 @@ async function getSnapshotSizeBytes(
   }
 }
 
-// Internal QEMU snapshots on a running VM can take >30s for large disks/memory
 const SNAPSHOT_TIMEOUT = 3 * 60_000;
 
 async function fsFreeze(nameOrId: string): Promise<boolean> {
   try {
-    await execAsync(
-      `virsh -c ${config.libvirtUri} qemu-agent-command "${nameOrId}" '{"execute":"guest-fsfreeze-freeze"}' --timeout 5`,
-      { timeout: 10_000 },
+    await virsh(
+      ['qemu-agent-command', validateVmName(nameOrId), '{"execute":"guest-fsfreeze-freeze"}', '--timeout', '5'],
+      undefined,
+      10_000,
     );
     return true;
   } catch {
@@ -598,53 +618,51 @@ async function fsFreeze(nameOrId: string): Promise<boolean> {
 
 async function fsThaw(nameOrId: string): Promise<void> {
   try {
-    await execAsync(
-      `virsh -c ${config.libvirtUri} qemu-agent-command "${nameOrId}" '{"execute":"guest-fsfreeze-thaw"}' --timeout 5`,
-      { timeout: 10_000 },
+    await virsh(
+      ['qemu-agent-command', validateVmName(nameOrId), '{"execute":"guest-fsfreeze-thaw"}', '--timeout', '5'],
+      undefined,
+      10_000,
     );
   } catch { /* best-effort */ }
 }
 
 export async function createSnapshot(nameOrId: string, snapshotName: string, description?: string): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const snap = validateSnapshotName(snapshotName);
   const trace: TraceEntry[] = [];
-  const uefi = await isUefiVm(nameOrId);
+  const uefi = await isUefiVm(name);
 
-  // Freeze guest filesystems for a consistent snapshot. Falls through silently
-  // if the agent is absent or the VM is stopped.
-  const frozen = await fsFreeze(nameOrId);
+  const frozen = await fsFreeze(name);
 
   try {
-    const desc = description ? `"${description}"` : '';
     if (uefi) {
-      // External disk-only snapshot: each persistent qcow2 disk gets a new
-      // overlay, the previous file is sealed and becomes the backing chain.
-      // CD-ROMs and other non-qcow2 disks are excluded (snapshot=no).
-      const disks = await getVmDisks(nameOrId);
+      const disks = await getVmDisks(name);
       const persistent = disks.filter((d) => d.type === 'disk' && d.source && /\.qcow2$/i.test(d.source));
       if (persistent.length === 0) {
         throw new Error('No qcow2 disks found to snapshot');
       }
-      const diskspecs: string[] = [];
+      const args = ['snapshot-create-as', name, snap];
+      if (description) args.push(description);
+      args.push('--disk-only', '--atomic');
       for (const d of persistent) {
         const dir = path.dirname(d.source);
-        const overlay = path.join(dir, `${nameOrId}-${d.target}-${snapshotName}.qcow2`);
-        diskspecs.push(`--diskspec ${d.target},file=${overlay},snapshot=external`);
+        const overlay = path.join(dir, `${name}-${d.target}-${snap}.qcow2`);
+        args.push('--diskspec', `${d.target},file=${overlay},snapshot=external`);
       }
       for (const d of disks) {
         if (!persistent.find((p) => p.target === d.target)) {
-          diskspecs.push(`--diskspec ${d.target},snapshot=no`);
+          args.push('--diskspec', `${d.target},snapshot=no`);
         }
       }
-      const args = `snapshot-create-as ${nameOrId} ${snapshotName} ${desc} --disk-only --atomic ${diskspecs.join(' ')}`.trim();
       await virsh(args, trace, SNAPSHOT_TIMEOUT);
     } else {
-      const args = description
-        ? `snapshot-create-as ${nameOrId} ${snapshotName} ${desc} --atomic`
-        : `snapshot-create-as ${nameOrId} ${snapshotName} --atomic`;
+      const args = ['snapshot-create-as', name, snap];
+      if (description) args.push(description);
+      args.push('--atomic');
       await virsh(args, trace, SNAPSHOT_TIMEOUT);
     }
   } finally {
-    if (frozen) await fsThaw(nameOrId);
+    if (frozen) await fsThaw(name);
   }
 
   return formatTrace(trace);
@@ -655,90 +673,71 @@ export async function deleteSnapshot(
   snapshotName: string,
   opts: { metadataOnly?: boolean } = {},
 ): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const snap = validateSnapshotName(snapshotName);
   const trace: TraceEntry[] = [];
-  const snapshotXml = await getSnapshotXml(nameOrId, snapshotName);
+  const snapshotXml = await getSnapshotXml(name, snap);
 
-  // Drop only the libvirt snapshot record, not the overlay file. The escape
-  // hatch for cases where the chain has diverged (e.g. after a revert) and
-  // automatic merging is unsafe.
   if (opts.metadataOnly) {
-    await virsh(`snapshot-delete ${nameOrId} ${snapshotName} --metadata`, trace, SNAPSHOT_TIMEOUT);
+    await virsh(['snapshot-delete', name, snap, '--metadata'], trace, SNAPSHOT_TIMEOUT);
     return formatTrace(trace);
   }
 
   if (!isExternalSnapshotXml(snapshotXml)) {
-    await virsh(`snapshot-delete ${nameOrId} ${snapshotName}`, trace, SNAPSHOT_TIMEOUT);
+    await virsh(['snapshot-delete', name, snap], trace, SNAPSHOT_TIMEOUT);
     return formatTrace(trace);
   }
 
-  // External: merge each overlay back into its backing file, then drop the
-  // metadata. Only supported when the snapshot's overlay is currently the
-  // active disk (i.e. the topmost snapshot in the chain) — intermediate
-  // deletions would require rewriting the chain.
   const snapDisks = parseExternalSnapshotDisks(snapshotXml);
   if (snapDisks.length === 0) throw new Error('Snapshot XML has no external disk entries');
 
-  const liveDisks = await getVmDisks(nameOrId);
+  const liveDisks = await getVmDisks(name);
   for (const sd of snapDisks) {
     const live = liveDisks.find((d) => d.target === sd.target);
     if (!live?.source) {
       throw new Error(`Disk ${sd.target} not present on VM`);
     }
     if (path.resolve(live.source) !== path.resolve(sd.file)) {
-      // Distinguish the two ways the chain can diverge so the message points
-      // at a recoverable action. After `revertSnapshot`, the active disk is a
-      // fresh `*-revert-*.qcow2` overlay sitting on top of this snapshot's
-      // sealed file — there is no newer snapshot involved.
       const liveBase = path.basename(live.source);
       if (/-revert-\d+\.qcow2$/.test(liveBase)) {
         throw new Error(
-          `Cannot delete snapshot '${snapshotName}': the VM was reverted to it, ` +
+          `Cannot delete snapshot '${snap}': the VM was reverted to it, ` +
             `so the active disk is now the revert overlay (${liveBase}). ` +
             `Use ?metadataOnly=true to drop the snapshot record while leaving the disk chain intact, ` +
             `or take a new snapshot and use that as your working state instead.`,
         );
       }
       throw new Error(
-        `Cannot delete snapshot '${snapshotName}': overlay for ${sd.target} is no longer the active disk (a newer snapshot exists). Delete newer snapshots first.`,
+        `Cannot delete snapshot '${snap}': overlay for ${sd.target} is no longer the active disk (a newer snapshot exists). Delete newer snapshots first.`,
       );
     }
   }
 
-  const stateOut = await virsh(`domstate ${nameOrId}`);
+  const stateOut = await virsh(['domstate', name]);
   const running = parseStatus(stateOut) === 'running';
   const overlayFiles: string[] = [];
 
   for (const sd of snapDisks) {
     overlayFiles.push(sd.file);
     if (running) {
-      // Without --top/--base, blockcommit walks the entire chain down to the
-      // bottom-most backing file — which for VMs cloned from a shared template
-      // is read-only and held by other domains, producing a "Failed to get
-      // write lock" error. Pin the merge to overlay → immediate backing only.
-      const { stdout: chainJson } = await execAsync(
-        `qemu-img info --force-share --output=json --backing-chain "${sd.file}"`,
-      );
+      const chainJson = await run('qemu-img', ['info', '--force-share', '--output=json', '--backing-chain', sd.file]);
       const chain = JSON.parse(chainJson) as Array<{ filename: string; 'backing-filename'?: string }>;
       const backing = chain[0]?.['backing-filename'];
       if (!backing) throw new Error(`Could not determine backing file for ${sd.file}`);
       const backingAbs = path.isAbsolute(backing) ? backing : path.resolve(path.dirname(sd.file), backing);
-      // Active commit: merge active overlay into its backing and pivot the
-      // domain to use the (now updated) backing file as the active disk.
       await virsh(
-        `blockcommit ${nameOrId} ${sd.target} --active --pivot --wait --verbose --top "${sd.file}" --base "${backingAbs}"`,
+        ['blockcommit', name, sd.target, '--active', '--pivot', '--wait', '--verbose', '--top', sd.file, '--base', backingAbs],
         trace,
         SNAPSHOT_TIMEOUT,
       );
     } else {
-      // Offline: qemu-img commits the overlay into its backing in-place.
-      await execTraced(`qemu-img commit -d "${sd.file}"`, trace, { timeout: SNAPSHOT_TIMEOUT });
-      // Repoint the domain at the backing file.
-      const { stdout } = await execAsync(`qemu-img info --output=json --backing-chain "${sd.file}"`);
+      await run('qemu-img', ['commit', '-d', sd.file], { timeout: SNAPSHOT_TIMEOUT, trace });
+      const stdout = await run('qemu-img', ['info', '--output=json', '--backing-chain', sd.file]);
       const chain = JSON.parse(stdout) as Array<{ filename: string; 'backing-filename'?: string }>;
       const backing = chain[0]?.['backing-filename'];
       if (!backing) throw new Error(`Could not determine backing file for ${sd.file}`);
       const backingAbs = path.isAbsolute(backing) ? backing : path.resolve(path.dirname(sd.file), backing);
-      const domXml = await getVmXml(nameOrId);
+      const domXml = await getVmXml(name);
       const updated = domXml.replace(
         new RegExp(`(<source\\s+file=['"])${escapeRegex(sd.file)}(['"])`),
         `$1${backingAbs}$2`,
@@ -746,19 +745,18 @@ export async function deleteSnapshot(
       if (updated === domXml) {
         throw new Error(`Failed to rewrite domain XML for ${sd.target}`);
       }
-      const tmp = path.join(os.tmpdir(), `virtpilot-snapdel-${nameOrId}-${Date.now()}.xml`);
+      const tmp = path.join(os.tmpdir(), `virtpilot-snapdel-${name}-${Date.now()}.xml`);
       await fs.writeFile(tmp, updated, 'utf8');
       try {
-        await virsh(`define ${tmp}`, trace);
+        await virsh(['define', tmp], trace);
       } finally {
         await fs.unlink(tmp).catch(() => {});
       }
     }
   }
 
-  await virsh(`snapshot-delete ${nameOrId} ${snapshotName} --metadata`, trace, SNAPSHOT_TIMEOUT);
+  await virsh(['snapshot-delete', name, snap, '--metadata'], trace, SNAPSHOT_TIMEOUT);
 
-  // Clean up the now-merged overlay files.
   for (const f of overlayFiles) {
     await fs.unlink(f).catch(() => { /* best-effort */ });
   }
@@ -767,22 +765,19 @@ export async function deleteSnapshot(
 }
 
 export async function revertSnapshot(nameOrId: string, snapshotName: string): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const snap = validateSnapshotName(snapshotName);
   const trace: TraceEntry[] = [];
-  const snapshotXml = await getSnapshotXml(nameOrId, snapshotName);
+  const snapshotXml = await getSnapshotXml(name, snap);
 
-  try { await virsh(`destroy ${nameOrId}`, trace); } catch { /* already stopped */ }
+  try { await virsh(['destroy', name], trace); } catch { /* already stopped */ }
 
   if (!isExternalSnapshotXml(snapshotXml)) {
-    await virsh(`snapshot-revert ${nameOrId} ${snapshotName} --force`, trace, SNAPSHOT_TIMEOUT);
+    await virsh(['snapshot-revert', name, snap, '--force'], trace, SNAPSHOT_TIMEOUT);
   } else {
-    // External: restore the saved domain XML from the snapshot, then create a
-    // fresh overlay so the snapshot's frozen file stays sealed and re-revertible.
     const savedXml = extractSavedDomainXml(snapshotXml);
     if (!savedXml) throw new Error('Snapshot XML missing saved <domain> element');
 
-    // Identify which disks the snapshot froze, find their files in the saved
-    // domain, and cap each with a new overlay so writes don't dirty the
-    // snapshot point.
     const snapDisks = parseExternalSnapshotDisks(snapshotXml);
     let pivotedXml = savedXml;
     const stamp = Date.now();
@@ -790,97 +785,97 @@ export async function revertSnapshot(nameOrId: string, snapshotName: string): Pr
       const sealed = parseDiskSourceFromDomainXml(savedXml, sd.target);
       if (!sealed) continue;
       const dir = path.dirname(sealed);
-      const overlay = path.join(dir, `${nameOrId}-${sd.target}-revert-${stamp}.qcow2`);
-      await execTraced(
-        `qemu-img create -f qcow2 -F qcow2 -b "${sealed}" "${overlay}"`,
-        trace,
-        { timeout: 60_000 },
-      );
+      const overlay = path.join(dir, `${name}-${sd.target}-revert-${stamp}.qcow2`);
+      await run('qemu-img', ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', sealed, overlay], { timeout: 60_000, trace });
       pivotedXml = pivotedXml.replace(
         new RegExp(`(<source\\s+file=['"])${escapeRegex(sealed)}(['"])`),
         `$1${overlay}$2`,
       );
     }
 
-    const tmp = path.join(os.tmpdir(), `virtpilot-revert-${nameOrId}-${stamp}.xml`);
+    const tmp = path.join(os.tmpdir(), `virtpilot-revert-${name}-${stamp}.xml`);
     await fs.writeFile(tmp, pivotedXml, 'utf8');
     try {
-      await virsh(`define ${tmp}`, trace);
+      await virsh(['define', tmp], trace);
     } finally {
       await fs.unlink(tmp).catch(() => {});
     }
   }
 
-  const state = await virsh(`domstate ${nameOrId}`);
+  const state = await virsh(['domstate', name]);
   if (parseStatus(state) !== 'running') {
-    await virsh(`start ${nameOrId}`, trace);
+    await virsh(['start', name], trace);
   }
   return formatTrace(trace);
 }
 
 export async function exportSnapshotAsTemplate(vmName: string, snapshotName: string, templateFilename: string): Promise<string> {
+  const name = validateVmName(vmName);
+  const snap = validateSnapshotName(snapshotName);
+  // templateFilename comes from the route layer, which already runs it
+  // through validateFilename — but we re-basename here as defence-in-depth.
+  const safeFilename = path.basename(templateFilename);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(qcow2|img|raw)$/i.test(safeFilename)) {
+    throw new Error('Invalid template filename');
+  }
   const trace: TraceEntry[] = [];
-  const destPath = path.join(config.templatesDir, templateFilename);
-  const snapshotXml = await getSnapshotXml(vmName, snapshotName);
+  const destPath = path.join(config.templatesDir, safeFilename);
+  const snapshotXml = await getSnapshotXml(name, snap);
 
   if (isExternalSnapshotXml(snapshotXml)) {
-    // The snapshot's vda data lives in the saved domain XML's vda source —
-    // that file became the read-only backing when the snapshot was taken.
-    // qemu-img convert resolves any deeper backing chain automatically.
     const savedXml = extractSavedDomainXml(snapshotXml);
     if (!savedXml) throw new Error('Snapshot XML missing saved <domain> element');
     const sealed = parseDiskSourceFromDomainXml(savedXml, 'vda');
     if (!sealed) throw new Error('Snapshot does not include vda');
-    await execTraced(
-      `qemu-img convert -U -f qcow2 -O qcow2 "${sealed}" "${destPath}"`,
-      trace,
-      { timeout: 300_000 },
+    await run(
+      'qemu-img',
+      ['convert', '-U', '-f', 'qcow2', '-O', 'qcow2', sealed, destPath],
+      { timeout: 300_000, trace },
     );
   } else {
-    const disks = await getVmDisks(vmName);
+    const disks = await getVmDisks(name);
     const primaryDisk = disks.find((d) => d.target === 'vda' && d.source);
     if (!primaryDisk?.source) throw new Error('Primary disk (vda) not found or has no source path');
-    await execTraced(
-      `qemu-img convert -U -f qcow2 -O qcow2 -l "snapshot.name=${snapshotName}" "${primaryDisk.source}" "${destPath}"`,
-      trace,
-      { timeout: 300_000 },
+    await run(
+      'qemu-img',
+      ['convert', '-U', '-f', 'qcow2', '-O', 'qcow2', '-l', `snapshot.name=${snap}`, primaryDisk.source, destPath],
+      { timeout: 300_000, trace },
     );
   }
   return formatTrace(trace);
 }
 
-// ─── Boot Once ────────────────────────────────────────────────────────────────
-
 // ─── Autostart ────────────────────────────────────────────────────────────────
 
 export async function setAutostart(nameOrId: string, enabled: boolean): Promise<string> {
+  const name = validateVmName(nameOrId);
   const trace: TraceEntry[] = [];
-  await virsh(enabled ? `autostart ${nameOrId}` : `autostart --disable ${nameOrId}`, trace);
+  await virsh(enabled ? ['autostart', name] : ['autostart', '--disable', name], trace);
   return formatTrace(trace);
 }
 
 // ─── Disk resize ──────────────────────────────────────────────────────────────
 
 export async function resizeDisk(nameOrId: string, target: string, addGb: number): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const tgt = validateDiskTarget(target);
+  if (!Number.isFinite(addGb) || addGb <= 0 || addGb > 65536) throw new Error('Invalid resize amount');
   const trace: TraceEntry[] = [];
 
-  const disks = await getVmDisks(nameOrId);
-  const disk = disks.find((d) => d.target === target);
-  if (!disk?.source) throw new Error(`Disk ${target} not found or has no source path`);
+  const disks = await getVmDisks(name);
+  const disk = disks.find((d) => d.target === tgt);
+  if (!disk?.source) throw new Error(`Disk ${tgt} not found or has no source path`);
 
-  const state = await virsh(`domstate ${nameOrId}`);
+  const state = await virsh(['domstate', name]);
   const running = parseStatus(state) === 'running';
 
   if (running) {
-    // QEMU holds a write lock on the image while running — qemu-img resize would fail.
-    // virsh blockresize talks directly to QEMU, resizes the image, and notifies the guest.
-    const { stdout } = await execAsync(`qemu-img info -U --output=json "${disk.source}"`);
+    const stdout = await run('qemu-img', ['info', '-U', '--output=json', disk.source]);
     const info = JSON.parse(stdout) as { 'virtual-size': number };
     const newSizeBytes = info['virtual-size'] + addGb * 1024 * 1024 * 1024;
-    // Append 'b' to force bytes — virsh 10 defaults to KiB for bare numbers
-    await virsh(`blockresize ${nameOrId} ${target} ${newSizeBytes}b`, trace);
+    await virsh(['blockresize', name, tgt, `${newSizeBytes}b`], trace);
   } else {
-    await execTraced(`qemu-img resize "${disk.source}" +${addGb}G`, trace, { timeout: 120_000 });
+    await run('qemu-img', ['resize', disk.source, `+${addGb}G`], { timeout: 120_000, trace });
   }
 
   return formatTrace(trace);
@@ -889,19 +884,22 @@ export async function resizeDisk(nameOrId: string, target: string, addGb: number
 // ─── Resource editing (CPU + RAM) ─────────────────────────────────────────────
 
 export async function updateVmResources(nameOrId: string, cpus: number, memoryMb: number): Promise<string> {
+  const name = validateVmName(nameOrId);
+  if (!Number.isInteger(cpus) || cpus < 1 || cpus > 1024) throw new Error('Invalid CPU count');
+  if (!Number.isInteger(memoryMb) || memoryMb < 64 || memoryMb > 8 * 1024 * 1024) throw new Error('Invalid memory size');
   const trace: TraceEntry[] = [];
-  const xml = await getVmXml(nameOrId);
+  const xml = await getVmXml(name);
   const memKib = memoryMb * 1024;
 
-  let newXml = xml
+  const newXml = xml
     .replace(/<vcpu[^>]*>[0-9]+<\/vcpu>/, `<vcpu placement="static">${cpus}</vcpu>`)
     .replace(/<memory unit=['"]KiB['"]>[0-9]+<\/memory>/, `<memory unit="KiB">${memKib}</memory>`)
     .replace(/<currentMemory unit=['"]KiB['"]>[0-9]+<\/currentMemory>/, `<currentMemory unit="KiB">${memKib}</currentMemory>`);
 
-  const tmpPath = path.join(os.tmpdir(), `virtpilot-res-${nameOrId}-${Date.now()}.xml`);
+  const tmpPath = path.join(os.tmpdir(), `virtpilot-res-${name}-${Date.now()}.xml`);
   await fs.writeFile(tmpPath, newXml, 'utf8');
   try {
-    await virsh(`define ${tmpPath}`, trace);
+    await virsh(['define', tmpPath], trace);
   } finally {
     await fs.unlink(tmpPath).catch(() => {});
   }
@@ -931,8 +929,9 @@ function parseDomStats(out: string): Map<string, number> {
 }
 
 export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | null> {
+  const name = validateVmName(nameOrId);
   try {
-    const out = await virsh(`domstats ${nameOrId}`, undefined, 10_000);
+    const out = await virsh(['domstats', name], undefined, 10_000);
     const s = parseDomStats(out);
 
     const get = (k: string) => s.get(k) ?? 0;
@@ -943,7 +942,6 @@ export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | nu
     const balloonAvailableKiB = s.get('balloon.available');
     const balloonUnusedKiB = s.get('balloon.unused');
 
-    // Sum block I/O across all devices
     const blockCount = get('block.count');
     let blockRdBytes = 0;
     let blockWrBytes = 0;
@@ -952,7 +950,6 @@ export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | nu
       blockWrBytes += get(`block.${i}.wr.bytes`);
     }
 
-    // Sum network I/O across all interfaces
     const netCount = get('net.count');
     let netRxBytes = 0;
     let netTxBytes = 0;
@@ -962,8 +959,8 @@ export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | nu
     }
 
     const now = Date.now();
-    const prev = vmStatsPrev.get(nameOrId);
-    vmStatsPrev.set(nameOrId, { timestamp: now, cpuTimeNs, blockRdBytes, blockWrBytes, netRxBytes, netTxBytes });
+    const prev = vmStatsPrev.get(name);
+    vmStatsPrev.set(name, { timestamp: now, cpuTimeNs, blockRdBytes, blockWrBytes, netRxBytes, netTxBytes });
 
     let cpuPercent = 0;
     let diskReadBps = 0;
@@ -983,7 +980,6 @@ export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | nu
       }
     }
 
-    // Memory: use guest-reported values (via balloon driver) if available, else show allocated
     let memUsedMb: number;
     let memTotalMb: number;
     if (balloonAvailableKiB != null && balloonUnusedKiB != null) {
@@ -1006,10 +1002,10 @@ export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | nu
       vcpuCount,
     };
 
-    const hist = vmStatsHistory.get(nameOrId) ?? [];
+    const hist = vmStatsHistory.get(name) ?? [];
     hist.push(sample);
     if (hist.length > VM_STATS_HISTORY) hist.shift();
-    vmStatsHistory.set(nameOrId, hist);
+    vmStatsHistory.set(name, hist);
 
     return { current: sample, history: [...hist] };
   } catch {
@@ -1018,25 +1014,26 @@ export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | nu
 }
 
 export async function startVmBootOnce(nameOrId: string, device: 'cdrom' | 'hd'): Promise<string> {
+  const name = validateVmName(nameOrId);
   const trace: TraceEntry[] = [];
 
-  const xml = await getVmXml(nameOrId);
+  const xml = await getVmXml(name);
   const bootMap = parseBootOrderFromXml(xml);
   const originalOrder = [...bootMap.entries()]
     .sort((a, b) => a[1] - b[1])
     .map(([t]) => t);
 
-  const diskList = await getVmDisks(nameOrId);
+  const diskList = await getVmDisks(name);
   const deviceTargets = diskList.filter((d) => d.type === device).map((d) => d.target);
   const otherTargets = diskList.filter((d) => d.type !== device).map((d) => d.target);
   const onceOrder = [...deviceTargets, ...otherTargets].filter((t) => t !== 'sda');
 
-  await setBootOrderInternal(nameOrId, onceOrder, trace);
+  await setBootOrderInternal(name, onceOrder, trace);
   try {
-    await virsh(`start ${nameOrId}`, trace);
+    await virsh(['start', name], trace);
   } finally {
     const restoreOrder = originalOrder.length > 0 ? originalOrder : onceOrder.slice().reverse();
-    await setBootOrderInternal(nameOrId, restoreOrder, trace).catch(() => {});
+    await setBootOrderInternal(name, restoreOrder, trace).catch(() => {});
   }
 
   return formatTrace(trace);

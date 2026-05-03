@@ -9,6 +9,8 @@ import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import * as storageService from '../services/storageService.js';
 import { saveUserSettings } from '../services/userSettingsService.js';
+import { assertSafeDownloadUrl } from '../lib/safeUrl.js';
+import { validateFilename } from '../lib/validate.js';
 
 // Some mirrors (notably cloud.centos.org) reject requests with no User-Agent
 // header — Node's http.get sends none by default, which silently 403s every
@@ -65,13 +67,23 @@ function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<voi
       activeFile?.destroy();
     };
 
+    let redirectsLeft = 5;
     const attempt = (attemptUrl: string) => {
       if (cancelled) { reject(new Error('cancelled')); return; }
-      const client = attemptUrl.startsWith('https') ? https : http;
-      activeReq = client.get(attemptUrl, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
+      let safeUrl: URL;
+      try {
+        safeUrl = assertSafeDownloadUrl(attemptUrl);
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      const client = safeUrl.protocol === 'https:' ? https : http;
+      activeReq = client.get(safeUrl.toString(), { headers: { 'User-Agent': USER_AGENT } }, (res) => {
         if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
           res.resume();
-          attempt(res.headers.location);
+          if (redirectsLeft-- <= 0) { reject(new Error('Too many redirects')); return; }
+          // Re-validate every redirect target.
+          attempt(new URL(res.headers.location, safeUrl).toString());
           return;
         }
         if (res.statusCode !== 200) {
@@ -125,7 +137,12 @@ templatesRouter.post('/upload', upload.single('file'), async (req, res) => {
   req.on('aborted', () => { if (tempPath) safeUnlink(tempPath); });
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const originalName = req.file.originalname;
+    // Strip directory components from originalname — multer preserves whatever
+    // the client sent, including "../../etc/cron.d/x".
+    const originalName = path.basename(req.file.originalname);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(qcow2|img|raw|iso)$/i.test(originalName)) {
+      return res.status(400).json({ error: 'Invalid template filename' });
+    }
     const destPath = path.join(config.templatesDir, originalName);
     await fsp.rename(req.file.path, destPath);
     const displayName = (req.body as Record<string, string>).name?.trim();
@@ -145,12 +162,19 @@ templatesRouter.post('/download', async (req, res) => {
 
   let savedFilename: string;
   try {
-    savedFilename = filename?.trim() || path.basename(new URL(url).pathname) || `template-${Date.now()}.qcow2`;
+    // Validate the URL up-front so we never construct a destination path
+    // from a server-side fetch that's going to be rejected anyway.
+    const parsed = assertSafeDownloadUrl(url);
+    const fromQuery = filename?.trim() ? path.basename(filename.trim()) : '';
+    savedFilename = fromQuery || path.basename(parsed.pathname) || `template-${Date.now()}.qcow2`;
     // Accept the common cloud-image and installer-image extensions. Anything
     // else gets `.qcow2` appended as a safe default for the templates dir.
     if (!savedFilename.match(/\.(qcow2|img|raw|iso|iso\.gz)$/)) savedFilename += '.qcow2';
-  } catch {
-    return res.status(400).json({ error: 'Invalid URL' });
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(qcow2|img|raw|iso|iso\.gz)$/i.test(savedFilename)) {
+      throw new Error('Invalid filename');
+    }
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid URL' });
   }
 
   const jobId = randomUUID();
@@ -223,9 +247,10 @@ templatesRouter.delete('/download/:jobId', (req, res) => {
 
 templatesRouter.patch('/:filename', async (req, res) => {
   try {
+    const filename = validateFilename(req.params.filename);
     const { name } = req.body as { name?: string };
     if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
-    await storageService.setTemplateDisplayName(req.params.filename, name.trim());
+    await storageService.setTemplateDisplayName(filename, name.trim());
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
@@ -234,7 +259,8 @@ templatesRouter.patch('/:filename', async (req, res) => {
 
 templatesRouter.delete('/:filename', async (req, res) => {
   try {
-    await storageService.deleteTemplate(req.params.filename);
+    const filename = validateFilename(req.params.filename);
+    await storageService.deleteTemplate(filename);
     // If that delete emptied the templates directory, clear the starter-set
     // dismissal so the card resurfaces on the next page load — handy for
     // someone wiping their templates and starting over.

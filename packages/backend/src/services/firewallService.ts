@@ -1,11 +1,15 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
-
-const execAsync = promisify(exec);
+import { run, runSafe } from './safeExec.js';
+import {
+  validateIpv4,
+  validateIpv4OrCidr,
+  validatePortRange,
+  validateProtocol,
+  validateIcmpType,
+} from '../lib/validate.js';
 
 export interface FirewallRule {
   id: string;
@@ -31,14 +35,21 @@ function firewallPath(vmName: string): string {
   return path.join(config.cloudInitDir, `${vmName}-firewall.json`);
 }
 
-function inChain(vmName: string): string {
+// Sanitise the VM name into the form iptables chain names allow. Chain
+// names are limited to 28 chars, alphanumeric only — anything else and
+// iptables refuses, so this also catches names that would be hostile.
+function safeChainSegment(vmName: string): string {
   const safe = vmName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
-  return `VP-IN-${safe}`;
+  if (safe.length === 0) throw new Error('VM name produces empty iptables segment');
+  return safe;
+}
+
+function inChain(vmName: string): string {
+  return `VP-IN-${safeChainSegment(vmName)}`;
 }
 
 function outChain(vmName: string): string {
-  const safe = vmName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
-  return `VP-OUT-${safe}`;
+  return `VP-OUT-${safeChainSegment(vmName)}`;
 }
 
 export async function getFirewallConfig(vmName: string): Promise<FirewallConfig> {
@@ -79,41 +90,38 @@ export async function renameFirewallConfig(oldName: string, newName: string): Pr
 }
 
 async function chainExists(chain: string): Promise<boolean> {
-  try {
-    await execAsync(`iptables -L ${chain} -n`);
-    return true;
-  } catch {
-    return false;
-  }
+  return (await runSafe('iptables', ['-L', chain, '-n'])) !== null;
 }
 
-function portArgs(portRange: string): string {
+// Build the iptables --dport / --dports args for a port-range value. The
+// value is pre-validated against PORT_RANGE_RE so we know it only contains
+// digits, commas, hyphens, and colons.
+function portArgs(portRange: string): string[] {
   if (portRange.includes(',')) {
     const ports = portRange.split(',').map((p) => p.includes('-') ? p.replace('-', ':') : p).join(',');
-    return `-m multiport --dports ${ports}`;
+    return ['-m', 'multiport', '--dports', ports];
   }
   const range = portRange.includes('-') ? portRange.replace('-', ':') : portRange;
-  return `--dport ${range}`;
+  return ['--dport', range];
 }
 
-export async function applyFirewallRules(vmName: string, vmIp: string, cfg: FirewallConfig): Promise<void> {
+export async function applyFirewallRules(vmName: string, vmIpRaw: string, cfg: FirewallConfig): Promise<void> {
+  const vmIp = validateIpv4(vmIpRaw);
   const { rules, defaultInbound, defaultOutbound, allowEstablishedInbound, allowEstablishedOutbound } = cfg;
   const inC = inChain(vmName);
   const outC = outChain(vmName);
 
   // Remove existing jump rules
-  await execAsync(`iptables -D FORWARD -d ${vmIp} -j ${inC} 2>/dev/null`).catch(() => {});
-  await execAsync(`iptables -D FORWARD -s ${vmIp} -j ${outC} 2>/dev/null`).catch(() => {});
+  await runSafe('iptables', ['-D', 'FORWARD', '-d', vmIp, '-j', inC]);
+  await runSafe('iptables', ['-D', 'FORWARD', '-s', vmIp, '-j', outC]);
 
-  // Flush and remove chains
   for (const chain of [inC, outC]) {
     if (await chainExists(chain)) {
-      await execAsync(`iptables -F ${chain}`).catch(() => {});
-      await execAsync(`iptables -X ${chain}`).catch(() => {});
+      await runSafe('iptables', ['-F', chain]);
+      await runSafe('iptables', ['-X', chain]);
     }
   }
 
-  // Nothing to do if no rules and both defaults are allow and no stateful overrides
   if (
     rules.length === 0 &&
     defaultInbound === 'allow' &&
@@ -122,55 +130,53 @@ export async function applyFirewallRules(vmName: string, vmIp: string, cfg: Fire
     !allowEstablishedOutbound
   ) return;
 
-  // Create fresh chains
-  await execAsync(`iptables -N ${inC}`);
-  await execAsync(`iptables -N ${outC}`);
+  await run('iptables', ['-N', inC]);
+  await run('iptables', ['-N', outC]);
 
-  // Stateful: allow established/related traffic at the top of each chain
   if (allowEstablishedInbound) {
-    await execAsync(`iptables -A ${inC} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`).catch(() => {});
+    await runSafe('iptables', ['-A', inC, '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT']);
   }
   if (allowEstablishedOutbound) {
-    await execAsync(`iptables -A ${outC} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`).catch(() => {});
+    await runSafe('iptables', ['-A', outC, '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT']);
   }
 
   for (const rule of rules) {
     const chain = rule.direction === 'inbound' ? inC : outC;
     const target = rule.action === 'allow' ? 'ACCEPT' : 'DROP';
-    const parts: string[] = [`iptables -A ${chain}`];
-    if (rule.direction === 'inbound' && rule.source) parts.push(`-s ${rule.source}`);
-    if (rule.direction === 'outbound' && rule.destination) parts.push(`-d ${rule.destination}`);
-    if (rule.protocol !== 'all') {
-      parts.push(`-p ${rule.protocol}`);
-      if (rule.protocol === 'icmp' && rule.icmpType) {
-        parts.push(`--icmp-type ${rule.icmpType}`);
-      } else if (rule.portRange && (rule.protocol === 'tcp' || rule.protocol === 'udp')) {
-        parts.push(portArgs(rule.portRange));
+    const proto = validateProtocol(rule.protocol);
+    const args: string[] = ['-A', chain];
+    if (rule.direction === 'inbound' && rule.source) args.push('-s', validateIpv4OrCidr(rule.source));
+    if (rule.direction === 'outbound' && rule.destination) args.push('-d', validateIpv4OrCidr(rule.destination));
+    if (proto !== 'all') {
+      args.push('-p', proto);
+      if (proto === 'icmp' && rule.icmpType) {
+        args.push('--icmp-type', validateIcmpType(rule.icmpType));
+      } else if (rule.portRange && (proto === 'tcp' || proto === 'udp')) {
+        args.push(...portArgs(validatePortRange(rule.portRange)));
       }
     }
-    parts.push(`-j ${target}`);
-    parts.push(`-m comment --comment "virtpilot-fw-${vmName}"`);
-    await execAsync(parts.join(' ')).catch(() => {});
+    args.push('-j', target);
+    args.push('-m', 'comment', '--comment', `virtpilot-fw-${safeChainSegment(vmName)}`);
+    await runSafe('iptables', args);
   }
 
-  // Append default policy as a catch-all rule at the end of each chain
   const inDefault = defaultInbound === 'allow' ? 'ACCEPT' : 'DROP';
   const outDefault = defaultOutbound === 'allow' ? 'ACCEPT' : 'DROP';
-  await execAsync(`iptables -A ${inC} -j ${inDefault}`).catch(() => {});
-  await execAsync(`iptables -A ${outC} -j ${outDefault}`).catch(() => {});
+  await runSafe('iptables', ['-A', inC, '-j', inDefault]);
+  await runSafe('iptables', ['-A', outC, '-j', outDefault]);
 
-  // Insert jump rules at top of FORWARD
-  await execAsync(`iptables -I FORWARD -d ${vmIp} -j ${inC}`);
-  await execAsync(`iptables -I FORWARD -s ${vmIp} -j ${outC}`);
+  await run('iptables', ['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
+  await run('iptables', ['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
 }
 
-export async function removeVmFirewall(vmName: string, vmIp: string): Promise<void> {
+export async function removeVmFirewall(vmName: string, vmIpRaw: string): Promise<void> {
+  const vmIp = validateIpv4(vmIpRaw);
   const inC = inChain(vmName);
   const outC = outChain(vmName);
-  await execAsync(`iptables -D FORWARD -d ${vmIp} -j ${inC} 2>/dev/null`).catch(() => {});
-  await execAsync(`iptables -D FORWARD -s ${vmIp} -j ${outC} 2>/dev/null`).catch(() => {});
+  await runSafe('iptables', ['-D', 'FORWARD', '-d', vmIp, '-j', inC]);
+  await runSafe('iptables', ['-D', 'FORWARD', '-s', vmIp, '-j', outC]);
   for (const chain of [inC, outC]) {
-    await execAsync(`iptables -F ${chain} 2>/dev/null`).catch(() => {});
-    await execAsync(`iptables -X ${chain} 2>/dev/null`).catch(() => {});
+    await runSafe('iptables', ['-F', chain]);
+    await runSafe('iptables', ['-X', chain]);
   }
 }

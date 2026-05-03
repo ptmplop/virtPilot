@@ -1,13 +1,11 @@
 import { Router } from 'express';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
-
-const execAsync = promisify(exec);
+import { run, virsh } from '../services/safeExec.js';
+import { validateVmName } from '../lib/validate.js';
 import * as vmService from '../services/vmService.js';
 import * as deviceService from '../services/deviceService.js';
 import * as storageService from '../services/storageService.js';
@@ -129,7 +127,7 @@ vmsRouter.get('/:name/meta', async (req, res) => {
 
     if (!ip) {
       try {
-        const { stdout } = await execAsync(`virsh domifaddr "${req.params.name}" --source arp`);
+        const stdout = await virsh(['domifaddr', validateVmName(req.params.name), '--source', 'arp']);
         const match = stdout.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
         if (match) ip = match[1];
       } catch { /* VM not running or no lease yet */ }
@@ -368,22 +366,24 @@ vmsRouter.put('/:name/rename', async (req, res) => {
       return res.status(409).json({ error: `A VM named "${newName}" already exists` });
     } catch { /* expected */ }
 
-    // Dump current XML, replace <name> element, write to tmpfile
-    const { stdout: xml } = await execAsync(`virsh -c qemu:///system dumpxml "${name}"`);
-    const updatedXml = xml.replace(/<name>[^<]*<\/name>/, `<name>${newName}</name>`);
+    const safeName = validateVmName(name);
+    const safeNewName = validateVmName(newName);
+    // Dump current XML, replace <name> element, write to tmpfile.
+    const xml = await virsh(['dumpxml', safeName]);
+    // newName already validated, but escape to be defensive against XML
+    // metacharacters even though validateVmName disallows them.
+    const updatedXml = xml.replace(/<name>[^<]*<\/name>/, `<name>${safeNewName}</name>`);
     const tmpFile = path.join(os.tmpdir(), `virtpilot-rename-${randomUUID()}.xml`);
     await fs.writeFile(tmpFile, updatedXml, 'utf8');
 
     try {
-      // Undefine the old domain (keep NVRAM for UEFI VMs; keep snapshots metadata)
       try {
-        await execAsync(`virsh -c qemu:///system undefine "${name}" --keep-nvram --snapshots-metadata`);
+        await virsh(['undefine', safeName, '--keep-nvram', '--snapshots-metadata']);
       } catch {
-        await execAsync(`virsh -c qemu:///system undefine "${name}" --snapshots-metadata`);
+        await virsh(['undefine', safeName, '--snapshots-metadata']);
       }
 
-      // Define new domain with updated name
-      await execAsync(`virsh -c qemu:///system define "${tmpFile}"`);
+      await virsh(['define', tmpFile]);
     } finally {
       await fs.unlink(tmpFile).catch(() => {});
     }
@@ -768,7 +768,7 @@ vmsRouter.post('/:name/snapshots/:snapshot/to-template', async (req, res) => {
         const disks = await vmService.getVmDisks(name);
         const primaryDisk = disks.find((d) => d.target === 'vda' && d.source);
         if (primaryDisk?.source) {
-          const { stdout } = await execAsync(`qemu-img info --output=json "${primaryDisk.source}"`);
+          const stdout = await run('qemu-img', ['info', '--output=json', primaryDisk.source]);
           const info = JSON.parse(stdout) as { 'backing-filename'?: string };
           const backingFile = info['backing-filename'];
           if (backingFile) {
@@ -829,7 +829,7 @@ vmsRouter.post('/:name/firewall/apply', async (req, res) => {
     }
     if (!ip) {
       try {
-        const { stdout } = await execAsync(`virsh domifaddr "${name}" --source arp`);
+        const stdout = await virsh(['domifaddr', validateVmName(name), '--source', 'arp']);
         const match = stdout.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
         if (match) ip = match[1];
       } catch { /* VM not running */ }

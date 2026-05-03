@@ -1,5 +1,3 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -9,8 +7,8 @@ import { getUserSettings } from './userSettingsService.js';
 import { getVmInfo, getVmXml, getVmNics, getVmDisks } from './vmService.js';
 import { getVmMeta } from './vmMetaService.js';
 import { appendLog } from './logService.js';
-
-const execAsync = promisify(exec);
+import { run, virsh } from './safeExec.js';
+import { validateVmName } from '../lib/validate.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -279,8 +277,8 @@ async function _createBackupInner(
   // Freeze guest filesystems for app-consistent backup if guest agent is up
   if (vmInfo.status === 'running' && vmInfo.guestAgent) {
     try {
-      await execAsync(
-        `virsh -c ${config.libvirtUri} qemu-agent-command "${vmName}" '{"execute":"guest-fsfreeze-freeze"}' --timeout 5`,
+      await virsh(
+        ['qemu-agent-command', validateVmName(vmName), '{"execute":"guest-fsfreeze-freeze"}', '--timeout', '5'],
         { timeout: 10_000 }
       );
       frozen = true;
@@ -297,14 +295,12 @@ async function _createBackupInner(
 
       const destFilename = path.basename(disk.source);
       const destPath = path.join(bdir, destFilename);
-      // Fix 9: dropped -p (progress bar has nowhere to go over execAsync)
       // -U skips QEMU's exclusive write-lock so we can read a running VM's disk.
       // Safety is provided by guest-agent fsfreeze above (crash-consistent at minimum).
-      const convertFlags = compress ? '-c ' : '';
-      await execAsync(
-        `qemu-img convert -U ${convertFlags}-f qcow2 -O qcow2 "${disk.source}" "${destPath}"`,
-        { timeout: 60 * 60_000 }
-      );
+      const convertArgs = ['convert', '-U'];
+      if (compress) convertArgs.push('-c');
+      convertArgs.push('-f', 'qcow2', '-O', 'qcow2', disk.source, destPath);
+      await run('qemu-img', convertArgs, { timeout: 60 * 60_000 });
       const stat = await fs.stat(destPath);
       diskEntries.push({
         target: disk.target,
@@ -371,8 +367,8 @@ async function _createBackupInner(
   } finally {
     if (frozen) {
       try {
-        await execAsync(
-          `virsh -c ${config.libvirtUri} qemu-agent-command "${vmName}" '{"execute":"guest-fsfreeze-thaw"}' --timeout 5`,
+        await virsh(
+          ['qemu-agent-command', validateVmName(vmName), '{"execute":"guest-fsfreeze-thaw"}', '--timeout', '5'],
           { timeout: 10_000 }
         );
       } catch { /* best-effort */ }
@@ -413,9 +409,15 @@ export async function restoreBackup(vmName: string, id: string, newVmName?: stri
 
   // Fix 3: Write atomically — copy to .restoring temp file, then rename
   // Fix 10: Disk filenames (disk.qcow2, extra-disk-N.qcow2) are never VM-name-prefixed
+  // Defend against a manifest crafted with `disk.filename = "../../etc/cron.d/x"`:
+  // strip directory components and validate the leaf name before joining.
   for (const disk of manifest.disks) {
-    const src = path.join(bdir, disk.filename);
-    const dest = path.join(targetVmDir, disk.filename);
+    const safeFilename = path.basename(disk.filename);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.qcow2$/i.test(safeFilename)) {
+      throw new Error(`Refusing to restore: invalid disk filename in manifest (${disk.filename})`);
+    }
+    const src = path.join(bdir, safeFilename);
+    const dest = path.join(targetVmDir, safeFilename);
     const tmp = dest + '.restoring';
     try {
       await fs.copyFile(src, tmp);

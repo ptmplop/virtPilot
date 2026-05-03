@@ -1,17 +1,18 @@
 import { spawn } from 'child_process';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { config, VERSION } from '../config.js';
 import { listPhysicalNics } from '../services/networkService.js';
 import { getHistory, takeSample } from '../services/statsService.js';
 import { getSystemMetricsHistory } from '../services/systemMetricsService.js';
+import { run, runSafe, sudo, sudoSafe } from '../services/safeExec.js';
 import * as logService from '../services/logService.js';
+import { createRateLimiter } from '../lib/rateLimit.js';
+import { verifyTotp } from '../lib/totp.js';
+import { getUserSettings } from '../services/userSettingsService.js';
 
-const execAsync = promisify(exec);
 export const systemRouter = Router();
 
 const GITHUB_REPO = 'ptmplop/virtPilot';
@@ -49,13 +50,12 @@ systemRouter.get('/info', async (_req, res) => {
 
     let kernelVersion = 'unknown';
     try {
-      const { stdout } = await execAsync('uname -r', { timeout: 3000 });
-      kernelVersion = stdout.trim();
+      kernelVersion = (await run('uname', ['-r'], { timeout: 3000 })).trim();
     } catch { /* non-Linux or restricted */ }
 
     let qemuVersion = 'unknown';
     try {
-      const { stdout } = await execAsync('qemu-system-x86_64 --version', { timeout: 3000 });
+      const stdout = await run('qemu-system-x86_64', ['--version'], { timeout: 3000 });
       const m = stdout.match(/version\s+([^\s(]+)/i);
       if (m) qemuVersion = m[1];
     } catch { /* qemu not installed */ }
@@ -100,7 +100,7 @@ systemRouter.get('/metrics', (req, res) => {
 
 systemRouter.get('/apt', async (_req, res) => {
   try {
-    const { stdout } = await execAsync('apt list --upgradable 2>/dev/null', { timeout: 15_000 });
+    const stdout = (await runSafe('apt', ['list', '--upgradable'], { timeout: 15_000 })) ?? '';
     const packages = stdout
       .split('\n')
       .filter((l) => l.includes('/'))
@@ -147,7 +147,8 @@ systemRouter.get('/apt/upgrade', (req, res) => {
       for (const l of job.listeners) l({ type, text });
     };
 
-    const proc = spawn('apt-get', ['-y', 'upgrade'], {
+    // apt-get upgrade requires root — go through the sudoers allow-list.
+    const proc = spawn('sudo', ['-n', 'apt-get', '-y', 'upgrade'], {
       env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive', PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
     });
 
@@ -254,7 +255,7 @@ async function inspectRepo(): Promise<{ ok: boolean; reason?: string; remoteUrl?
     return { ok: false, reason: `No .git directory at ${config.repoDir}` };
   }
   try {
-    const { stdout } = await execAsync('git remote get-url origin', {
+    const stdout = await run('git', ['remote', 'get-url', 'origin'], {
       cwd: config.repoDir, timeout: 5_000,
     });
     const url = stdout.trim();
@@ -284,12 +285,37 @@ systemRouter.get('/version', async (req, res) => {
   });
 });
 
+// Rate-limit the upgrade endpoint so it can't be invoked in a tight loop.
+// 1 attempt per 5 minutes is plenty (an upgrade takes minutes anyway).
+const upgradeLimiter = createRateLimiter('upgrade', {
+  windowMs: 5 * 60_000,
+  max: 1,
+  blockMs: 60_000,
+  message: 'Upgrade already in flight or rate-limited.',
+});
+
+// When 2FA is enabled, require a fresh TOTP code as step-up before allowing
+// an upgrade. Bypassing this would let a stolen JWT push a malicious tag
+// through the self-upgrade path.
+async function requireUpgradeStepUp(req: Request, res: Response): Promise<boolean> {
+  const settings = await getUserSettings();
+  if (!settings.totpEnabled || !settings.totpSecret) return true;
+  const code = req.query.totp;
+  if (typeof code !== 'string' || !verifyTotp(settings.totpSecret, code)) {
+    res.status(401).json({ error: 'Two-factor code required (?totp=…) to authorise upgrade' });
+    return false;
+  }
+  return true;
+}
+
 // SSE upgrade endpoint. Spawns update.sh inside a transient systemd unit
 // (`virtpilot-update.service`) so it escapes virtpilot.service's cgroup and
 // survives the `systemctl restart virtpilot` that update.sh issues at the end.
 // We tail `journalctl -fu` to stream output. Multiple clients can attach and
 // will see the same live output.
-systemRouter.get('/upgrade', async (req, res) => {
+systemRouter.get('/upgrade', upgradeLimiter, async (req, res) => {
+  if (!(await requireUpgradeStepUp(req, res))) return;
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -309,34 +335,34 @@ systemRouter.get('/upgrade', async (req, res) => {
     return;
   }
 
-  // Clear any prior failed state
-  try { await execAsync(`systemctl reset-failed ${UPDATE_UNIT}.service`); } catch { /* may not exist */ }
+  await sudoSafe('systemctl', ['reset-failed', `${UPDATE_UNIT}.service`]);
 
-  // Defence-in-depth: discard any local drift to package-lock.json (rewritten by
-  // a previous `npm install` with host-specific binary entries) so update.sh's
-  // `git pull --ff-only` doesn't abort. update.sh from v1.15.1+ also does this
-  // internally; doing it here too means the backend orchestrator ensures the
-  // precondition even if a future update.sh ever loses its own cleanup.
-  try {
-    await execAsync('git checkout -- package-lock.json', {
-      cwd: config.repoDir,
-      timeout: 5_000,
-    });
-  } catch { /* lockfile may not be tracked or have no drift */ }
+  // Defence-in-depth: discard any local drift to package-lock.json so
+  // update.sh's `git pull --ff-only` doesn't abort.
+  await runSafe('git', ['checkout', '--', 'package-lock.json'], {
+    cwd: config.repoDir,
+    timeout: 5_000,
+  });
 
-  const isActive = await execAsync(`systemctl is-active ${UPDATE_UNIT}.service`)
-    .then(() => true).catch(() => false);
+  const isActive = (await runSafe('systemctl', ['is-active', `${UPDATE_UNIT}.service`])) !== null;
 
   const start = Date.now();
   if (!isActive) {
     write('meta', `Starting upgrade in transient unit ${UPDATE_UNIT}…\n`);
     const updateScript = path.join(config.repoDir, 'update.sh');
     try {
-      await execAsync(
-        `systemd-run --unit=${UPDATE_UNIT} --collect --no-block ` +
-        `--property=Type=oneshot --property=StandardOutput=journal ` +
-        `--property=StandardError=journal --property=WorkingDirectory=${config.repoDir} ` +
-        `bash ${updateScript}`,
+      await sudo(
+        'systemd-run',
+        [
+          `--unit=${UPDATE_UNIT}`,
+          '--collect',
+          '--no-block',
+          '--property=Type=oneshot',
+          '--property=StandardOutput=journal',
+          '--property=StandardError=journal',
+          `--property=WorkingDirectory=${config.repoDir}`,
+          'bash', updateScript,
+        ],
         { timeout: 10_000 },
       );
     } catch (err) {
@@ -359,35 +385,28 @@ systemRouter.get('/upgrade', async (req, res) => {
   // Poll the unit's state — when it goes inactive, emit `done` with exit code
   const poll = setInterval(async () => {
     if (closed) return;
+    const stillActive = (await runSafe('systemctl', ['is-active', `${UPDATE_UNIT}.service`])) !== null;
+    if (stillActive) return;
+    clearInterval(poll);
+    let exitCode = 0;
     try {
-      await execAsync(`systemctl is-active ${UPDATE_UNIT}.service`);
-      // still active
-    } catch {
-      // Inactive — read exit status, then close
-      clearInterval(poll);
-      let exitCode = 0;
-      try {
-        const { stdout } = await execAsync(
-          `systemctl show -p ExecMainStatus --value ${UPDATE_UNIT}.service`,
-        );
-        exitCode = parseInt(stdout.trim(), 10) || 0;
-      } catch { /* keep 0 */ }
-      // Allow journalctl 1s to drain final output
-      setTimeout(() => {
-        if (!closed) {
-          write('done', String(exitCode));
-          tail.kill();
-          safeEnd();
-        }
-      }, 1000);
-      void logService.appendLog({
-        type: 'system.virtpilot.upgrade',
-        subject: 'host',
-        status: exitCode === 0 ? 'success' : 'error',
-        output: `Upgrade unit ${UPDATE_UNIT} exited ${exitCode}`,
-        durationMs: Date.now() - start,
-      });
-    }
+      const stdout = await run('systemctl', ['show', '-p', 'ExecMainStatus', '--value', `${UPDATE_UNIT}.service`]);
+      exitCode = parseInt(stdout.trim(), 10) || 0;
+    } catch { /* keep 0 */ }
+    setTimeout(() => {
+      if (!closed) {
+        write('done', String(exitCode));
+        tail.kill();
+        safeEnd();
+      }
+    }, 1000);
+    void logService.appendLog({
+      type: 'system.virtpilot.upgrade',
+      subject: 'host',
+      status: exitCode === 0 ? 'success' : 'error',
+      output: `Upgrade unit ${UPDATE_UNIT} exited ${exitCode}`,
+      durationMs: Date.now() - start,
+    });
   }, 2_000);
 
   req.on('close', () => {

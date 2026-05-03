@@ -50,6 +50,7 @@ fi
 # Absolute path to the directory containing this script (the project root)
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STANDARD_DIR="/usr/local/virtpilot"
+SERVICE_USER="virtpilot"
 
 info "Project root: ${INSTALL_DIR}"
 
@@ -103,6 +104,18 @@ else
   log "Node.js $(node --version) installed"
 fi
 
+# ─── Service user ─────────────────────────────────────────────────────────────
+# Run the backend as a dedicated unprivileged user. libvirt access is granted
+# via `libvirt` group membership; the user has no shell and no home directory
+# of its own beyond the install dir.
+if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
+  info "Creating ${SERVICE_USER} system user..."
+  useradd --system --shell /usr/sbin/nologin --home-dir "${INSTALL_DIR}" --comment "VirtPilot service" "${SERVICE_USER}"
+  log "Created ${SERVICE_USER}"
+fi
+usermod -aG libvirt "${SERVICE_USER}" || true
+usermod -aG kvm "${SERVICE_USER}" || true
+
 # ─── libvirtd ─────────────────────────────────────────────────────────────────
 systemctl enable --quiet libvirtd
 systemctl start libvirtd
@@ -111,7 +124,15 @@ log "libvirtd running"
 # ─── Build ────────────────────────────────────────────────────────────────────
 info "Installing npm dependencies (this may take a minute on first run)..."
 cd "$INSTALL_DIR"
-npm install --no-fund --no-audit
+# Use `npm ci` to enforce the lockfile — refuses to install if the lockfile
+# disagrees with package.json, defending against tampered npm registry mirrors.
+# Falls back to `npm install` if the lockfile is missing (first-time clones
+# from a tag that pre-dates lockfile commits).
+if [[ -f package-lock.json ]]; then
+  npm ci --no-fund --no-audit
+else
+  npm install --no-fund --no-audit
+fi
 
 info "Building VirtPilot..."
 npm run build 2>&1
@@ -125,8 +146,13 @@ mkdir -p \
   /var/lib/virtpilot/vms \
   /var/lib/virtpilot/cloud-init \
   /var/lib/virtpilot/backups
-chmod -R 755 /var/lib/virtpilot
+chown -R "${SERVICE_USER}:${SERVICE_USER}" /var/lib/virtpilot
+chmod 750 /var/lib/virtpilot
 log "Storage ready"
+
+# Ownership of the install dir — the service needs to write update logs and
+# the dashboard self-upgrade needs to git-pull and npm-ci.
+chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}"
 
 # ─── TLS self-signed certificate ──────────────────────────────────────────────
 TLS_DIR="/var/lib/virtpilot/tls"
@@ -134,9 +160,15 @@ mkdir -p "${TLS_DIR}"
 chmod 700 "${TLS_DIR}"
 
 if [[ ! -f "${TLS_DIR}/cert.pem" || ! -f "${TLS_DIR}/key.pem" ]]; then
-  HOST_NAME="$(hostname)"
+  HOST_NAME="$(hostname -f 2>/dev/null || hostname)"
   PRIMARY_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
   PRIMARY_IP="${PRIMARY_IP:-127.0.0.1}"
+  # CN must be a real hostname — `CN=test` (the previous default in some
+  # environments) makes browser warnings even less informative than they
+  # already are. If hostname is empty, fall back to the primary IP.
+  if [[ -z "${HOST_NAME}" || "${HOST_NAME}" == "test" ]]; then
+    HOST_NAME="${PRIMARY_IP}"
+  fi
   info "Generating self-signed TLS certificate (10 year validity, CN=${HOST_NAME})..."
   openssl req -x509 -nodes -newkey rsa:2048 \
     -keyout "${TLS_DIR}/key.pem" \
@@ -147,9 +179,11 @@ if [[ ! -f "${TLS_DIR}/cert.pem" || ! -f "${TLS_DIR}/key.pem" ]]; then
     >/dev/null 2>&1
   chmod 600 "${TLS_DIR}/key.pem"
   chmod 644 "${TLS_DIR}/cert.pem"
+  chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TLS_DIR}"
   log "TLS certificate generated at ${TLS_DIR}/"
 else
   log "TLS certificate already present — leaving in place"
+  chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TLS_DIR}"
 fi
 
 # ─── Password setup ───────────────────────────────────────────────────────────
@@ -160,8 +194,6 @@ if [[ -n "${VP_PASSWORD:-}" ]]; then
   fi
   log "Using VP_PASSWORD from environment"
 else
-  # When invoked via `curl ... | sudo bash`, stdin is the curl pipe (already
-  # consumed), so read directly from the controlling terminal instead.
   if [[ ! -r /dev/tty ]]; then
     die "No TTY available for password prompt. Either run install.sh from an interactive shell, or pass VP_PASSWORD=... in the environment."
   fi
@@ -182,14 +214,36 @@ else
   echo ""
 fi
 
-# ─── Generate JWT secret ──────────────────────────────────────────────────────
+# Hash the password so the .env never contains plaintext credentials. We use
+# the same scrypt format the backend's password.ts module uses (parsed back at
+# runtime). Doing the hashing here means the plaintext lives only in this
+# script's memory — never on disk.
+info "Hashing login password..."
+AUTH_PASSWORD_HASH="$(VP_PWD="${VP_PASSWORD}" node -e '
+const { scryptSync, randomBytes } = require("crypto");
+const pwd = process.env.VP_PWD;
+const salt = randomBytes(16);
+const N = 16384, r = 8, p = 1;
+const derived = scryptSync(pwd, salt, 64, { N, r, p, maxmem: 64 * 1024 * 1024 });
+process.stdout.write(`scrypt$N=${N},r=${r},p=${p}$${salt.toString("hex")}$${derived.toString("hex")}`);
+')"
+unset VP_PASSWORD VP_PASSWORD2
+
+# ─── Generate JWT and at-rest encryption secrets ────────────────────────────
 JWT_SECRET=$(openssl rand -hex 32)
+ENCRYPTION_KEY=$(openssl rand -hex 32)
 
 # ─── Write .env ───────────────────────────────────────────────────────────────
 info "Writing configuration..."
-cat > "${INSTALL_DIR}/packages/backend/.env" << EOF
+ENV_FILE="${INSTALL_DIR}/packages/backend/.env"
+cat > "${ENV_FILE}" << EOF
 PORT=3001
 NODE_ENV=production
+# When nginx fronts the backend (PORT is changed to ${BACKEND_PORT} below in
+# that flow), keep the listener on 127.0.0.1 so only nginx can reach it. If
+# you opt out of nginx, BIND_ADDRESS is rewritten to 0.0.0.0 so the dashboard
+# stays reachable on :${PUBLIC_PORT}.
+BIND_ADDRESS=127.0.0.1
 
 STORAGE_ROOT=/var/lib/virtpilot
 TEMPLATES_DIR=/var/lib/virtpilot/templates
@@ -205,11 +259,172 @@ LIBVIRT_URI=qemu:///system
 # Repo path — used by the in-dashboard self-upgrade to locate update.sh
 VIRTPILOT_REPO_DIR=${INSTALL_DIR}
 
-AUTH_PASSWORD=${VP_PASSWORD}
+# Comma-separated list of extra browser origins permitted by CORS. Empty means
+# same-origin only (correct when the SPA is served by this backend).
+ALLOWED_ORIGINS=
+
+AUTH_PASSWORD_HASH=${AUTH_PASSWORD_HASH}
 JWT_SECRET=${JWT_SECRET}
+ENCRYPTION_KEY=${ENCRYPTION_KEY}
 EOF
-chmod 600 "${INSTALL_DIR}/packages/backend/.env"
+chown "${SERVICE_USER}:${SERVICE_USER}" "${ENV_FILE}"
+chmod 600 "${ENV_FILE}"
 log "Configuration written"
+
+# ─── Reverse proxy (nginx) ────────────────────────────────────────────────────
+# nginx fronts the dashboard on the public port (3001 by default — same as
+# before) using the self-signed cert we just generated. The Node backend stays
+# bound to 127.0.0.1 on an internal port (3002) and never touches the public
+# network. Same URL the operator already uses (https://host:3001), with all
+# the usual benefits of having a real reverse proxy in the request path.
+#
+# Ports 80 and 443 are intentionally left alone.
+
+PUBLIC_PORT=3001
+BACKEND_PORT=3002
+
+if [[ -n "${VP_NGINX:-}" ]]; then
+  INSTALL_NGINX="${VP_NGINX}"
+elif [[ ! -r /dev/tty ]]; then
+  INSTALL_NGINX="no"
+else
+  echo ""
+  echo -e "${BOLD}Reverse proxy (nginx)${NC}"
+  echo "  nginx will listen on port ${PUBLIC_PORT} with the self-signed cert and"
+  echo "  proxy to the Node backend on 127.0.0.1:${BACKEND_PORT}. Ports 80 and 443"
+  echo "  are not touched."
+  echo ""
+  echo "  Skipping leaves the backend reachable directly on 0.0.0.0:${PUBLIC_PORT}"
+  echo "  with its own self-signed TLS — same as before."
+  echo ""
+  while true; do
+    read -rp "  Set up nginx? [Y/n] " ans < /dev/tty
+    case "${ans:-Y}" in
+      Y|y) INSTALL_NGINX="yes"; break ;;
+      N|n) INSTALL_NGINX="no"; break ;;
+      *)   warn "Please answer Y or n." ;;
+    esac
+  done
+fi
+
+if [[ "${INSTALL_NGINX}" == "yes" ]]; then
+  info "Installing nginx..."
+  apt-get install -y -qq nginx
+
+  # nginx (running as www-data) needs to read the private key.
+  chgrp www-data "${TLS_DIR}/key.pem"
+  chmod 640 "${TLS_DIR}/key.pem"
+
+  info "Writing VirtPilot nginx site..."
+  cat > /etc/nginx/sites-available/virtpilot << NGINXSITE
+# VirtPilot — managed by install.sh
+# Public TLS termination on ${PUBLIC_PORT}; backend on 127.0.0.1:${BACKEND_PORT}.
+
+server {
+    listen ${PUBLIC_PORT} ssl http2;
+    listen [::]:${PUBLIC_PORT} ssl http2;
+    server_name _;
+
+    ssl_certificate ${TLS_DIR}/cert.pem;
+    ssl_certificate_key ${TLS_DIR}/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:VirtPilotSSL:10m;
+    ssl_session_tickets off;
+
+    # ISO and template uploads can be 50–100 GB.
+    client_max_body_size 100G;
+
+    # Don't buffer — required for streaming SSE (system upgrade output) and
+    # chunked uploads/downloads. The dashboard has no traffic profile that
+    # benefits from nginx buffering.
+    proxy_buffering off;
+    proxy_request_buffering off;
+
+    # Console / SSH / VNC sessions can sit idle for a long time.
+    proxy_read_timeout 1d;
+    proxy_send_timeout 1d;
+
+    # WebSocket endpoints — need the Upgrade/Connection dance.
+    location /ws/ {
+        proxy_pass http://127.0.0.1:${BACKEND_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${BACKEND_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+NGINXSITE
+  ln -sf /etc/nginx/sites-available/virtpilot /etc/nginx/sites-enabled/virtpilot
+
+  # Pull nginx's default vhost off port 80 only if it's currently enabled —
+  # don't clobber a config the operator might have already customised.
+  rm -f /etc/nginx/sites-enabled/default
+
+  if ! nginx -t >/dev/null 2>&1; then
+    nginx -t || true
+    die "nginx config validation failed. Check /etc/nginx/sites-available/virtpilot"
+  fi
+
+  systemctl enable --quiet nginx
+  systemctl restart nginx
+  log "nginx listening on :${PUBLIC_PORT} with the self-signed cert"
+
+  # Move the backend off the public port and disable its own TLS — nginx
+  # terminates TLS on ${PUBLIC_PORT}, the backend speaks plain HTTP locally.
+  sed -i "s|^PORT=.*|PORT=${BACKEND_PORT}|" "${ENV_FILE}"
+  sed -i 's|^TLS_CERT_PATH=.*|TLS_CERT_PATH=|' "${ENV_FILE}" || true
+  sed -i 's|^TLS_KEY_PATH=.*|TLS_KEY_PATH=|' "${ENV_FILE}" || true
+  grep -q '^TLS_CERT_PATH=' "${ENV_FILE}" || echo "TLS_CERT_PATH=" >> "${ENV_FILE}"
+  grep -q '^TLS_KEY_PATH=' "${ENV_FILE}" || echo "TLS_KEY_PATH=" >> "${ENV_FILE}"
+
+  # Firewall: allow public access to nginx, deny direct backend.
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
+    ufw allow ${PUBLIC_PORT}/tcp >/dev/null 2>&1 || true
+    ufw deny ${BACKEND_PORT}/tcp >/dev/null 2>&1 || true
+    log "Opened ${PUBLIC_PORT}, denied ${BACKEND_PORT} in UFW"
+  fi
+
+  USE_NGINX=true
+else
+  warn "Skipping nginx setup."
+  warn "  Backend will bind to 0.0.0.0:${PUBLIC_PORT} directly — ${BOLD}port ${PUBLIC_PORT} is reachable from the internet.${NC}"
+  warn "  Run install.sh again with VP_NGINX=yes to add nginx in front later."
+  sed -i 's|^BIND_ADDRESS=.*|BIND_ADDRESS=0.0.0.0|' "${ENV_FILE}"
+  USE_NGINX=false
+fi
+
+# ─── Sudoers rules ────────────────────────────────────────────────────────────
+# The service user needs to run a tiny set of privileged commands:
+#  - iptables / ip link (firewall + bridge management)
+#  - systemd-run / systemctl (self-upgrade orchestration)
+#  - bash update.sh (the upgrade itself)
+# Everything else stays under the unprivileged account. NOPASSWD because the
+# service has no interactive session.
+SUDOERS_FILE="/etc/sudoers.d/virtpilot"
+info "Writing sudoers rules..."
+cat > "${SUDOERS_FILE}" << EOF
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/sbin/iptables, /sbin/iptables, /usr/sbin/ip, /sbin/ip
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemd-run, /bin/systemctl, /usr/bin/systemctl
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/journalctl
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/bash ${INSTALL_DIR}/update.sh
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get
+EOF
+chmod 0440 "${SUDOERS_FILE}"
+visudo -cf "${SUDOERS_FILE}" >/dev/null
+log "Sudoers rules installed"
 
 # ─── Systemd service ──────────────────────────────────────────────────────────
 NODE_BIN="$(command -v node)"
@@ -223,6 +438,15 @@ Wants=libvirtd.service
 
 [Service]
 Type=simple
+User=${SERVICE_USER}
+Group=${SERVICE_USER}
+# libvirt for virsh/qemu. kvm for /dev/kvm device access. systemd-journal so
+# the in-app self-upgrade can stream the unit's journal output. NoNewPrivileges
+# below means we MUST grant CAP_NET_ADMIN here rather than via sudo, otherwise
+# iptables/ip-link calls would fail.
+SupplementaryGroups=libvirt kvm systemd-journal
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 WorkingDirectory=${INSTALL_DIR}
 ExecStart=${NODE_BIN} ${INSTALL_DIR}/packages/backend/dist/index.js
 EnvironmentFile=${INSTALL_DIR}/packages/backend/.env
@@ -231,6 +455,25 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=virtpilot
+
+# Hardening — limits the blast radius if the backend is ever exploited. Any
+# RCE inside the Node process now lands in a sandbox: no new privileges, no
+# kernel tunable writes, no module loads, no setuid execs.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+# The service legitimately needs to read /var/lib/virtpilot and the install
+# dir, and to write update logs. Everything else is read-only.
+ReadWritePaths=/var/lib/virtpilot ${INSTALL_DIR}
 
 [Install]
 WantedBy=multi-user.target
@@ -257,14 +500,25 @@ echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━�
 echo -e "${BOLD}  VirtPilot is installed and running!${NC}"
 echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  ${BOLD}Web UI:${NC}      ${CYAN}https://${HOST_IP}:3001${NC}"
+echo -e "  ${BOLD}Web UI:${NC}      ${CYAN}https://${HOST_IP}:${PUBLIC_PORT}${NC}"
 echo -e "  ${BOLD}Password:${NC}    the one you just set"
 echo ""
 echo -e "  ${YELLOW}Note:${NC} The TLS certificate is self-signed, so your browser will"
 echo -e "        warn on first visit. Click \"Advanced → Proceed\" to continue."
 echo ""
+if [[ "${USE_NGINX}" == "true" ]]; then
+  echo -e "  ${BOLD}Front:${NC} nginx on :${PUBLIC_PORT} (TLS) → backend 127.0.0.1:${BACKEND_PORT} (HTTP)"
+else
+  echo -e "  ${YELLOW}Heads up:${NC} nginx wasn't installed, so the backend serves directly on"
+  echo -e "        :${PUBLIC_PORT}. Re-run install.sh with VP_NGINX=yes to add it later."
+fi
+echo ""
 echo -e "  ${BOLD}Useful commands:${NC}"
 echo -e "    systemctl status virtpilot"
 echo -e "    journalctl -u virtpilot -f"
 echo -e "    systemctl restart virtpilot"
+if [[ "${USE_NGINX}" == "true" ]]; then
+  echo -e "    systemctl reload nginx          # after editing /etc/nginx/sites-available/virtpilot"
+  echo -e "    nginx -t                        # validate nginx config"
+fi
 echo ""

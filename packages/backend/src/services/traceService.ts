@@ -1,7 +1,9 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
+// All process execution funnels through `safeExec.run()` which uses execFile
+// with an argument array — never a shell-interpreted command string. This
+// service exposes a thin trace-decorating wrapper for command-line operations
+// the user can inspect post-mortem.
 
-const execAsync = promisify(exec);
+import { run } from './safeExec.js';
 
 export interface TraceEntry {
   cmd: string;
@@ -21,25 +23,14 @@ export function formatTrace(trace: TraceEntry[]): string {
   }).join('\n\n');
 }
 
+// Run a command with array args, recording the invocation in `trace` for
+// dashboard display. Use this everywhere we used to call `execTraced(cmd)`
+// with a concatenated string.
 export async function execTraced(
-  cmd: string,
+  file: string,
+  args: readonly string[],
   trace: TraceEntry[],
-  opts?: { timeout?: number }
+  opts?: { timeout?: number },
 ): Promise<string> {
-  try {
-    const { stdout, stderr } = await execAsync(cmd, opts);
-    const out = String(stdout).trim();
-    const err = String(stderr).trim();
-    trace.push({ cmd, stdout: out, stderr: err, exitCode: 0 });
-    return out;
-  } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; code?: number };
-    trace.push({
-      cmd,
-      stdout: e.stdout?.trim() ?? '',
-      stderr: e.stderr?.trim() ?? '',
-      exitCode: e.code ?? 1,
-    });
-    throw err;
-  }
+  return run(file, args, { timeout: opts?.timeout, trace });
 }

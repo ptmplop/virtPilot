@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { config } from '../config.js';
+import { encryptSecret, decryptSecret } from '../lib/secretsCrypto.js';
 
 export interface VmNetworkAlloc {
   networkId: string;
@@ -21,7 +22,7 @@ export interface VmMeta {
 
 const metaPath = () => path.join(config.storageRoot, 'vm-metadata.json');
 
-async function readAll(): Promise<VmMeta[]> {
+async function readAllRaw(): Promise<VmMeta[]> {
   try {
     return JSON.parse(await fs.readFile(metaPath(), 'utf8'));
   } catch {
@@ -29,8 +30,16 @@ async function readAll(): Promise<VmMeta[]> {
   }
 }
 
+async function readAll(): Promise<VmMeta[]> {
+  const all = await readAllRaw();
+  // Decrypt passwords on read. Legacy plaintext values pass through.
+  return all.map((m) => ({ ...m, password: decryptSecret(m.password) ?? '' }));
+}
+
 async function writeAll(entries: VmMeta[]): Promise<void> {
-  await fs.writeFile(metaPath(), JSON.stringify(entries, null, 2), 'utf8');
+  // Encrypt passwords on write.
+  const onDisk = entries.map((m) => ({ ...m, password: encryptSecret(m.password) ?? '' }));
+  await fs.writeFile(metaPath(), JSON.stringify(onDisk, null, 2), { encoding: 'utf8', mode: 0o600 });
 }
 
 export async function saveVmMeta(meta: VmMeta): Promise<void> {

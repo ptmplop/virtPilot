@@ -1,11 +1,9 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
-
-const execAsync = promisify(exec);
+import { run, runSafe, virsh } from './safeExec.js';
+import { validateBridgeName, validateNicName } from '../lib/validate.js';
 
 export type NetworkType = 'nat' | 'bridge' | 'existing-bridge';
 export type BridgeIpMode = 'dhcp' | 'static';
@@ -204,9 +202,9 @@ export async function createNatNetwork(opts: {
   const xmlPath = path.join(config.storageRoot, `net-${id}.xml`);
   await fs.writeFile(xmlPath, xml, 'utf8');
   try {
-    await execAsync(`virsh net-define "${xmlPath}"`);
-    await execAsync(`virsh net-start "${libvirtName}"`);
-    await execAsync(`virsh net-autostart "${libvirtName}"`);
+    await virsh(['net-define', xmlPath]);
+    await virsh(['net-start', libvirtName]);
+    await virsh(['net-autostart', libvirtName]);
   } finally {
     await fs.unlink(xmlPath).catch(() => {});
   }
@@ -234,23 +232,24 @@ export async function createBridgeNetwork(opts: {
   const bridge = `vp${nextBridgeIndex(networks)}`;
 
   if (opts.physicalNic) {
-    const { stdout: addrOut } = await execAsync(
-      `ip -4 addr show dev ${opts.physicalNic} scope global 2>/dev/null || true`
-    );
+    const nic = validateNicName(opts.physicalNic);
+    const addrOut = await runSafe('ip', ['-4', 'addr', 'show', 'dev', nic, 'scope', 'global']) ?? '';
     if (/inet /.test(addrOut)) {
       throw new Error(
-        `${opts.physicalNic} has active IP addresses — enslaving it would drop host connectivity. ` +
+        `${nic} has active IP addresses — enslaving it would drop host connectivity. ` +
         `Configure the bridge at the OS level first (netplan / /etc/network/interfaces), ` +
         `then attach it here using "Existing OS bridge".`
       );
     }
   }
 
-  await execAsync(`ip link add ${bridge} type bridge`);
-  await execAsync(`ip link set ${bridge} up`);
+  const safeBridge = validateBridgeName(bridge);
+  await run('ip', ['link', 'add', safeBridge, 'type', 'bridge']);
+  await run('ip', ['link', 'set', safeBridge, 'up']);
 
   if (opts.physicalNic) {
-    await execAsync(`ip link set ${opts.physicalNic} master ${bridge}`);
+    const nic = validateNicName(opts.physicalNic);
+    await run('ip', ['link', 'set', nic, 'master', safeBridge]);
   }
 
   const network: Network = {
@@ -277,9 +276,8 @@ export async function createExistingBridgeNetwork(opts: {
   ipMode: BridgeIpMode;
   dns?: string[];
 }): Promise<Network> {
-  const { stdout } = await execAsync(
-    `ip link show dev ${opts.bridge} type bridge 2>/dev/null || true`
-  );
+  const safeBridge = validateBridgeName(opts.bridge);
+  const stdout = await runSafe('ip', ['link', 'show', 'dev', safeBridge, 'type', 'bridge']) ?? '';
   if (!stdout.trim()) {
     throw new Error(
       `Bridge "${opts.bridge}" does not exist on this host. ` +
@@ -316,17 +314,20 @@ export async function deleteNetwork(id: string): Promise<void> {
   }
 
   if (network.type === 'nat' && network.libvirtName) {
-    try { await execAsync(`virsh net-destroy "${network.libvirtName}"`); } catch { /* already stopped */ }
-    try { await execAsync(`virsh net-undefine "${network.libvirtName}"`); } catch { /* not in libvirt */ }
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(network.libvirtName)) throw new Error('Invalid libvirt network name');
+    await runSafe('virsh', ['-c', config.libvirtUri, 'net-destroy', network.libvirtName]);
+    await runSafe('virsh', ['-c', config.libvirtUri, 'net-undefine', network.libvirtName]);
   }
 
   // existing-bridge networks are OS-managed — never touch the bridge interface
   if (network.type === 'bridge' && /^vp\d+$/.test(network.bridge)) {
     if (network.physicalNic) {
-      try { await execAsync(`ip link set ${network.physicalNic} nomaster`); } catch { /* already detached */ }
+      try {
+        await runSafe('ip', ['link', 'set', validateNicName(network.physicalNic), 'nomaster']);
+      } catch { /* already detached */ }
     }
-    try { await execAsync(`ip link set ${network.bridge} down`); } catch { /* already down */ }
-    try { await execAsync(`ip link delete ${network.bridge}`); } catch { /* not found */ }
+    await runSafe('ip', ['link', 'set', network.bridge, 'down']);
+    await runSafe('ip', ['link', 'delete', network.bridge]);
   }
 
   await writeNetworks(networks.filter((n) => n.id !== id));
@@ -400,9 +401,10 @@ export async function listPhysicalNics(): Promise<HostNic[]> {
     } catch { /* interface may be down */ }
 
     try {
-      const { stdout: addrOut } = await execAsync(
-        `ip -4 addr show dev ${name} scope global 2>/dev/null || true`
-      );
+      // Sysfs only ever contains alphanumeric+:.-_ in interface names, but
+      // we still validate before letting it ride in argv.
+      const safeName = validateNicName(name);
+      const addrOut = await runSafe('ip', ['-4', 'addr', 'show', 'dev', safeName, 'scope', 'global']) ?? '';
       hasIps = /inet /.test(addrOut);
     } catch { /* ignore */ }
 

@@ -17,6 +17,12 @@ die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 REPO_URL="https://github.com/ptmplop/virtPilot.git"
 INSTALL_DIR="/usr/local/virtpilot"
 
+# Pin to the latest published release by default. Operators can override with
+# VP_REF=main for development checkouts, or VP_REF=v1.20.0 for a specific
+# version. Pinning means a compromise of `main` doesn't auto-deploy to every
+# new install — you have to explicitly opt in to a tag that's been signed off.
+VP_REF="${VP_REF:-}"
+
 # ─── Pre-flight ───────────────────────────────────────────────────────────────
 echo -e "${BOLD}  VirtPilot — Bootstrap${NC}"
 echo -e "  Clones VirtPilot to ${INSTALL_DIR} and runs the installer\n"
@@ -41,27 +47,47 @@ if [[ "${ID:-}" != "ubuntu" ]] || [[ "${VERSION_ID:-}" != "24.04" ]]; then
   die "Unsupported OS: ${PRETTY_NAME:-unknown}. VirtPilot supports Ubuntu 24.04 only."
 fi
 
-# ─── Ensure git is present ────────────────────────────────────────────────────
-if ! command -v git >/dev/null 2>&1; then
-  info "Installing git..."
+# ─── Ensure git + curl/jq are present ────────────────────────────────────────
+need_install=()
+command -v git >/dev/null 2>&1 || need_install+=(git)
+command -v curl >/dev/null 2>&1 || need_install+=(curl)
+command -v jq >/dev/null 2>&1 || need_install+=(jq)
+if [[ ${#need_install[@]} -gt 0 ]]; then
+  info "Installing prerequisites: ${need_install[*]}..."
   apt-get update -qq
-  apt-get install -y -qq git
-  log "git installed"
+  apt-get install -y -qq "${need_install[@]}"
+fi
+
+# ─── Resolve the ref to deploy ───────────────────────────────────────────────
+if [[ -z "${VP_REF}" ]]; then
+  info "Resolving latest VirtPilot release..."
+  if VP_REF="$(curl -fsSL --max-time 15 \
+      'https://api.github.com/repos/ptmplop/virtPilot/releases/latest' \
+      | jq -r '.tag_name')" && [[ -n "${VP_REF}" && "${VP_REF}" != "null" ]]; then
+    log "Will check out ${VP_REF} (latest release)"
+  else
+    die "Failed to resolve the latest release tag. Set VP_REF=v<version> manually, or VP_REF=main to track main."
+  fi
+else
+  log "Using VP_REF=${VP_REF}"
 fi
 
 # ─── Clone or update ──────────────────────────────────────────────────────────
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
-  info "Existing clone found at ${INSTALL_DIR} — pulling latest..."
+  info "Existing clone found at ${INSTALL_DIR} — fetching..."
   cd "${INSTALL_DIR}"
-  git fetch --quiet origin
-  git reset --hard --quiet origin/main
-  log "Updated to $(git rev-parse --short HEAD)"
+  git fetch --quiet --tags origin
+  git reset --hard --quiet "${VP_REF}"
+  log "Updated to $(git rev-parse --short HEAD) (${VP_REF})"
 elif [[ -e "${INSTALL_DIR}" ]]; then
   die "${INSTALL_DIR} exists but is not a git clone — refusing to overwrite. Move or remove it and re-run."
 else
   info "Cloning ${REPO_URL} → ${INSTALL_DIR}..."
   git clone --quiet "${REPO_URL}" "${INSTALL_DIR}"
-  log "Cloned to ${INSTALL_DIR}"
+  cd "${INSTALL_DIR}"
+  git fetch --quiet --tags
+  git checkout --quiet "${VP_REF}"
+  log "Cloned and checked out ${VP_REF}"
 fi
 
 # ─── Hand off to installer ────────────────────────────────────────────────────

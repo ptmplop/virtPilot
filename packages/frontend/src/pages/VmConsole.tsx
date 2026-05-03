@@ -78,8 +78,12 @@ function TerminalPane({ name, tab, onConnState }: TerminalPaneProps) {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsPath = tab === 'console' ? 'console' : 'ssh';
     const token = localStorage.getItem('virtpilotToken') ?? '';
+    // Token rides in the WebSocket subprotocol — keeps it out of URLs (and
+    // therefore out of proxy/journal logs and browser history). The backend
+    // accepts the `virtpilot.token.<jwt>` offer and echoes it back.
     const ws = new WebSocket(
-      `${proto}//${window.location.host}/ws/${wsPath}?vm=${encodeURIComponent(name)}&token=${encodeURIComponent(token)}`
+      `${proto}//${window.location.host}/ws/${wsPath}?vm=${encodeURIComponent(name)}`,
+      [`virtpilot.token.${token}`],
     );
 
     onConnState('connecting');
@@ -134,11 +138,13 @@ function VncPane({ name, onConnState }: { name: string; onConnState: (s: ConnSta
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const token = localStorage.getItem('virtpilotToken') ?? '';
-    const url = `${proto}//${window.location.host}/ws/vnc?vm=${encodeURIComponent(name)}&token=${encodeURIComponent(token)}`;
+    const url = `${proto}//${window.location.host}/ws/vnc?vm=${encodeURIComponent(name)}`;
 
     let rfb: RFB;
     try {
-      rfb = new RFB(containerRef.current, url);
+      // noVNC accepts `wsProtocols` so the JWT can ride in Sec-WebSocket-Protocol
+      // instead of the URL.
+      rfb = new RFB(containerRef.current, url, { wsProtocols: [`virtpilot.token.${token}`] });
       rfb.scaleViewport = true;
       rfb.resizeSession = false;
     } catch {

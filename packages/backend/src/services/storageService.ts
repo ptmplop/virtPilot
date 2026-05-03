@@ -3,6 +3,7 @@ import path from 'path';
 import { config } from '../config.js';
 import type { Iso, Template } from '../types.js';
 import { type TraceEntry, execTraced } from './traceService.js';
+import { validateVmName, validateFilename, validatePositiveInt } from '../lib/validate.js';
 
 export async function ensureDirs(): Promise<void> {
   for (const dir of [config.templatesDir, config.isosDir, config.vmsDir, config.cloudInitDir, config.backupRoot]) {
@@ -37,11 +38,11 @@ async function deleteMeta(dir: string, filename: string): Promise<void> {
 }
 
 export async function setIsoDisplayName(filename: string, name: string): Promise<void> {
-  await writeMeta(config.isosDir, filename, { name });
+  await writeMeta(config.isosDir, validateFilename(path.basename(filename)), { name });
 }
 
 export async function setTemplateDisplayName(filename: string, name: string): Promise<void> {
-  await writeMeta(config.templatesDir, filename, { name });
+  await writeMeta(config.templatesDir, validateFilename(path.basename(filename)), { name });
 }
 
 export async function listTemplates(): Promise<Template[]> {
@@ -64,9 +65,10 @@ export async function listTemplates(): Promise<Template[]> {
 }
 
 export async function deleteTemplate(filename: string): Promise<void> {
-  const filePath = path.join(config.templatesDir, path.basename(filename));
+  const safe = validateFilename(path.basename(filename));
+  const filePath = path.join(config.templatesDir, safe);
   await fs.unlink(filePath);
-  await deleteMeta(config.templatesDir, filename);
+  await deleteMeta(config.templatesDir, safe);
 }
 
 export async function listIsos(): Promise<Iso[]> {
@@ -87,38 +89,52 @@ export async function listIsos(): Promise<Iso[]> {
 }
 
 export async function deleteIso(filename: string): Promise<void> {
-  const filePath = path.join(config.isosDir, path.basename(filename));
+  const safe = validateFilename(path.basename(filename));
+  const filePath = path.join(config.isosDir, safe);
   await fs.unlink(filePath);
-  await deleteMeta(config.isosDir, filename);
+  await deleteMeta(config.isosDir, safe);
 }
 
-export async function createVmDisk(vmName: string, templateFilename: string, diskGb: number, trace?: TraceEntry[]): Promise<string> {
+export async function createVmDisk(vmNameRaw: string, templateFilenameRaw: string, diskGbRaw: number, trace?: TraceEntry[]): Promise<string> {
+  const vmName = validateVmName(vmNameRaw);
+  const templateFilename = validateFilename(path.basename(templateFilenameRaw));
+  const diskGb = validatePositiveInt(diskGbRaw, 65536);
   const templatePath = path.join(config.templatesDir, templateFilename);
   const vmDir = path.join(config.vmsDir, vmName);
   await fs.mkdir(vmDir, { recursive: true });
   const diskPath = path.join(vmDir, 'disk.qcow2');
-  await execTraced(`qemu-img create -f qcow2 -b ${templatePath} -F qcow2 -o size=${diskGb}G ${diskPath}`, trace ?? []);
+  await execTraced(
+    'qemu-img',
+    ['create', '-f', 'qcow2', '-b', templatePath, '-F', 'qcow2', '-o', `size=${diskGb}G`, diskPath],
+    trace ?? [],
+  );
   return diskPath;
 }
 
-export async function createBlankPrimaryDisk(vmName: string, sizeGb: number, trace?: TraceEntry[]): Promise<string> {
+export async function createBlankPrimaryDisk(vmNameRaw: string, sizeGbRaw: number, trace?: TraceEntry[]): Promise<string> {
+  const vmName = validateVmName(vmNameRaw);
+  const sizeGb = validatePositiveInt(sizeGbRaw, 65536);
   const vmDir = path.join(config.vmsDir, vmName);
   await fs.mkdir(vmDir, { recursive: true });
   const diskPath = path.join(vmDir, 'disk.qcow2');
-  await execTraced(`qemu-img create -f qcow2 ${diskPath} ${sizeGb}G`, trace ?? []);
+  await execTraced('qemu-img', ['create', '-f', 'qcow2', diskPath, `${sizeGb}G`], trace ?? []);
   return diskPath;
 }
 
-export async function createBlankDisk(vmName: string, diskIndex: number, sizeGb: number, trace?: TraceEntry[]): Promise<string> {
+export async function createBlankDisk(vmNameRaw: string, diskIndexRaw: number, sizeGbRaw: number, trace?: TraceEntry[]): Promise<string> {
+  const vmName = validateVmName(vmNameRaw);
+  const diskIndex = validatePositiveInt(diskIndexRaw, 64);
+  const sizeGb = validatePositiveInt(sizeGbRaw, 65536);
   const vmDir = path.join(config.vmsDir, vmName);
   await fs.mkdir(vmDir, { recursive: true });
   const diskPath = path.join(vmDir, `extra-disk-${diskIndex}.qcow2`);
-  await execTraced(`qemu-img create -f qcow2 ${diskPath} ${sizeGb}G`, trace ?? []);
+  await execTraced('qemu-img', ['create', '-f', 'qcow2', diskPath, `${sizeGb}G`], trace ?? []);
   return diskPath;
 }
 
 export async function deleteVmDir(vmName: string): Promise<void> {
-  const vmDir = path.join(config.vmsDir, vmName);
+  const safe = validateVmName(vmName);
+  const vmDir = path.join(config.vmsDir, safe);
   try {
     await fs.rm(vmDir, { recursive: true, force: true });
   } catch {
