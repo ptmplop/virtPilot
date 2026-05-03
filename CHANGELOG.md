@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.8] — 2026-05-03
+
+### Removed
+- **CentOS Stream 10 dropped from the starter template set.** Confirmed on the production host that booting the GenericCloud image under VirtPilot's UEFI VMs drops to the EDK II UEFI shell — the qcow2 has only `1.0M BIOS-boot + 7.8G root` (GPT, no EFI System Partition), so OVMF can't find a bootloader. Inspected the older Stream 9 image and the newer `…-x86_64-…` 10 build too; both ship with the same BIOS-only layout, and the cloud SIG only publishes BIOS-style images (the EC2 `.raw.xz` variants are also BIOS). No URL fix is possible — for a CentOS-equivalent UEFI cloud image you want AlmaLinux 9 (already in the set) or AlmaLinux 10 (`1.0M + 200M ESP + 1.0G boot + 8.8G root`). Removed the entry rather than swap it for an Alma 10 entry under a misleading "centos" label. Existing installs that already downloaded `centos-stream-10.qcow2` can delete it from `$STORAGE_ROOT/templates/`; any VMs created from it can't be salvaged (they never reached a kernel) and need to be recreated from a working template.
+
 ## [1.19.7] — 2026-05-03
 
 ### Fixed

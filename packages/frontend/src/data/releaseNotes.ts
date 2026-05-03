@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.8',
+    date: '2026-05-03',
+    changes: [
+      { type: 'removed', text: 'CentOS Stream 10 dropped from the starter template set. Confirmed on the production host that booting the GenericCloud image under VirtPilot\'s UEFI VMs drops to the EDK II UEFI shell — the qcow2 has only `1.0M BIOS-boot + 7.8G root` (GPT, no EFI System Partition), so OVMF can\'t find a bootloader. The older Stream 9 image and the newer `…-x86_64-…` 10 build ship the same BIOS-only layout; the cloud SIG only publishes BIOS-style images. No URL fix is possible — for a CentOS-equivalent UEFI cloud image use AlmaLinux 9 (already in the set) or AlmaLinux 10. Existing installs that already downloaded `centos-stream-10.qcow2` can delete it from `$STORAGE_ROOT/templates/`; any VMs created from it never reached a kernel and need to be recreated from a working template' },
+    ],
+  },
+  {
     version: '1.19.7',
     date: '2026-05-03',
     changes: [

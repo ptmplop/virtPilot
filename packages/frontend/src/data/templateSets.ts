@@ -50,12 +50,6 @@ export const TEMPLATE_SET: TemplateSet = {
       logo: 'debian',
     },
     {
-      url: 'https://cloud.centos.org/centos/10-stream/x86_64/images/CentOS-Stream-GenericCloud-10-latest.x86_64.qcow2',
-      filename: 'centos-stream-10.qcow2',
-      name: 'CentOS Stream 10',
-      logo: 'centos',
-    },
-    {
       url: 'https://download.opensuse.org/distribution/leap/15.6/appliances/openSUSE-Leap-15.6-Minimal-VM.x86_64-Cloud.qcow2',
       filename: 'opensuse-leap-15.6.qcow2',
       name: 'openSUSE Leap 15.6',
