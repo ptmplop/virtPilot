@@ -55,10 +55,56 @@ export async function saveUserSettings(updates: Partial<UserSettings>): Promise<
   return merged;
 }
 
+function isValidOctets(ip: string): boolean {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return false;
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p)) return false;
+    const n = Number(p);
+    if (n < 0 || n > 255) return false;
+  }
+  return true;
+}
+
+function isValidIpv6(entry: string): boolean {
+  // RFC 4291 — covers full, compressed (::), and IPv4-mapped (::ffff:1.2.3.4) forms.
+  if (!/^[0-9a-fA-F:.]+(?:\/\d{1,3})?$/.test(entry)) return false;
+  const [addr, prefix] = entry.split('/');
+  if (prefix !== undefined) {
+    const n = Number(prefix);
+    if (!Number.isInteger(n) || n < 0 || n > 128) return false;
+  }
+  // Reject more than one "::" (compression marker).
+  const compressedCount = (addr.match(/::/g) ?? []).length;
+  if (compressedCount > 1) return false;
+  // Split on "::" so each side is a list of hex groups (or empty).
+  const halves = addr.split('::');
+  const groups = halves.flatMap(h => (h === '' ? [] : h.split(':')));
+  if (groups.length === 0) return false;
+  for (const g of groups) {
+    // Allow embedded IPv4 in the last group (e.g. ::ffff:1.2.3.4).
+    if (g.includes('.')) {
+      if (!isValidOctets(g)) return false;
+      continue;
+    }
+    if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return false;
+  }
+  // Without compression, the address must be exactly 8 groups (with embedded
+  // IPv4 counting as 2). With compression, it must be < 8 groups.
+  const ipv4Inflation = groups.some(g => g.includes('.')) ? 1 : 0;
+  const effectiveLen = groups.length + ipv4Inflation;
+  if (compressedCount === 0) return effectiveLen === 8;
+  return effectiveLen < 8;
+}
+
 function isValidIpEntry(entry: string): boolean {
   if (!entry) return false;
-  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(entry)) return true;
-  if (/^(\d{1,3}\.){3}\d{1,3}\/(\d|[12]\d|3[0-2])$/.test(entry)) return true;
-  if (entry.includes(':')) return true; // IPv6
+  // IPv4 single address
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(entry)) return isValidOctets(entry);
+  // IPv4 CIDR
+  const cidrMatch = entry.match(/^((?:\d{1,3}\.){3}\d{1,3})\/(\d|[12]\d|3[0-2])$/);
+  if (cidrMatch) return isValidOctets(cidrMatch[1]);
+  // IPv6 (with optional prefix)
+  if (entry.includes(':')) return isValidIpv6(entry);
   return false;
 }

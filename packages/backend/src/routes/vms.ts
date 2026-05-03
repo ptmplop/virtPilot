@@ -18,7 +18,7 @@ import * as portForwardService from '../services/portForwardService.js';
 import * as firewallService from '../services/firewallService.js';
 import * as logService from '../services/logService.js';
 import { type TraceEntry, formatTrace } from '../services/traceService.js';
-import { buildCloudInitIso, getHostSshPublicKey, type NicCloudInit } from '../services/cloudInitService.js';
+import { buildCloudInitIso, deleteCloudInitArtifacts, getHostSshPublicKey, type NicCloudInit } from '../services/cloudInitService.js';
 import { buildDomainXml, generateMac, type NicDefinition, type CpuMode, type FirmwareMode } from '../services/xmlBuilder.js';
 
 export const vmsRouter = Router();
@@ -378,11 +378,17 @@ vmsRouter.delete('/:name', async (req, res) => {
   const start = Date.now();
   const { name } = req.params;
   try {
-    const deleteStorage = req.query.deleteStorage === 'true';
+    // Default `deleteStorage=true`: a VM the user just deleted shouldn't leave
+    // multi-GB qcow2 disks lying around — and not cleaning them blocked recreation
+    // with the same name. Pass `?deleteStorage=false` to keep the disks.
+    const deleteStorage = req.query.deleteStorage !== 'false';
     const output = await vmService.deleteVm(name, deleteStorage);
     if (deleteStorage) {
       await storageService.deleteVmDir(name);
     }
+    // Cloud-init artefacts (seed.iso, domain.xml, per-VM cloud-init dir) are
+    // always cleaned — they're VirtPilot-internal scaffolding, never user data.
+    await deleteCloudInitArtifacts(name);
     await networkService.deallocateVmIps(name);
     await portForwardService.deletePortForwardsForVm(name);
     await vmMetaService.deleteVmMeta(name);
@@ -409,10 +415,19 @@ vmsRouter.post('/:name/start', async (req, res) => {
   }
 });
 
+// Accept `force` from either the query string (legacy) or the JSON body so
+// callers don't have to know the difference. Treat the boolean `true` and
+// the string `"true"` as equivalent.
+function readForceFlag(req: { query: { force?: unknown }; body?: { force?: unknown } }): boolean {
+  const q = req.query.force;
+  const b = req.body?.force;
+  return q === 'true' || q === true || b === true || b === 'true';
+}
+
 vmsRouter.post('/:name/stop', async (req, res) => {
   const start = Date.now();
   const { name } = req.params;
-  const force = req.query.force === 'true';
+  const force = readForceFlag(req);
   try {
     const output = await vmService.stopVm(name, force);
     void logService.appendLog({ type: force ? 'vm.stop.force' : 'vm.stop', subject: name, status: 'success', output, durationMs: Date.now() - start });
@@ -426,7 +441,7 @@ vmsRouter.post('/:name/stop', async (req, res) => {
 vmsRouter.post('/:name/reboot', async (req, res) => {
   const start = Date.now();
   const { name } = req.params;
-  const force = req.query.force === 'true';
+  const force = readForceFlag(req);
   try {
     const output = force ? await vmService.hardRebootVm(name) : await vmService.rebootVm(name);
     void logService.appendLog({ type: force ? 'vm.reboot.force' : 'vm.reboot', subject: name, status: 'success', output, durationMs: Date.now() - start });
@@ -516,6 +531,19 @@ vmsRouter.put('/:name/boot-order', async (req, res) => {
   try {
     const { bootOrder } = req.body as { bootOrder: string[] };
     if (!Array.isArray(bootOrder)) return res.status(400).json({ error: 'bootOrder must be an array' });
+    if (bootOrder.length > 0) {
+      // Validate every entry is an actual disk target on this VM. Without this
+      // check, sending logical names like "hd"/"cdrom" silently no-ops because
+      // `applyBootOrderToXml` only matches `<target dev="...">` entries.
+      const vm = await vmService.getVmInfo(name);
+      const validTargets = new Set(vm.disks.map((d) => d.target));
+      const unknown = bootOrder.filter((t) => !validTargets.has(t));
+      if (unknown.length > 0) {
+        return res.status(400).json({
+          error: `Unknown disk targets in bootOrder: ${unknown.join(', ')}. Valid targets are: ${[...validTargets].join(', ')}`,
+        });
+      }
+    }
     const output = await vmService.setBootOrder(name, bootOrder);
     void logService.appendLog({ type: 'vm.boot-order.set', subject: name, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
@@ -658,8 +686,12 @@ vmsRouter.post('/:name/snapshots', async (req, res) => {
 vmsRouter.delete('/:name/snapshots/:snapshot', async (req, res) => {
   const start = Date.now();
   const { name, snapshot } = req.params;
+  // ?metadataOnly=true drops just the libvirt snapshot record without merging
+  // the overlay back into its backing — the escape hatch for VMs whose chain
+  // has diverged from the snapshot (e.g. after a revert).
+  const metadataOnly = req.query.metadataOnly === 'true';
   try {
-    const output = await vmService.deleteSnapshot(name, snapshot);
+    const output = await vmService.deleteSnapshot(name, snapshot, { metadataOnly });
     void logService.appendLog({ type: 'vm.snapshot.delete', subject: name, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {

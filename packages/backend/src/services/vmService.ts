@@ -650,9 +650,21 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
   return formatTrace(trace);
 }
 
-export async function deleteSnapshot(nameOrId: string, snapshotName: string): Promise<string> {
+export async function deleteSnapshot(
+  nameOrId: string,
+  snapshotName: string,
+  opts: { metadataOnly?: boolean } = {},
+): Promise<string> {
   const trace: TraceEntry[] = [];
   const snapshotXml = await getSnapshotXml(nameOrId, snapshotName);
+
+  // Drop only the libvirt snapshot record, not the overlay file. The escape
+  // hatch for cases where the chain has diverged (e.g. after a revert) and
+  // automatic merging is unsafe.
+  if (opts.metadataOnly) {
+    await virsh(`snapshot-delete ${nameOrId} ${snapshotName} --metadata`, trace, SNAPSHOT_TIMEOUT);
+    return formatTrace(trace);
+  }
 
   if (!isExternalSnapshotXml(snapshotXml)) {
     await virsh(`snapshot-delete ${nameOrId} ${snapshotName}`, trace, SNAPSHOT_TIMEOUT);
@@ -673,6 +685,19 @@ export async function deleteSnapshot(nameOrId: string, snapshotName: string): Pr
       throw new Error(`Disk ${sd.target} not present on VM`);
     }
     if (path.resolve(live.source) !== path.resolve(sd.file)) {
+      // Distinguish the two ways the chain can diverge so the message points
+      // at a recoverable action. After `revertSnapshot`, the active disk is a
+      // fresh `*-revert-*.qcow2` overlay sitting on top of this snapshot's
+      // sealed file — there is no newer snapshot involved.
+      const liveBase = path.basename(live.source);
+      if (/-revert-\d+\.qcow2$/.test(liveBase)) {
+        throw new Error(
+          `Cannot delete snapshot '${snapshotName}': the VM was reverted to it, ` +
+            `so the active disk is now the revert overlay (${liveBase}). ` +
+            `Use ?metadataOnly=true to drop the snapshot record while leaving the disk chain intact, ` +
+            `or take a new snapshot and use that as your working state instead.`,
+        );
+      }
       throw new Error(
         `Cannot delete snapshot '${snapshotName}': overlay for ${sd.target} is no longer the active disk (a newer snapshot exists). Delete newer snapshots first.`,
       );

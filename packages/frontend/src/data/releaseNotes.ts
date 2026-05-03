@@ -13,6 +13,22 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.18.0',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: '24h metrics charts (host and per-VM) actually bucket. The 5-minute aggregation SQL was `(ts / ?) * ?` with the bucket size bound as a JS Number, which SQLite evaluated as real-number division — so every raw 30-second sample got its own `bucket_ts` and `GROUP BY` was a no-op. Result: ~2880 points per chart instead of ~288, and the 24h range was effectively the same data as 1h until the table accumulated more than an hour\'s worth of rows. Casting to INTEGER inside the division forces the floor we want' },
+      { type: 'fixed', text: 'VM delete now cleans up after itself. (1) `?deleteStorage` defaults to `true` so the qcow2 disk dir doesn\'t leak — pass `?deleteStorage=false` to keep it. Previously the default was `false` and recreating a VM with the same name 400-d with a "Storage directory already exists, remove manually" error. (2) Cloud-init artefacts (`{cloudInitDir}/{name}/`, `{name}-seed.iso`, `{name}-domain.xml`) are now removed unconditionally on delete — they\'re internal scaffolding and were never user data, but the previous delete left them behind and they accumulated as zombies for every test VM ever created' },
+      { type: 'fixed', text: 'IP allowlist input validation actually validates. Before, `999.999.999.999` was accepted (regex didn\'t enforce 0–255 octets) and any string containing `:` was treated as a valid IPv6 address. Now both forms are checked properly: octet ranges for IPv4, RFC-4291-shaped groups + correct `::` compression handling for IPv6, optional CIDR prefix bounds (0–32 v4, 0–128 v6), and IPv4-mapped forms like `::ffff:1.2.3.4`' },
+      { type: 'fixed', text: 'Self-lockout guard on `PUT /api/settings`: if a non-empty `ipWhitelist` is being applied that would exclude the caller\'s own IP, the request 400s with `Refusing to apply allowlist that excludes your own IP (X)` instead of cheerfully writing the file and locking the user out on the next request' },
+      { type: 'fixed', text: 'SSH-key add now rejects malformed keys. Previously `publicKey: "this is not a key"` returned 201 OK and the bad key would later silently fail in cloud-init on the guest. New validation gates on the well-known OpenSSH type prefix (`ssh-rsa`, `ssh-ed25519`, `ecdsa-sha2-nistp{256,384,521}`, etc.) and the base64 charset of the blob' },
+      { type: 'fixed', text: 'Boot-order PUT now rejects unknown disk targets with a clear `Unknown disk targets in bootOrder: hd, cdrom. Valid targets are: vda, sda, sdb`. Previously sending logical names like `["hd","cdrom"]` 200-d but silently no-op-ed (the underlying XML rewrite only matches `<target dev="...">` entries), so the GET kept returning `[]` after a "successful" PUT' },
+      { type: 'fixed', text: 'Snapshot delete after a revert produces an actionable error. The chain-divergence check used to recommend "delete newer snapshots first" even when there were no newer snapshots — only the revert overlay sitting on top. The error now distinguishes that case and points at the new `?metadataOnly=true` escape hatch' },
+      { type: 'added', text: '`DELETE /api/vms/{name}/snapshots/{snapshot}?metadataOnly=true` drops just the libvirt snapshot record without merging the overlay back into its backing — the escape hatch for VMs whose chain has diverged from the snapshot' },
+      { type: 'added', text: '`POST /api/vms/{name}/{stop,reboot}` now accepts `force` from either the JSON body (`{"force": true}`) or the query string (`?force=true`). Previously only the query string worked and bodies were silently ignored' },
+      { type: 'added', text: 'Backup summaries now expose `vmExists` so the UI can mark orphan rows for VMs that have been deleted but whose backup metadata remains' },
+    ],
+  },
+  {
     version: '1.17.2',
     date: '2026-05-03',
     changes: [

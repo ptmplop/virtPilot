@@ -91,11 +91,14 @@ export function getSystemMetricsHistory(range: SystemMetricsRange): SystemMetric
   }
 
   // 24h: aggregate into 5-minute buckets to keep ~288 points on the chart.
+  // SQLite bound number params arrive as REAL, so `(ts / ?) * ?` is real-number
+  // division — it returns the input unchanged and every row gets its own bucket.
+  // CAST to INTEGER forces the floor we want for proper bucketing.
   const since = now - 24 * 60 * 60 * 1000;
   const bucketMs = 5 * 60 * 1000;
   const rows = getDb().prepare(`
     SELECT
-      (ts / ?) * ? AS bucket_ts,
+      (CAST(ts / ? AS INTEGER)) * ? AS bucket_ts,
       AVG(cpu_percent)    AS cpu_percent,
       AVG(mem_used_mb)    AS mem_used_mb,
       AVG(mem_total_mb)   AS mem_total_mb,

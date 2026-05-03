@@ -71,6 +71,9 @@ export interface BackupVmSummary {
   totalSizeBytes: number;
   lastBackupAt: string | null;
   schedule: BackupSchedule | null;
+  // false when the VM has been deleted but its backup metadata directory remains.
+  // Lets the UI mark orphan rows as detached and offer a "purge metadata" action.
+  vmExists: boolean;
 }
 
 export interface BackupSchedule {
@@ -214,12 +217,14 @@ export async function listAllVmBackupSummaries(): Promise<BackupVmSummary[]> {
     const backups = await listBackupsForVm(vmName);
     const totalSizeBytes = backups.reduce((s, b) => s + b.sizeBytes, 0);
     const lastBackupAt = backups.length > 0 ? backups[0].createdAt : null;
+    const vmExists = await getVmInfo(vmName).then(() => true).catch(() => false);
     summaries.push({
       vmName,
       backupCount: backups.length,
       totalSizeBytes,
       lastBackupAt,
       schedule: schedules[vmName] ?? null,
+      vmExists,
     });
   }
   return summaries;

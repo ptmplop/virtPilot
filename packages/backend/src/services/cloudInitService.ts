@@ -129,3 +129,19 @@ export async function buildCloudInitIso(vmName: string, cfg: CloudInitConfig, tr
   );
   return isoPath;
 }
+
+// Removes everything we wrote into config.cloudInitDir for this VM:
+//   - {cloudInitDir}/{vmName}/                  (meta-data, user-data, network-config)
+//   - {cloudInitDir}/{vmName}-seed.iso          (built by buildCloudInitIso)
+//   - {cloudInitDir}/{vmName}-domain.xml        (written by vms.ts on create, before `virsh define`)
+// Best-effort: missing files are ignored.
+export async function deleteCloudInitArtifacts(vmName: string): Promise<void> {
+  const dir = path.join(config.cloudInitDir, vmName);
+  const seedIso = path.join(config.cloudInitDir, `${vmName}-seed.iso`);
+  const domainXml = path.join(config.cloudInitDir, `${vmName}-domain.xml`);
+  await Promise.all([
+    fs.rm(dir, { recursive: true, force: true }).catch(() => {}),
+    fs.unlink(seedIso).catch(() => {}),
+    fs.unlink(domainXml).catch(() => {}),
+  ]);
+}
