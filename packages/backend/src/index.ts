@@ -65,10 +65,16 @@ app.use(
 // `<script crossorigin>` tags even on same-origin pages, and we serve the SPA
 // from the backend itself). Cross-origin is gated on ALLOWED_ORIGINS.
 const allowedOrigins = new Set(config.allowedOrigins);
-function isSameOrigin(originHeader: string | undefined, host: string | undefined): boolean {
-  if (!originHeader || !host) return false;
+function isSameOrigin(originHeader: string | string[] | undefined, host: string | undefined): boolean {
+  const origin = Array.isArray(originHeader) ? originHeader[0] : originHeader;
+  if (!origin || !host) return false;
   try {
-    return new URL(originHeader).host === host;
+    // Compare hostnames only — nginx's `proxy_set_header Host $host` strips
+    // the port, so the backend would see "89.167.48.215" while the Origin URL
+    // still says "89.167.48.215:3001". Comparing hostname dodges that.
+    const originHost = new URL(origin).hostname;
+    const reqHost = host.split(':')[0];
+    return originHost === reqHost;
   } catch {
     return false;
   }

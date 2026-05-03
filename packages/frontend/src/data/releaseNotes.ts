@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.21.5',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: 'The v1.21.4 CORS fix didn\'t work behind nginx. I checked `URL.host === req.headers.host` for same-origin, but nginx\'s `proxy_set_header Host $host` *strips the port* — so the backend saw `Host: 89.167.48.215` while the Origin URL still said `89.167.48.215:3001`. They never matched and the cors callback errored on every same-origin asset request, producing the same 500 + `text/html` symptoms as v1.21.3. CORS now compares hostnames only (`URL.hostname` against `req.headers.host` with the port stripped), which is correct regardless of whether the request arrives directly or via nginx. Also patched the bundled nginx vhost to use `$http_host` instead of `$host` so the backend sees the original `Host` header verbatim' },
+    ],
+  },
+  {
     version: '1.21.4',
     date: '2026-05-04',
     changes: [
