@@ -160,6 +160,20 @@ mkdir -p \
   /var/lib/virtpilot/backups
 chown -R "${SERVICE_USER}:${SERVICE_USER}" /var/lib/virtpilot
 chmod 750 /var/lib/virtpilot
+
+# QEMU runs as libvirt-qemu (uid 64055 on Ubuntu). For it to open VM disks at
+# /var/lib/virtpilot/vms/<name>/disk.qcow2 it must be able to traverse the
+# 750-mode storage tree owned by ${SERVICE_USER}. Adding libvirt-qemu to the
+# ${SERVICE_USER} group grants the group r-x bit (traverse); libvirt's
+# dynamic_ownership still chowns the disk file itself before starting the VM.
+# Without this, a clean install fails the first VM start with:
+#   "Cannot access storage file ... (as uid:64055, gid:994): Permission denied"
+# libvirtd caches supplementary groups at startup, so it must be restarted for
+# the new membership to take effect on subsequently-forked qemu processes.
+if id -u libvirt-qemu >/dev/null 2>&1; then
+  usermod -aG "${SERVICE_USER}" libvirt-qemu
+  systemctl restart libvirtd
+fi
 log "Storage ready"
 
 # Ownership of the install dir — the service needs to write update logs and

@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.21.6] — 2026-05-04
+
+### Fixed
+
+- **Clean install couldn't start any VM — `Cannot access storage file ... (as uid:64055, gid:994): Permission denied`.** `install.sh` chowned `/var/lib/virtpilot` to `virtpilot:virtpilot` mode 750, but QEMU runs as `libvirt-qemu` and that user wasn't in the `virtpilot` group, so it couldn't even traverse the storage tree to reach `vms/<name>/disk.qcow2`. libvirt's `dynamic_ownership` would have handled the disk file's own permissions, but path traversal failed first. The installer now adds `libvirt-qemu` to the `virtpilot` group and restarts `libvirtd` so the daemon picks up the new supplementary group before forking qemu. Existing installs: re-run `install.sh` (idempotent) or do `sudo usermod -aG virtpilot libvirt-qemu && sudo systemctl restart libvirtd` once.
+
 ## [1.21.5] — 2026-05-04
 
 ### Fixed
