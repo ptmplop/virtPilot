@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.20.1] — 2026-05-03
+
+### Changed
+- **Installer hard-fails on unsupported architectures and OS versions instead of warning and pressing on.** Previously `install.sh` only soft-warned ("This installer targets Ubuntu 24. Proceeding on unrecognised OS...") and there was no architecture check at all, so running on arm64 or on Debian/RHEL would proceed past the pre-flight, install Node.js from the NodeSource amd64 repo, and then fail later in the build step with an unhelpful npm error. The check is now strict: `uname -m` must be `x86_64` and `/etc/os-release` must report `ID=ubuntu` and `VERSION_ID=24.04`, otherwise the script dies immediately with a clear "Unsupported … VirtPilot supports Ubuntu 24.04 only" message. Same checks added at the very top of `bootstrap.sh` so the curl-pipe one-liner fails fast before installing git or doing the clone.
+- **Removed the duplicate ASCII banner when running via the `curl … | sudo bash` bootstrap.** `bootstrap.sh` printed the banner and then exec'd `install.sh`, which printed the same banner immediately afterwards. The banner now only appears once (from `install.sh`); `bootstrap.sh` keeps a single-line "VirtPilot — Bootstrap" header.
+
 ## [1.20.0] — 2026-05-03
 
 ### Added

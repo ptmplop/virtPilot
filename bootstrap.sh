@@ -17,21 +17,28 @@ die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 REPO_URL="https://github.com/ptmplop/virtPilot.git"
 INSTALL_DIR="/usr/local/virtpilot"
 
-# ─── Banner ───────────────────────────────────────────────────────────────────
-echo -e "${BOLD}${CYAN}"
-cat << 'BANNER'
-  __   _      _   ___  _  _     _
-  \ \ / /_ __| |_| _ \(_)| |___| |_
-   \ V /| |  _|  _|  _/ | | / _ \  _|
-    \_/ |_|\__|\__|_| |_|_|_\___/\__|
-
-BANNER
-echo -e "${NC}${BOLD}  VirtPilot — Bootstrap${NC}"
+# ─── Pre-flight ───────────────────────────────────────────────────────────────
+echo -e "${BOLD}  VirtPilot — Bootstrap${NC}"
 echo -e "  Clones VirtPilot to ${INSTALL_DIR} and runs the installer\n"
 
-# ─── Pre-flight ───────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
   die "Run as root: curl -fsSL <bootstrap-url> | sudo bash"
+fi
+
+# Architecture must be amd64/x86_64
+ARCH="$(uname -m)"
+if [[ "${ARCH}" != "x86_64" ]]; then
+  die "Unsupported architecture: ${ARCH}. VirtPilot supports amd64 (x86_64) only."
+fi
+
+# OS must be Ubuntu 24.04 — fail fast before we install git or clone
+if [[ ! -r /etc/os-release ]]; then
+  die "/etc/os-release not found — cannot verify OS. VirtPilot supports Ubuntu 24.04 only."
+fi
+# shellcheck disable=SC1091
+. /etc/os-release
+if [[ "${ID:-}" != "ubuntu" ]] || [[ "${VERSION_ID:-}" != "24.04" ]]; then
+  die "Unsupported OS: ${PRETTY_NAME:-unknown}. VirtPilot supports Ubuntu 24.04 only."
 fi
 
 # ─── Ensure git is present ────────────────────────────────────────────────────

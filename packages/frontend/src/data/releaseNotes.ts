@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.20.1',
+    date: '2026-05-03',
+    changes: [
+      { type: 'changed', text: 'Installer hard-fails on unsupported architectures and OS versions instead of warning and pressing on. Previously `install.sh` only soft-warned ("This installer targets Ubuntu 24. Proceeding on unrecognised OS...") and there was no architecture check at all, so running on arm64 or Debian/RHEL would proceed past pre-flight and fail later in the Node/build step with an unhelpful error. The check is now strict: `uname -m` must be `x86_64` and `/etc/os-release` must report `ID=ubuntu` and `VERSION_ID=24.04`, otherwise the script dies immediately. Same checks added at the very top of `bootstrap.sh` so the curl-pipe one-liner fails fast before installing git or doing the clone' },
+      { type: 'changed', text: 'Removed the duplicate ASCII banner when running via the `curl … | sudo bash` bootstrap. `bootstrap.sh` printed the banner and then exec\'d `install.sh`, which printed the same banner immediately afterwards. The banner now only appears once (from `install.sh`); `bootstrap.sh` keeps a single-line header' },
+    ],
+  },
+  {
     version: '1.20.0',
     date: '2026-05-03',
     changes: [

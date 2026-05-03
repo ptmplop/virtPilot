@@ -31,8 +31,20 @@ if [[ $EUID -ne 0 ]]; then
   die "Run this installer as root: sudo bash install.sh"
 fi
 
-if ! grep -qi 'ubuntu' /etc/os-release 2>/dev/null; then
-  warn "This installer targets Ubuntu 24. Proceeding on unrecognised OS..."
+# Architecture must be amd64/x86_64
+ARCH="$(uname -m)"
+if [[ "${ARCH}" != "x86_64" ]]; then
+  die "Unsupported architecture: ${ARCH}. VirtPilot supports amd64 (x86_64) only."
+fi
+
+# OS must be Ubuntu 24.04
+if [[ ! -r /etc/os-release ]]; then
+  die "/etc/os-release not found — cannot verify OS. VirtPilot supports Ubuntu 24.04 only."
+fi
+# shellcheck disable=SC1091
+. /etc/os-release
+if [[ "${ID:-}" != "ubuntu" ]] || [[ "${VERSION_ID:-}" != "24.04" ]]; then
+  die "Unsupported OS: ${PRETTY_NAME:-unknown}. VirtPilot supports Ubuntu 24.04 only."
 fi
 
 # Absolute path to the directory containing this script (the project root)
