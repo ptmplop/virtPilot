@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.20.0',
+    date: '2026-05-03',
+    changes: [
+      { type: 'added', text: 'HTTPS by default with a self-signed TLS certificate. VirtPilot now serves the web UI and all WebSocket traffic (console, SSH, VNC) over TLS instead of plain HTTP. The installer generates a 10-year self-signed certificate at `${STORAGE_ROOT}/tls/{cert,key}.pem` with `subjectAltName` covering the host\'s hostname, `localhost`, the primary IP, and `127.0.0.1`. Existing installs migrate automatically — `update.sh` runs the same idempotent cert generation, so a single update flips an existing host onto HTTPS without manual intervention. The browser will warn about the self-signed cert on first visit; click "Advanced → Proceed" once and the warning is dismissed for that host. Old `http://host:3001` bookmarks need updating to `https://`' },
+    ],
+  },
+  {
     version: '1.19.11',
     date: '2026-05-03',
     changes: [

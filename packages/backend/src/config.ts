@@ -34,4 +34,6 @@ export const config = {
   repoDir: process.env.VIRTPILOT_REPO_DIR ?? process.cwd(),
   authPassword: process.env.AUTH_PASSWORD ?? '',
   jwtSecret: process.env.JWT_SECRET ?? 'change-me-in-production',
+  tlsCertPath: process.env.TLS_CERT_PATH ?? path.join(storageRoot, 'tls', 'cert.pem'),
+  tlsKeyPath: process.env.TLS_KEY_PATH ?? path.join(storageRoot, 'tls', 'key.pem'),
 };

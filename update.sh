@@ -68,6 +68,28 @@ log "System packages verified"
 STORAGE_ROOT="${STORAGE_ROOT:-/var/lib/virtpilot}"
 mkdir -p "${STORAGE_ROOT}/backups"
 
+# ─── TLS self-signed certificate (idempotent — generates only if missing) ────
+TLS_DIR="${STORAGE_ROOT}/tls"
+mkdir -p "${TLS_DIR}"
+chmod 700 "${TLS_DIR}"
+
+if [[ ! -f "${TLS_DIR}/cert.pem" || ! -f "${TLS_DIR}/key.pem" ]]; then
+  HOST_NAME="$(hostname)"
+  PRIMARY_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  PRIMARY_IP="${PRIMARY_IP:-127.0.0.1}"
+  info "Generating self-signed TLS certificate (10 year validity, CN=${HOST_NAME})..."
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout "${TLS_DIR}/key.pem" \
+    -out "${TLS_DIR}/cert.pem" \
+    -days 3650 \
+    -subj "/CN=${HOST_NAME}" \
+    -addext "subjectAltName=DNS:${HOST_NAME},DNS:localhost,IP:${PRIMARY_IP},IP:127.0.0.1" \
+    >/dev/null 2>&1
+  chmod 600 "${TLS_DIR}/key.pem"
+  chmod 644 "${TLS_DIR}/cert.pem"
+  log "TLS certificate generated at ${TLS_DIR}/"
+fi
+
 # ─── Dependencies ─────────────────────────────────────────────────────────────
 info "Installing npm dependencies..."
 npm install --no-fund --no-audit

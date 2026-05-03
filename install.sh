@@ -116,6 +116,30 @@ mkdir -p \
 chmod -R 755 /var/lib/virtpilot
 log "Storage ready"
 
+# ─── TLS self-signed certificate ──────────────────────────────────────────────
+TLS_DIR="/var/lib/virtpilot/tls"
+mkdir -p "${TLS_DIR}"
+chmod 700 "${TLS_DIR}"
+
+if [[ ! -f "${TLS_DIR}/cert.pem" || ! -f "${TLS_DIR}/key.pem" ]]; then
+  HOST_NAME="$(hostname)"
+  PRIMARY_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  PRIMARY_IP="${PRIMARY_IP:-127.0.0.1}"
+  info "Generating self-signed TLS certificate (10 year validity, CN=${HOST_NAME})..."
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout "${TLS_DIR}/key.pem" \
+    -out "${TLS_DIR}/cert.pem" \
+    -days 3650 \
+    -subj "/CN=${HOST_NAME}" \
+    -addext "subjectAltName=DNS:${HOST_NAME},DNS:localhost,IP:${PRIMARY_IP},IP:127.0.0.1" \
+    >/dev/null 2>&1
+  chmod 600 "${TLS_DIR}/key.pem"
+  chmod 644 "${TLS_DIR}/cert.pem"
+  log "TLS certificate generated at ${TLS_DIR}/"
+else
+  log "TLS certificate already present — leaving in place"
+fi
+
 # ─── Password setup ───────────────────────────────────────────────────────────
 # Allow non-interactive installs via env var: VP_PASSWORD=secret sudo -E bash install.sh
 if [[ -n "${VP_PASSWORD:-}" ]]; then
@@ -221,8 +245,11 @@ echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━�
 echo -e "${BOLD}  VirtPilot is installed and running!${NC}"
 echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  ${BOLD}Web UI:${NC}      ${CYAN}http://${HOST_IP}:3001${NC}"
+echo -e "  ${BOLD}Web UI:${NC}      ${CYAN}https://${HOST_IP}:3001${NC}"
 echo -e "  ${BOLD}Password:${NC}    the one you just set"
+echo ""
+echo -e "  ${YELLOW}Note:${NC} The TLS certificate is self-signed, so your browser will"
+echo -e "        warn on first visit. Click \"Advanced → Proceed\" to continue."
 echo ""
 echo -e "  ${BOLD}Useful commands:${NC}"
 echo -e "    systemctl status virtpilot"

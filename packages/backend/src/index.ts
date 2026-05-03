@@ -1,4 +1,6 @@
 import http from 'http';
+import https from 'https';
+import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import cors from 'cors';
@@ -60,7 +62,19 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(frontendDist, 'index.html'));
 });
 
-const server = http.createServer(app);
+// Run HTTPS when both cert files exist (production install path); otherwise
+// fall back to HTTP for dev mode where the installer hasn't generated certs.
+const tlsAvailable =
+  fs.existsSync(config.tlsCertPath) && fs.existsSync(config.tlsKeyPath);
+const server = tlsAvailable
+  ? https.createServer(
+      {
+        cert: fs.readFileSync(config.tlsCertPath),
+        key: fs.readFileSync(config.tlsKeyPath),
+      },
+      app,
+    )
+  : http.createServer(app);
 
 const consoleWss = createConsoleWss();
 const sshWss = createSshWss();
@@ -112,7 +126,8 @@ async function main() {
   startVmMetricsSampling();
   startBackupScheduler();
   server.listen(config.port, () => {
-    console.log(`VirtPilot backend listening on port ${config.port}`);
+    const proto = tlsAvailable ? 'https' : 'http';
+    console.log(`VirtPilot backend listening on ${proto}://0.0.0.0:${config.port}`);
   });
 }
 

@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.20.0] — 2026-05-03
+
+### Added
+- **HTTPS by default with a self-signed TLS certificate.** VirtPilot now serves the web UI and all WebSocket traffic (console, SSH, VNC) over TLS instead of plain HTTP. The installer generates a 10-year self-signed certificate at `${STORAGE_ROOT}/tls/{cert,key}.pem` with `subjectAltName` covering the host's hostname, `localhost`, the primary IP, and `127.0.0.1`, then the backend serves on the same port (3001) using HTTPS. Existing installs migrate automatically: `update.sh` runs the same idempotent cert generation and only creates files when they're missing, so a single `update.sh` (or in-dashboard self-upgrade) flips an existing host onto HTTPS without manual intervention. The browser will warn about the self-signed cert on first visit — click "Advanced → Proceed" once and the warning is dismissed for that host. Old `http://host:3001` bookmarks need to be updated to `https://`. The backend still falls back to plain HTTP if no cert files are present, so the dev workflow (`npx tsx src/index.ts` against a fresh checkout) keeps working without certs.
+
 ## [1.19.11] — 2026-05-03
 
 ### Fixed
