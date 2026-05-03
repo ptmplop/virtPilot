@@ -5,7 +5,9 @@ import {
   ArrowDown,
   ArrowRight,
   ArrowUp,
+  Boxes,
   CheckCircle2,
+  Cog,
   Cpu,
   ExternalLink,
   Globe,
@@ -495,6 +497,8 @@ function HostOverview() {
               icon={Cpu}
               value={info ? `${cleanCpuModel(info.cpuModel)} · ${info.cpuCores} cores` : '—'}
             />
+            <IconRow icon={Boxes} value={info ? `QEMU ${info.qemuVersion}` : '—'} mono dim />
+            <IconRow icon={Cog} value={info ? `Kernel ${info.kernelVersion}` : '—'} mono dim />
             <IconRow icon={Terminal} value={settings.libvirtUri} mono dim />
           </div>
 

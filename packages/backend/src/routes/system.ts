@@ -53,7 +53,14 @@ systemRouter.get('/info', async (_req, res) => {
       kernelVersion = stdout.trim();
     } catch { /* non-Linux or restricted */ }
 
-    res.json({ hostname: os.hostname(), cpuModel, cpuCores, load, kernelVersion });
+    let qemuVersion = 'unknown';
+    try {
+      const { stdout } = await execAsync('qemu-system-x86_64 --version', { timeout: 3000 });
+      const m = stdout.match(/version\s+([^\s(]+)/i);
+      if (m) qemuVersion = m[1];
+    } catch { /* qemu not installed */ }
+
+    res.json({ hostname: os.hostname(), cpuModel, cpuCores, load, kernelVersion, qemuVersion });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

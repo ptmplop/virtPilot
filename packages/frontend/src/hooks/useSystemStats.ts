@@ -8,6 +8,7 @@ export interface SystemInfo {
   cpuCores: number;
   load: [number, number, number];
   kernelVersion: string;
+  qemuVersion: string;
 }
 
 export interface StatsSample {

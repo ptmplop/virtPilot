@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.5',
+    date: '2026-05-03',
+    changes: [
+      { type: 'added', text: 'QEMU and kernel version are now shown on the dashboard\'s host identity card. The Host zone (under hostname and CPU specs) now lists the QEMU version (parsed from `qemu-system-x86_64 --version`) and the kernel version (`uname -r`) so you can see at a glance which hypervisor/kernel build is in use without dropping to a shell. Both are surfaced via `/api/system/info`; QEMU falls back to `unknown` if `qemu-system-x86_64` isn\'t on PATH' },
+    ],
+  },
+  {
     version: '1.19.4',
     date: '2026-05-03',
     changes: [
