@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.21.1',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: '`install.sh` aborted with `BACKEND_PORT: unbound variable` right after hashing the password. The .env heredoc references `${BACKEND_PORT}` and `${PUBLIC_PORT}` in a comment to explain the no-nginx fallback, but those variables were declared in the nginx section *after* the .env was written. Combined with `set -euo pipefail`, this killed the install on the very next step. Both ports are now declared at the top of the script with the other constants so they\'re in scope wherever they\'re referenced' },
+    ],
+  },
+  {
     version: '1.21.0',
     date: '2026-05-03',
     changes: [

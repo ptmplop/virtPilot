@@ -52,6 +52,13 @@ INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STANDARD_DIR="/usr/local/virtpilot"
 SERVICE_USER="virtpilot"
 
+# Public port the dashboard is reachable on. Backend port is the internal one
+# Node binds to (used only when nginx is fronting; the no-nginx flow keeps the
+# backend on PUBLIC_PORT directly). Declared up here so the .env template can
+# reference them in comments before the nginx flow runs.
+PUBLIC_PORT=3001
+BACKEND_PORT=3002
+
 info "Project root: ${INSTALL_DIR}"
 
 # Self-upgrade requires a git clone (update.sh runs `git pull`)
@@ -279,9 +286,6 @@ log "Configuration written"
 # the usual benefits of having a real reverse proxy in the request path.
 #
 # Ports 80 and 443 are intentionally left alone.
-
-PUBLIC_PORT=3001
-BACKEND_PORT=3002
 
 if [[ -n "${VP_NGINX:-}" ]]; then
   INSTALL_NGINX="${VP_NGINX}"
