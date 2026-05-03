@@ -16,9 +16,10 @@ import {
 import { useSettings, useDismissTemplateSet } from '@/hooks/useSettings';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
-import { useUploadProgressStore } from '@/store/uploadProgressStore';
+import { useUploadProgressStore, type TemplateBulkState } from '@/store/uploadProgressStore';
 import { cn } from '@/lib/cn';
-import { TEMPLATE_SET, type TemplateSetItem } from '@/data/templateSets';
+import { TEMPLATE_SET } from '@/data/templateSets';
+import { startTemplateSetDownload, cancelTemplateSetDownload } from '@/lib/templateSetDownloader';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -122,16 +123,9 @@ function InlineName({
 // Surfaced when the templates directory is empty (and the user hasn't dismissed
 // the card). Sequentially downloads every entry in TEMPLATE_SET via the same
 // background-download endpoint as the manual "From URL" flow — one at a time,
-// so the user can keep working while it churns through the list.
-
-interface BulkState {
-  index: number;
-  total: number;
-  current: TemplateSetItem;
-  job: DownloadJob | null;
-  succeeded: number;
-  failed: number;
-}
+// so the user can keep working while it churns through the list. The bulk run
+// is orchestrated by `lib/templateSetDownloader.ts` (module-level) with state
+// in `uploadProgressStore`, so it survives navigation away from this page.
 
 function TemplateSetCard({
   templatesEmpty,
@@ -141,7 +135,7 @@ function TemplateSetCard({
   onDismiss,
 }: {
   templatesEmpty: boolean;
-  bulk: BulkState | null;
+  bulk: TemplateBulkState | null;
   onStart: () => void;
   onCancel: () => void;
   onDismiss: () => void;
@@ -384,78 +378,27 @@ export function TemplatesPage() {
   }, [activeJob, pollJob]);
 
   // ── Starter template-set card ────────────────────────────────────────────
+  // Bulk-download state lives in the upload-progress store (not local React
+  // state) so the run continues when the user navigates away and the
+  // orchestration loop in `templateSetDownloader.ts` can keep running across
+  // unmounts. The card just renders whatever the store says.
   const { data: settings } = useSettings();
   const dismissTemplateSet = useDismissTemplateSet();
-  const [bulk, setBulk] = useState<BulkState | null>(null);
-  const bulkCancelRef = useRef(false);
+  const bulk = useUploadProgressStore((s) => s.templateBulk);
 
-  // Show the card on a fresh install (no templates yet, never dismissed). Once
-  // visible at the start of a bulk run, keep it visible until that run finishes
-  // — otherwise the first downloaded image would yank the progress UI away.
+  // Show the card on a fresh install (no templates yet, never dismissed).
+  // Also keep it visible while a bulk run is in flight — otherwise the first
+  // downloaded image would yank the progress UI away.
   const showTemplateSet = bulk !== null
     || (!isLoading && (templates?.length ?? 0) === 0 && settings?.templateSetDismissed === false);
 
-  const startBulkDownload = useCallback(async () => {
-    bulkCancelRef.current = false;
-    const items = TEMPLATE_SET.templates;
-    let succeeded = 0;
-    let failed = 0;
+  const startBulkDownload = useCallback(() => {
+    void startTemplateSetDownload();
+  }, []);
 
-    for (let i = 0; i < items.length; i++) {
-      if (bulkCancelRef.current) break;
-      const item = items[i];
-      setBulk({ index: i, total: items.length, current: item, job: null, succeeded, failed });
-
-      let jobId: string | null = null;
-      try {
-        const { data } = await api.post<{ jobId: string; filename: string }>('/api/templates/download', {
-          url: item.url, filename: item.filename, name: item.name,
-        });
-        jobId = data.jobId;
-        setTemplateLogo(data.filename, item.logo);
-      } catch {
-        failed++;
-        setBulk((s) => s ? { ...s, failed } : null);
-        continue;
-      }
-
-      // Poll until this job leaves the 'downloading' state. Bypasses the
-      // single-job activeJob store so the existing URL-download UI stays free.
-      while (!bulkCancelRef.current) {
-        try {
-          const { data: job } = await api.get<DownloadJob>(`/api/templates/download/${jobId}`);
-          setBulk((s) => s ? { ...s, job } : null);
-          if (job.status === 'done') { succeeded++; break; }
-          if (job.status === 'error') { failed++; break; }
-          if (job.status === 'cancelled') break;
-        } catch {
-          failed++;
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 800));
-      }
-
-      if (bulkCancelRef.current && jobId) {
-        api.delete(`/api/templates/download/${jobId}`).catch(() => { /* ignore */ });
-      }
-      qc.invalidateQueries({ queryKey: ['templates'] });
-    }
-
-    setBulk(null);
-    qc.invalidateQueries({ queryKey: ['templates'] });
-
-    if (bulkCancelRef.current) {
-      toast.info(`Cancelled — ${succeeded} downloaded, ${items.length - succeeded - failed} skipped`);
-    } else if (failed === 0) {
-      toast.success(`Starter set downloaded — ${succeeded} template${succeeded === 1 ? '' : 's'}`);
-    } else if (succeeded === 0) {
-      toast.error(`Starter set failed — ${failed} download${failed === 1 ? '' : 's'} failed`);
-    } else {
-      toast.warning(`Starter set partial — ${succeeded} done, ${failed} failed`);
-    }
-  }, [qc, setTemplateLogo]);
-
-  const cancelBulkDownload = useCallback(() => { bulkCancelRef.current = true; }, []);
+  const cancelBulkDownload = useCallback(() => {
+    cancelTemplateSetDownload();
+  }, []);
 
   const handleDismissTemplateSet = useCallback(() => {
     dismissTemplateSet.mutate(undefined, {

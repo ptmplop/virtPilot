@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.1] — 2026-05-03
+
+### Fixed
+- **Starter template-set bulk download now survives page navigation.** Previously the orchestration loop and its progress state lived inside the `TemplatesPage` component — clicking "Download starter set" and then navigating to e.g. the VMs page caused `setBulk(...)` calls to write to a destroyed setter and the progress card to vanish on return, even though the backend was technically still serving the in-flight item. Worse, on remount the local cancel flag (a `useRef`) was reset to `false`, so there was no way to stop the run from outside the original mount. Fixed by mirroring the pattern used for single-template/single-ISO downloads: bulk state (`templateBulk`, `templateBulkCancelled`) hoisted into `uploadProgressStore`, and the orchestration loop moved into `lib/templateSetDownloader.ts` as a module-level function that reads/writes the store directly. The loop now keeps progressing through all nine images regardless of which page the user is on, the card re-renders the live progress on remount, and Cancel still works because the flag lives in the store. Side benefit: kicking off the same run twice (e.g. by clicking Download on remount) is a no-op rather than starting a parallel run.
+
 ## [1.19.0] — 2026-05-03
 
 ### Added

@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.1',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: 'Starter template-set bulk download now survives page navigation. Previously the orchestration loop and progress state lived in the TemplatesPage component — clicking "Download starter set" and navigating away caused state writes to vanish into a destroyed setter, the card disappeared on return, and the cancel flag (a useRef) reset on remount. Fixed by mirroring the single-template/single-ISO pattern: bulk state hoisted into uploadProgressStore, orchestration moved to a module-level function in lib/templateSetDownloader.ts. The loop now progresses through all nine images regardless of which page the user is on, and the card re-renders live progress on remount. Side benefit: clicking Download twice is a no-op rather than starting a parallel run' },
+    ],
+  },
+  {
     version: '1.19.0',
     date: '2026-05-03',
     changes: [
