@@ -3,6 +3,13 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.16.0] — 2026-05-03
+
+### Added
+- **Bigger OS-logo selection on the Templates and ISOs pages.** The picker grew from 17 entries to 43, organised into Linux / BSD / Privacy & Security / Appliances / Other sections. New Linux distributions: Red Hat, SUSE, Pop!_OS, elementary OS, Zorin OS, Artix Linux, EndeavourOS, Garuda Linux, Void Linux, Deepin, Solus, generic Linux (Tux). New BSDs: OpenBSD, NetBSD. Privacy: Qubes OS, Tails. Turnkey appliances commonly run as KVM guests: pfSense, OPNsense, OpenWrt, MikroTik RouterOS, TrueNAS, openmediavault, Home Assistant, Pi-hole, AdGuard, Talos Linux. All icons ship in the existing `simple-icons` dependency — no new packages, no runtime download
+- **Search box and category headings in the OS-logo picker.** With 43 entries the flat grid was getting tall, so the dropdown now opens with a focused search input at the top and groups the results under section headings. The picker body is scrollable (max-h ≈ 320 px) and shows a "No logos match …" placeholder when the query has no hits
+- **Dark-brand logos render readably in both themes.** Brand colours below a luminance threshold (pfSense `#212121`, MikroTik `#293239`, SUSE `#0C322C`, …) used to vanish against the existing brand-tinted tile. Tiles for those logos now use `bg-foreground/10` and render the icon in the foreground colour, so they're visible on both light and dark cards. Logos with bright brand colours are unchanged
+
 ## [1.15.2] — 2026-05-02
 
 ### Fixed

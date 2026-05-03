@@ -13,6 +13,15 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.16.0',
+    date: '2026-05-03',
+    changes: [
+      { type: 'added', text: 'Bigger OS-logo selection on the Templates and ISOs pages — 17 entries grew to 43, organised into Linux / BSD / Privacy & Security / Appliances / Other sections. New Linux distros: Red Hat, SUSE, Pop!_OS, elementary OS, Zorin, Artix, EndeavourOS, Garuda, Void, Deepin, Solus, generic Tux. New BSDs: OpenBSD, NetBSD. Privacy: Qubes OS, Tails. Turnkey appliances commonly run as KVM guests: pfSense, OPNsense, OpenWrt, MikroTik, TrueNAS, openmediavault, Home Assistant, Pi-hole, AdGuard, Talos. All icons ship in the existing `simple-icons` dependency, no new packages' },
+      { type: 'added', text: 'Search box and category headings in the OS-logo picker. The dropdown opens with a focused search input at the top, groups results under section headings, and the body scrolls when there are more entries than fit. Empty-state placeholder when no logos match the query' },
+      { type: 'changed', text: 'Logos with very dark brand colours (pfSense, MikroTik, SUSE, …) now render readably in both light and dark themes. Tiles for those logos use a foreground-tinted background and render the icon in the foreground colour instead of vanishing against the brand-tinted tile. Bright brand colours unchanged' },
+    ],
+  },
+  {
     version: '1.15.2',
     date: '2026-05-02',
     changes: [
