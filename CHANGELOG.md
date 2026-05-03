@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.18.1] — 2026-05-03
+
+### Changed
+- **Default cloud-init username is now `virtpilot`** (previously `ubuntu`). The username field on the VM Create form is pre-filled with `virtpilot` instead of `ubuntu`, so newly-created VMs get an SSH login of `virtpilot@<ip>` by default. The field is still editable on a per-VM basis. Existing VMs are unaffected — their username is persisted in `vmMetaService` storage and inside the seed.iso, so they keep working as before. Only the form default changed; the cloud-init template itself was already parameterised, and the SSH WebSocket proxy reads `username` from VM metadata (so existing `ubuntu`-user VMs continue to connect correctly).
+
 ## [1.18.0] — 2026-05-03
 
 ### Fixed

@@ -76,7 +76,7 @@ const defaults: FormData = {
   isoFilename: '',
   networks: [],
   hostname: '',
-  username: 'ubuntu',
+  username: 'virtpilot',
   password: '',
   selectedSshKeyIds: [],
   cpuMode: 'host-passthrough',

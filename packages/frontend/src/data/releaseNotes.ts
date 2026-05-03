@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.18.1',
+    date: '2026-05-03',
+    changes: [
+      { type: 'changed', text: 'Default cloud-init username is now `virtpilot` (previously `ubuntu`). The VM Create form pre-fills `virtpilot`, so newly-created VMs get an SSH login of `virtpilot@<ip>` by default. The field is still editable on a per-VM basis. Existing VMs are unaffected — their username is persisted in VM metadata and inside the seed.iso, so they keep working as before' },
+    ],
+  },
+  {
     version: '1.18.0',
     date: '2026-05-03',
     changes: [
