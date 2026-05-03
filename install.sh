@@ -117,21 +117,34 @@ chmod -R 755 /var/lib/virtpilot
 log "Storage ready"
 
 # ─── Password setup ───────────────────────────────────────────────────────────
-echo ""
-echo -e "${BOLD}Set a login password for the VirtPilot web UI:${NC}"
-while true; do
-  read -rsp "  Password : " VP_PASSWORD; echo
+# Allow non-interactive installs via env var: VP_PASSWORD=secret sudo -E bash install.sh
+if [[ -n "${VP_PASSWORD:-}" ]]; then
   if [[ ${#VP_PASSWORD} -lt 8 ]]; then
-    warn "Password must be at least 8 characters. Try again."
-    continue
+    die "VP_PASSWORD must be at least 8 characters."
   fi
-  read -rsp "  Confirm  : " VP_PASSWORD2; echo
-  if [[ "$VP_PASSWORD" == "$VP_PASSWORD2" ]]; then
-    break
+  log "Using VP_PASSWORD from environment"
+else
+  # When invoked via `curl ... | sudo bash`, stdin is the curl pipe (already
+  # consumed), so read directly from the controlling terminal instead.
+  if [[ ! -r /dev/tty ]]; then
+    die "No TTY available for password prompt. Either run install.sh from an interactive shell, or pass VP_PASSWORD=... in the environment."
   fi
-  warn "Passwords do not match. Try again."
-done
-echo ""
+  echo ""
+  echo -e "${BOLD}Set a login password for the VirtPilot web UI:${NC}"
+  while true; do
+    read -rsp "  Password : " VP_PASSWORD < /dev/tty; echo
+    if [[ ${#VP_PASSWORD} -lt 8 ]]; then
+      warn "Password must be at least 8 characters. Try again."
+      continue
+    fi
+    read -rsp "  Confirm  : " VP_PASSWORD2 < /dev/tty; echo
+    if [[ "$VP_PASSWORD" == "$VP_PASSWORD2" ]]; then
+      break
+    fi
+    warn "Passwords do not match. Try again."
+  done
+  echo ""
+fi
 
 # ─── Generate JWT secret ──────────────────────────────────────────────────────
 JWT_SECRET=$(openssl rand -hex 32)

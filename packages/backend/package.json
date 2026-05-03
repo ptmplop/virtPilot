@@ -1,6 +1,6 @@
 {
   "name": "@virtpilot/backend",
-  "version": "1.19.10",
+  "version": "1.19.11",
   "private": true,
   "type": "commonjs",
   "scripts": {

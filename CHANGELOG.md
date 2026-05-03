@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.11] — 2026-05-03
+
+### Fixed
+- **`install.sh` no longer drops out silently at the password prompt when run via the `curl … | sudo bash` bootstrap.** The installer used `read -rsp` against stdin, but stdin in that flow is the curl pipe — already EOF by the time the prompt runs. Combined with `set -euo pipefail`, `read` returned non-zero and the script exited immediately after printing "Set a login password for the VirtPilot web UI:" with no further output. The password reads now go to `/dev/tty` directly so the prompt works regardless of how stdin was wired up. Also added a `VP_PASSWORD` env var override for fully unattended installs (`VP_PASSWORD=secret sudo -E bash install.sh`), and a clear error if neither a TTY nor `VP_PASSWORD` is available instead of failing silently.
+
 ## [1.19.10] — 2026-05-03
 
 ### Changed
