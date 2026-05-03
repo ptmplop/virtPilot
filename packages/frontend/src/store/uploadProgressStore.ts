@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { TemplateSetItem } from '@/data/templateSets';
 
 interface JobState {
@@ -57,33 +58,49 @@ interface UploadProgressState {
   setTemplateBulkCancelled: (cancelled: boolean) => void;
 }
 
-export const useUploadProgressStore = create<UploadProgressState>((set) => ({
-  templateUploadPct: null,
-  templateUploadName: '',
-  templateActiveJob: null,
-  templateUploadAbort: null,
-  isoUploadPct: null,
-  isoUploadName: '',
-  isoActiveJob: null,
-  isoUploadAbort: null,
-  templateBulk: null,
-  templateBulkCancelled: false,
+// `templateBulk` is the only field we persist to localStorage. The rest are
+// transient (single-job progress, abort fns) and would either be meaningless
+// or non-serializable across reloads. Persisting `templateBulk` lets the
+// orchestrator in lib/templateSetDownloader.ts resume a partially-completed
+// starter-set run after a full page reload, tab close + reopen, or browser
+// restart — the in-memory-only fix shipped in v1.19.1 only survived SPA
+// navigation and silently halted on full reload.
+export const useUploadProgressStore = create<UploadProgressState>()(
+  persist(
+    (set) => ({
+      templateUploadPct: null,
+      templateUploadName: '',
+      templateActiveJob: null,
+      templateUploadAbort: null,
+      isoUploadPct: null,
+      isoUploadName: '',
+      isoActiveJob: null,
+      isoUploadAbort: null,
+      templateBulk: null,
+      templateBulkCancelled: false,
 
-  setTemplateUploadPct: (pct) => set({ templateUploadPct: pct }),
-  setTemplateUploadName: (name) => set({ templateUploadName: name }),
-  setTemplateActiveJob: (job) => set({ templateActiveJob: job }),
-  updateTemplateActiveJob: (updater) =>
-    set((s) => ({ templateActiveJob: updater(s.templateActiveJob) })),
-  setTemplateUploadAbort: (fn) => set({ templateUploadAbort: fn }),
+      setTemplateUploadPct: (pct) => set({ templateUploadPct: pct }),
+      setTemplateUploadName: (name) => set({ templateUploadName: name }),
+      setTemplateActiveJob: (job) => set({ templateActiveJob: job }),
+      updateTemplateActiveJob: (updater) =>
+        set((s) => ({ templateActiveJob: updater(s.templateActiveJob) })),
+      setTemplateUploadAbort: (fn) => set({ templateUploadAbort: fn }),
 
-  setIsoUploadPct: (pct) => set({ isoUploadPct: pct }),
-  setIsoUploadName: (name) => set({ isoUploadName: name }),
-  setIsoActiveJob: (job) => set({ isoActiveJob: job }),
-  updateIsoActiveJob: (updater) =>
-    set((s) => ({ isoActiveJob: updater(s.isoActiveJob) })),
-  setIsoUploadAbort: (fn) => set({ isoUploadAbort: fn }),
+      setIsoUploadPct: (pct) => set({ isoUploadPct: pct }),
+      setIsoUploadName: (name) => set({ isoUploadName: name }),
+      setIsoActiveJob: (job) => set({ isoActiveJob: job }),
+      updateIsoActiveJob: (updater) =>
+        set((s) => ({ isoActiveJob: updater(s.isoActiveJob) })),
+      setIsoUploadAbort: (fn) => set({ isoUploadAbort: fn }),
 
-  setTemplateBulk: (b) => set({ templateBulk: b }),
-  updateTemplateBulk: (updater) => set((s) => ({ templateBulk: updater(s.templateBulk) })),
-  setTemplateBulkCancelled: (cancelled) => set({ templateBulkCancelled: cancelled }),
-}));
+      setTemplateBulk: (b) => set({ templateBulk: b }),
+      updateTemplateBulk: (updater) => set((s) => ({ templateBulk: updater(s.templateBulk) })),
+      setTemplateBulkCancelled: (cancelled) => set({ templateBulkCancelled: cancelled }),
+    }),
+    {
+      name: 'virtpilot-upload-progress',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ templateBulk: state.templateBulk }),
+    },
+  ),
+);

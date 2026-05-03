@@ -3,6 +3,13 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.2] — 2026-05-03
+
+### Fixed
+- **Starter template-set bulk download now resumes after a full page reload, tab close, or browser restart.** The v1.19.1 fix moved bulk state into a Zustand store, which survived in-app SPA navigation, but the store was in-memory only — a hard reload, F5, or closing the tab wiped both the store and the orchestration loop with no way to recover, and the user just saw the run silently halt halfway through. Live repro: Rocky 9 + AlmaLinux 9 finished, page got reloaded for unrelated reasons, items 3–9 never even POSTed because the orchestrator was gone. Fixed by adding zustand `persist` middleware to `uploadProgressStore` (with `partialize` so only `templateBulk` is persisted to localStorage — abort callbacks and per-job progress stay transient), refactoring `lib/templateSetDownloader.ts` to support resume-from-index, and wiring `resumeTemplateSetDownloadIfNeeded()` into `ProtectedRoute` so any unfinished run picks back up the moment an authenticated route mounts.
+- **Resume is dedupe-safe.** Before kicking off the loop the orchestrator now snapshots the current templates list and skips any item whose filename is already on disk (counted as succeeded). Covers two real cases: (1) the resumed item actually finished downloading right before the page died but the state-write was lost, and (2) the user has manually uploaded a file with the same filename. Avoids re-downloading a 600 MB qcow2 the user already has.
+- **Single-instance guard.** A module-level `orchestratorRunning` flag prevents `resumeTemplateSetDownloadIfNeeded()` (firing on `ProtectedRoute` mount) from racing with a fresh "Download starter set" click — second caller is a no-op rather than spawning a parallel loop that would double-count succeeded/failed totals and fight over the same backend job ids.
+
 ## [1.19.1] — 2026-05-03
 
 ### Fixed

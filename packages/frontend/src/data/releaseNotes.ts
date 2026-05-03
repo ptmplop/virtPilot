@@ -13,6 +13,15 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.2',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: 'Starter template-set bulk download now resumes after a full page reload, tab close, or browser restart. The v1.19.1 fix only survived SPA navigation — the in-memory store was wiped on a hard reload and the run silently halted (live repro: Rocky 9 + AlmaLinux 9 finished, page reloaded, items 3–9 never even POSTed). Fixed by persisting `templateBulk` to localStorage via zustand persist middleware and wiring `resumeTemplateSetDownloadIfNeeded()` into ProtectedRoute so any unfinished run picks back up on the next authenticated mount' },
+      { type: 'fixed', text: 'Resume is dedupe-safe. Before resuming, the orchestrator snapshots the current templates list and skips any filename already on disk (counted as succeeded). Avoids re-downloading 600 MB qcow2 files that finished right before the page died but whose state-write was lost' },
+      { type: 'fixed', text: 'Single-instance guard prevents the resume firing on ProtectedRoute mount from racing with a fresh "Download starter set" click — second caller is a no-op rather than spawning a parallel loop' },
+    ],
+  },
+  {
     version: '1.19.1',
     date: '2026-05-03',
     changes: [
