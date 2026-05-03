@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.21.4',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: 'White page after a fresh v1.21 install — the JS bundle returned 500 and the CSS came back as `text/html`. Two interacting bugs in the v1.21.0 hardening: (1) the new CORS middleware accepted requests only when `Origin` was on the `ALLOWED_ORIGINS` allow-list, but Vite\'s `<script crossorigin>` tag makes the browser send an `Origin` header even for same-origin module preloads — so the cors callback errored, Express returned 500 to the script request, and the SPA never mounted. The CSS request fell through to the SPA catch-all and came back with `text/html` for the same reason. CORS now treats any request whose `Origin` host matches the request\'s `Host` header as same-origin and allows it unconditionally; cross-origin still gates on `ALLOWED_ORIGINS`. (2) the CSP blocked the Google Fonts stylesheet (`fonts.googleapis.com`) and font files (`fonts.gstatic.com`) — secondary to the white page but cosmetic-broken on its own. CSP now allows both, plus an explicit `style-src-elem`' },
+    ],
+  },
+  {
     version: '1.21.3',
     date: '2026-05-04',
     changes: [

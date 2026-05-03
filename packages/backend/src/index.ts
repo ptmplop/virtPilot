@@ -39,18 +39,20 @@ app.set('trust proxy', process.env.TRUST_PROXY ? Number(process.env.TRUST_PROXY)
 
 app.use(
   helmet({
-    // CSP: keep self-only by default. The frontend bundle is served from the
-    // same origin so no external script/style sources are required.
+    // CSP: scripts stay strict (same-origin only). Styles + fonts allow Google
+    // Fonts because the SPA's index.html loads Geist from there. Connect-src
+    // is locked to same-origin (HTTP + WS) so a compromised script can't
+    // exfiltrate to an attacker-controlled host.
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
         'default-src': ["'self'"],
-        // Vite-built CSS includes inline styles (CSS-in-JS); keep style-src
-        // permissive enough for that. Scripts stay strict.
-        'style-src': ["'self'", "'unsafe-inline'"],
+        'script-src': ["'self'"],
+        'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        'style-src-elem': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         'img-src': ["'self'", 'data:', 'blob:'],
         'connect-src': ["'self'", 'ws:', 'wss:'],
-        'font-src': ["'self'", 'data:'],
+        'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
         'object-src': ["'none'"],
         'frame-ancestors': ["'self'"],
       },
@@ -59,21 +61,34 @@ app.use(
   }),
 );
 
-// CORS: same-origin by default. Operators can opt in to additional origins
-// via ALLOWED_ORIGINS env var when the frontend is served from a different
-// domain than the backend.
+// CORS: explicitly allow same-origin (the browser sends an Origin header for
+// `<script crossorigin>` tags even on same-origin pages, and we serve the SPA
+// from the backend itself). Cross-origin is gated on ALLOWED_ORIGINS.
 const allowedOrigins = new Set(config.allowedOrigins);
-app.use(
-  cors({
+function isSameOrigin(originHeader: string | undefined, host: string | undefined): boolean {
+  if (!originHeader || !host) return false;
+  try {
+    return new URL(originHeader).host === host;
+  } catch {
+    return false;
+  }
+}
+app.use((req, res, next) => {
+  const sameOrigin = isSameOrigin(req.headers.origin, req.headers.host);
+  return cors({
     origin(origin, cb) {
-      // Same-origin / non-CORS request (no Origin header) — always allow.
+      // No Origin header (non-CORS request, e.g. same-origin GET without
+      // crossorigin attr) — allow.
       if (!origin) return cb(null, true);
+      // Browser-recognised same-origin — always allow regardless of allowlist.
+      if (sameOrigin) return cb(null, true);
+      // Cross-origin must be on the explicit allowlist.
       if (allowedOrigins.has(origin)) return cb(null, true);
-      cb(new Error('Origin not allowed'));
+      cb(new Error(`Origin not allowed: ${origin}`));
     },
     credentials: true,
-  }),
-);
+  })(req, res, next);
+});
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
