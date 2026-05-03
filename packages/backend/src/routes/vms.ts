@@ -76,6 +76,38 @@ vmsRouter.get('/disks', async (_req, res) => {
   }
 });
 
+// Delete an orphaned VM directory (qcow2 disks left behind after a
+// `keep storage` VM delete, or after a manual `virsh undefine`). Refuses if
+// libvirt still knows the VM, so this can never wipe storage out from under a
+// running domain.
+vmsRouter.delete('/disks/:vmName', async (req, res) => {
+  const start = Date.now();
+  const { vmName } = req.params;
+  try {
+    if (vmName.includes('/') || vmName.includes('\\') || vmName === '.' || vmName === '..') {
+      return res.status(400).json({ error: 'Invalid VM name' });
+    }
+
+    let stillDefined = false;
+    try {
+      const vms = await vmService.listVmsRaw();
+      stillDefined = vms.some((v) => v.name === vmName);
+    } catch { /* libvirt unavailable — treat as not defined */ }
+    if (stillDefined) {
+      return res.status(409).json({ error: `VM "${vmName}" is still defined; delete the VM first` });
+    }
+
+    await storageService.deleteVmDir(vmName);
+    await deleteCloudInitArtifacts(vmName);
+
+    void logService.appendLog({ type: 'vm.disk.orphan.delete', subject: vmName, status: 'success', output: '', durationMs: Date.now() - start });
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.disk.orphan.delete', subject: vmName, status: 'error', output: String(err), durationMs: Date.now() - start });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 vmsRouter.get('/:name', async (req, res) => {
   try {
     const vm = await vmService.getVmInfo(req.params.name);

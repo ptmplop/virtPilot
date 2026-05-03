@@ -1,9 +1,13 @@
-import { HardDrive, Disc, Database } from 'lucide-react';
+import { useState } from 'react';
+import { HardDrive, Disc, Database, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
+import { Button } from '@/components/ui/Button';
+import { Dialog } from '@/components/ui/Dialog';
 import { cn } from '@/lib/cn';
 import { useTemplates } from '@/hooks/useTemplates';
 import { useIsos } from '@/hooks/useIsos';
-import { useVmDisks } from '@/hooks/useVmDisks';
+import { useVmDisks, useDeleteOrphanedVmDisk } from '@/hooks/useVmDisks';
 
 function ResourceCard({
   label,
@@ -38,6 +42,8 @@ export function StoragePage() {
   const { data: templates } = useTemplates();
   const { data: isos } = useIsos();
   const { data: vmDisks } = useVmDisks();
+  const deleteOrphan = useDeleteOrphanedVmDisk();
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const totalTemplateGb = templates?.reduce((s, t) => s + t.sizeGb, 0) ?? 0;
   const totalIsoGb = isos?.reduce((s, i) => s + i.sizeGb, 0) ?? 0;
@@ -159,6 +165,7 @@ export function StoragePage() {
                   <th className="px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     Size on Disk
                   </th>
+                  <th className="px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -168,7 +175,7 @@ export function StoragePage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-foreground">{d.vmName}</span>
                         {!d.vmExists && (
-                          <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
                             orphaned
                           </span>
                         )}
@@ -178,6 +185,18 @@ export function StoragePage() {
                     <td className="px-5 py-3.5 text-right font-mono text-xs text-muted-foreground">
                       {d.sizeGb} GB
                     </td>
+                    <td className="px-5 py-3.5 text-right">
+                      {!d.vmExists && (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(d.vmName)}
+                          title="Delete orphaned VM folder"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -185,6 +204,36 @@ export function StoragePage() {
           </div>
         </section>
       )}
+
+      <Dialog
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete orphaned VM folder"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={deleteOrphan.isPending}
+              onClick={async () => {
+                if (!deleteTarget) return;
+                try {
+                  await deleteOrphan.mutateAsync(deleteTarget);
+                  toast.success(`${deleteTarget} folder deleted`);
+                  setDeleteTarget(null);
+                } catch { toast.error('Failed to delete folder'); }
+              }}
+            >
+              {deleteOrphan.isPending ? 'Deleting…' : 'Delete'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-foreground">
+          Permanently delete the <span className="font-mono">{deleteTarget}</span> folder and all of its contents (qcow2 disks, cloud-init seed.iso, leftover scaffolding)? This cannot be undone.
+        </p>
+      </Dialog>
 
       {/* Empty state */}
       {!hasContent && (

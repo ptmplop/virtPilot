@@ -388,15 +388,22 @@ export function TemplatesPage() {
 
   // Show the card while:
   //   - a bulk run is in flight (so progress UI doesn't vanish mid-download), OR
-  //   - any item from TEMPLATE_SET is still missing on disk AND the user hasn't
-  //     dismissed it. This covers the fresh-install case (nothing on disk yet)
-  //     AND the partial-failure case (some items succeeded, some didn't) so
-  //     the user has a one-click "Download starter set" path to retry the
-  //     missing items — the orchestrator dedupe-skips files already present.
-  const installedFilenames = new Set((templates ?? []).map((t) => t.filename));
-  const someSetItemMissing = TEMPLATE_SET.templates.some((t) => !installedFilenames.has(t.filename));
+  //   - the user has zero templates AND hasn't dismissed it. The empty-state
+  //     gate keeps the card out of the way once a user has any templates of
+  //     their own — even if they haven't downloaded the full starter set.
+  const templatesCount = templates?.length ?? 0;
   const showTemplateSet = bulk !== null
-    || (!isLoading && someSetItemMissing && settings?.templateSetDismissed === false);
+    || (!isLoading && templatesCount === 0 && settings?.templateSetDismissed === false);
+
+  // Reset the dismiss flag whenever templates count is non-zero, so the card
+  // re-appears next time the user empties the templates list. Otherwise the
+  // flag is sticky forever once set, even after a full reset of the library.
+  useEffect(() => {
+    if (settings?.templateSetDismissed && templatesCount > 0) {
+      void api.put('/api/settings', { templateSetDismissed: false })
+        .then(() => qc.invalidateQueries({ queryKey: ['settings'] }));
+    }
+  }, [settings?.templateSetDismissed, templatesCount, qc]);
 
   const startBulkDownload = useCallback(() => {
     void startTemplateSetDownload();

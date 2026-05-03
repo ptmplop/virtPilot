@@ -3,6 +3,14 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.9] — 2026-05-03
+
+### Added
+- **Storage page now lets you delete orphaned VM folders.** When a VM is deleted with "keep storage", or when libvirt loses track of one (e.g. a manual `virsh undefine`), the qcow2 disks under `$STORAGE_ROOT/vms/<name>/` had no UI to remove them — they could only be cleaned by SSHing in and `rm -rf`-ing the directory by hand. The Storage page already flagged these rows with an "orphaned" badge; it now also shows a trash button on those rows (and only those rows). Confirming runs a new `DELETE /api/vms/disks/:vmName` that recursively removes the VM directory and any leftover cloud-init scaffolding (`seed.iso`, `domain.xml`, per-VM cloud-init dir). The endpoint refuses if libvirt still has a domain by that name, so it can't wipe storage out from under a defined VM.
+
+### Fixed
+- **"Essential cloud images" card now only appears when the templates library is genuinely empty, and re-appears if you later empty it.** The card was gated on "any starter image is missing on disk", so a user who'd uploaded their own qcow2 still saw it whenever they were missing one of the starter set entries. It's now gated on `templates.length === 0`. Additionally, the persistent `templateSetDismissed` flag was sticky forever once set — meaning a user who dismissed the card on day 1 would never see it again, even after wiping every template on day 100. The flag now auto-clears whenever the templates list is non-empty, so dismissal effectively means "hide for this empty state" rather than "hide forever".
+
 ## [1.19.8] — 2026-05-03
 
 ### Removed
