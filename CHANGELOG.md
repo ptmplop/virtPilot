@@ -3,6 +3,14 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.17.2] — 2026-05-03
+
+### Fixed
+- **`update.sh` build failure: `siProxmox` declared but its value is never read.** The v1.16.0 OS-logo expansion imported `siProxmox` from `simple-icons` with the intention of including Proxmox in the appliance category, but the entry never made it into the `SPECS` array. The frontend's `npm run build` runs `tsc -b` which respects `tsconfig.app.json`'s `noUnusedLocals: true`, so the build aborted with `error TS6133`. The frontend's standalone `npm run typecheck` (which runs `tsc --noEmit` against the project-references stub `tsconfig.json`) silently passed because the stub config doesn't include source files. Proxmox is now included in the appliance category as originally intended, so the icon shows up in the Templates/ISOs picker
+
+### Added
+- **Proxmox** (`siProxmox`) added to the OS-logo picker under the Appliances section — restored from the v1.16.0 intent. Useful for tagging nested-Proxmox lab VMs
+
 ## [1.17.1] — 2026-05-03
 
 ### Fixed

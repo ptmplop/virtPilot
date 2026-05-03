@@ -107,13 +107,14 @@ const SPECS: IconSpec[] = [
   { icon: siQubesos, category: 'security' },
   { icon: siTails, category: 'security' },
 
-  // Turnkey appliances (network, storage, home, k8s)
+  // Turnkey appliances (network, storage, home, hypervisor, k8s)
   { icon: siPfsense, category: 'appliance' },
   { icon: siOpnsense, category: 'appliance' },
   { icon: siOpenwrt, category: 'appliance' },
   { icon: siMikrotik, category: 'appliance' },
   { icon: siTruenas, category: 'appliance' },
   { icon: siOpenmediavault, category: 'appliance' },
+  { icon: siProxmox, category: 'appliance' },
   { icon: siHomeassistant, category: 'appliance' },
   { icon: siPihole, category: 'appliance' },
   { icon: siAdguard, category: 'appliance' },

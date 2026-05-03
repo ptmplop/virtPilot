@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.17.2',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: '`update.sh` build failure: `siProxmox` declared but its value is never read. The v1.16.0 OS-logo expansion imported `siProxmox` from `simple-icons` with the intention of including Proxmox in the appliance category, but the entry never made it into the `SPECS` array. The frontend\'s `npm run build` runs `tsc -b` which respects `noUnusedLocals: true` from `tsconfig.app.json`, so the build aborted. Proxmox is now included as originally intended' },
+      { type: 'added', text: 'Proxmox (`siProxmox`) restored to the OS-logo picker under the Appliances section' },
+    ],
+  },
+  {
     version: '1.17.1',
     date: '2026-05-03',
     changes: [
