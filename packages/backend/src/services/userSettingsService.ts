@@ -14,6 +14,7 @@ export interface UserSettings {
   totpSecret?: string;
   totpPendingSecret?: string;
   backup: BackupSettings;
+  templateSetDismissed: boolean;
 }
 
 const DEFAULT: UserSettings = {
@@ -21,6 +22,7 @@ const DEFAULT: UserSettings = {
   ipWhitelist: [],
   totpEnabled: false,
   backup: { retentionDays: 7, compression: false },
+  templateSetDismissed: false,
 };
 
 const settingsFile = () => path.join(config.storageRoot, 'user-settings.json');
@@ -47,6 +49,7 @@ export async function saveUserSettings(updates: Partial<UserSettings>): Promise<
     if (typeof merged.backup.retentionDays !== 'number' || merged.backup.retentionDays < 0) merged.backup.retentionDays = 0;
     merged.backup.compression = Boolean(merged.backup.compression);
   }
+  if (updates.templateSetDismissed !== undefined) merged.templateSetDismissed = Boolean(updates.templateSetDismissed);
   if (typeof merged.maxLogs !== 'number' || merged.maxLogs < 10) merged.maxLogs = 10;
   if (merged.maxLogs > 10_000) merged.maxLogs = 10_000;
   if (!Array.isArray(merged.ipWhitelist)) merged.ipWhitelist = [];

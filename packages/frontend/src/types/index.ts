@@ -211,6 +211,7 @@ export interface Settings {
   ipWhitelist: string[];
   totpEnabled: boolean;
   backup: BackupSettings;
+  templateSetDismissed: boolean;
 }
 
 export type BackupTrigger = 'manual' | 'scheduled';

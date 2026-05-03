@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Database, Download, HardDrive, Pencil, Trash2, Upload, X } from 'lucide-react';
+import { Database, Download, HardDrive, PackageOpen, Pencil, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
@@ -13,10 +13,12 @@ import {
   useTemplates, useDeleteTemplate, useUploadTemplate, useRenameTemplate,
   useDownloadTemplateFromUrl, useCancelTemplateDownload, type DownloadJob,
 } from '@/hooks/useTemplates';
+import { useSettings, useDismissTemplateSet } from '@/hooks/useSettings';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
 import { useUploadProgressStore } from '@/store/uploadProgressStore';
 import { cn } from '@/lib/cn';
+import { TEMPLATE_SET, type TemplateSetItem } from '@/data/templateSets';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -112,6 +114,150 @@ function InlineName({
       <span className="text-sm font-semibold text-foreground">{name}</span>
       <Pencil size={11} className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
+  );
+}
+
+// ─── Starter template-set card ─────────────────────────────────────────────────
+//
+// Surfaced when the templates directory is empty (and the user hasn't dismissed
+// the card). Sequentially downloads every entry in TEMPLATE_SET via the same
+// background-download endpoint as the manual "From URL" flow — one at a time,
+// so the user can keep working while it churns through the list.
+
+interface BulkState {
+  index: number;
+  total: number;
+  current: TemplateSetItem;
+  job: DownloadJob | null;
+  succeeded: number;
+  failed: number;
+}
+
+function TemplateSetCard({
+  templatesEmpty,
+  bulk,
+  onStart,
+  onCancel,
+  onDismiss,
+}: {
+  templatesEmpty: boolean;
+  bulk: BulkState | null;
+  onStart: () => void;
+  onCancel: () => void;
+  onDismiss: () => void;
+}) {
+  const items = TEMPLATE_SET.templates;
+  const downloading = bulk !== null;
+  const pct = bulk?.job?.totalBytes
+    ? Math.round((bulk.job.bytesDownloaded / bulk.job.totalBytes) * 100)
+    : undefined;
+
+  return (
+    <div className="group relative mb-6 overflow-hidden rounded-2xl border border-violet-500/25 shadow-airy transition-all duration-300 ease-out hover:shadow-[0_0_48px_-8px_rgb(139_92_246_/_0.30)]">
+      {/* Layered gradient background — kept subtle so text stays readable */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-violet-500/[0.06] via-blue-500/[0.03] to-transparent" />
+      <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full bg-blue-500/[0.07] blur-3xl" />
+
+      {/* Top stripe */}
+      <div className="relative h-[3px] w-full bg-gradient-to-r from-violet-500 via-blue-500/50 to-transparent" />
+
+      {/* Dismiss button */}
+      {!downloading && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          title="Hide this card"
+          className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <X size={14} />
+        </button>
+      )}
+
+      <div className="relative px-6 py-5">
+        <div className="flex items-start gap-4">
+          {/* Glowing icon badge */}
+          <div className="relative shrink-0">
+            <div className="absolute inset-0 rounded-2xl bg-violet-500/30 blur-xl" />
+            <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500/30 via-violet-500/15 to-blue-500/20 ring-1 ring-violet-400/30 shadow-[0_4px_20px_-2px_rgb(139_92_246_/_0.4)]">
+              <PackageOpen className="h-5 w-5 text-violet-600 dark:text-violet-300" />
+            </div>
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-700 dark:text-violet-300">
+                {templatesEmpty ? 'New install' : 'Starter set'}
+              </span>
+            </div>
+            <p className="mt-1.5 text-base font-semibold text-foreground">
+              {TEMPLATE_SET.name}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {TEMPLATE_SET.description} {items.length} image{items.length === 1 ? '' : 's'}.
+            </p>
+
+            {/* Logo strip */}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {items.map((t) => (
+                <div key={t.filename} className="flex items-center gap-1.5 rounded-md border border-border bg-background/50 px-2 py-1">
+                  <VmLogo slug={t.logo} size={16} />
+                  <span className="text-[11px] text-muted-foreground">{t.name}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Action row or progress */}
+            {!downloading ? (
+              <div className="mt-4">
+                <Button size="sm" onClick={onStart}>
+                  <Download size={13} /> Download starter set
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="flex items-center gap-2 text-foreground">
+                    <Spinner className="h-3 w-3" />
+                    <span className="font-medium">
+                      Downloading {bulk.index + 1} of {bulk.total}
+                    </span>
+                    <span className="truncate text-muted-foreground">— {bulk.current.name}</span>
+                  </span>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="font-mono text-muted-foreground">
+                      {pct !== undefined ? `${pct}%` : '…'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onCancel}
+                      title="Cancel remaining downloads"
+                      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  {pct !== undefined ? (
+                    <div className="h-full rounded-full bg-violet-500 transition-all duration-200" style={{ width: `${pct}%` }} />
+                  ) : (
+                    <div className="h-full w-2/5 animate-pulse rounded-full bg-violet-500" />
+                  )}
+                </div>
+                {(bulk.succeeded > 0 || bulk.failed > 0) && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {bulk.succeeded > 0 && <span className="text-emerald-600 dark:text-emerald-400">{bulk.succeeded} done</span>}
+                    {bulk.succeeded > 0 && bulk.failed > 0 && ' · '}
+                    {bulk.failed > 0 && <span className="text-amber-600 dark:text-amber-400">{bulk.failed} failed</span>}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -237,6 +383,86 @@ export function TemplatesPage() {
     return () => clearInterval(id);
   }, [activeJob, pollJob]);
 
+  // ── Starter template-set card ────────────────────────────────────────────
+  const { data: settings } = useSettings();
+  const dismissTemplateSet = useDismissTemplateSet();
+  const [bulk, setBulk] = useState<BulkState | null>(null);
+  const bulkCancelRef = useRef(false);
+
+  // Show the card on a fresh install (no templates yet, never dismissed). Once
+  // visible at the start of a bulk run, keep it visible until that run finishes
+  // — otherwise the first downloaded image would yank the progress UI away.
+  const showTemplateSet = bulk !== null
+    || (!isLoading && (templates?.length ?? 0) === 0 && settings?.templateSetDismissed === false);
+
+  const startBulkDownload = useCallback(async () => {
+    bulkCancelRef.current = false;
+    const items = TEMPLATE_SET.templates;
+    let succeeded = 0;
+    let failed = 0;
+
+    for (let i = 0; i < items.length; i++) {
+      if (bulkCancelRef.current) break;
+      const item = items[i];
+      setBulk({ index: i, total: items.length, current: item, job: null, succeeded, failed });
+
+      let jobId: string | null = null;
+      try {
+        const { data } = await api.post<{ jobId: string; filename: string }>('/api/templates/download', {
+          url: item.url, filename: item.filename, name: item.name,
+        });
+        jobId = data.jobId;
+        setTemplateLogo(data.filename, item.logo);
+      } catch {
+        failed++;
+        setBulk((s) => s ? { ...s, failed } : null);
+        continue;
+      }
+
+      // Poll until this job leaves the 'downloading' state. Bypasses the
+      // single-job activeJob store so the existing URL-download UI stays free.
+      while (!bulkCancelRef.current) {
+        try {
+          const { data: job } = await api.get<DownloadJob>(`/api/templates/download/${jobId}`);
+          setBulk((s) => s ? { ...s, job } : null);
+          if (job.status === 'done') { succeeded++; break; }
+          if (job.status === 'error') { failed++; break; }
+          if (job.status === 'cancelled') break;
+        } catch {
+          failed++;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 800));
+      }
+
+      if (bulkCancelRef.current && jobId) {
+        api.delete(`/api/templates/download/${jobId}`).catch(() => { /* ignore */ });
+      }
+      qc.invalidateQueries({ queryKey: ['templates'] });
+    }
+
+    setBulk(null);
+    qc.invalidateQueries({ queryKey: ['templates'] });
+
+    if (bulkCancelRef.current) {
+      toast.info(`Cancelled — ${succeeded} downloaded, ${items.length - succeeded - failed} skipped`);
+    } else if (failed === 0) {
+      toast.success(`Starter set downloaded — ${succeeded} template${succeeded === 1 ? '' : 's'}`);
+    } else if (succeeded === 0) {
+      toast.error(`Starter set failed — ${failed} download${failed === 1 ? '' : 's'} failed`);
+    } else {
+      toast.warning(`Starter set partial — ${succeeded} done, ${failed} failed`);
+    }
+  }, [qc, setTemplateLogo]);
+
+  const cancelBulkDownload = useCallback(() => { bulkCancelRef.current = true; }, []);
+
+  const handleDismissTemplateSet = useCallback(() => {
+    dismissTemplateSet.mutate(undefined, {
+      onError: () => toast.error('Failed to hide card'),
+    });
+  }, [dismissTemplateSet]);
+
   const totalTemplateGb = templates?.reduce((s, t) => s + t.sizeGb, 0) ?? 0;
 
   const downloadPct = activeJob?.job.totalBytes
@@ -265,6 +491,17 @@ export function TemplatesPage() {
         <StatCard icon={HardDrive} label="Templates" value={isLoading ? '—' : String(templates?.length ?? 0)} iconClass="bg-violet-500/10 text-violet-500" />
         <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : `${totalTemplateGb.toFixed(1)} GB`} iconClass="bg-blue-500/10 text-blue-500" />
       </div>
+
+      {/* Starter template-set card (new installs only — auto-hides once any template exists or is dismissed) */}
+      {showTemplateSet && (
+        <TemplateSetCard
+          templatesEmpty={(templates?.length ?? 0) === 0}
+          bulk={bulk}
+          onStart={startBulkDownload}
+          onCancel={cancelBulkDownload}
+          onDismiss={handleDismissTemplateSet}
+        />
+      )}
 
       {/* Upload progress */}
       {uploadPct !== null && (

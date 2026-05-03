@@ -23,6 +23,7 @@ settingsRouter.get('/', async (_req, res) => {
         ipWhitelist: user.ipWhitelist,
         totpEnabled: user.totpEnabled,
         backup: user.backup,
+        templateSetDismissed: user.templateSetDismissed,
       },
     });
   } catch (err: unknown) {
@@ -32,7 +33,7 @@ settingsRouter.get('/', async (_req, res) => {
 
 settingsRouter.put('/', async (req, res) => {
   try {
-    const { maxLogs, ipWhitelist, backup } = req.body as { maxLogs?: number; ipWhitelist?: string[]; backup?: Partial<BackupSettings> };
+    const { maxLogs, ipWhitelist, backup, templateSetDismissed } = req.body as { maxLogs?: number; ipWhitelist?: string[]; backup?: Partial<BackupSettings>; templateSetDismissed?: boolean };
     // Self-lockout guard: if a non-empty IP allowlist is being applied, the
     // caller's own IP must remain in the new list, otherwise the next request
     // (including the redirect after this PUT) will 403 from the auth middleware.
@@ -45,6 +46,7 @@ settingsRouter.put('/', async (req, res) => {
     if (maxLogs !== undefined) updates.maxLogs = maxLogs;
     if (ipWhitelist !== undefined) updates.ipWhitelist = ipWhitelist;
     if (backup !== undefined) updates.backup = backup as BackupSettings;
+    if (templateSetDismissed !== undefined) updates.templateSetDismissed = templateSetDismissed;
     const updated = await saveUserSettings(updates);
     res.json({ settings: updated });
   } catch (err: unknown) {

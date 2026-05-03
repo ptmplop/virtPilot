@@ -18,7 +18,12 @@ export function useDeleteTemplate() {
     mutationFn: async (filename: string) => {
       await api.delete(`/api/templates/${encodeURIComponent(filename)}`);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['templates'] });
+      // Backend may have cleared templateSetDismissed if this delete emptied
+      // the directory — refresh settings so the starter card can reappear.
+      qc.invalidateQueries({ queryKey: ['settings'] });
+    },
   });
 }
 

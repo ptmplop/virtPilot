@@ -8,6 +8,7 @@ import multer from 'multer';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import * as storageService from '../services/storageService.js';
+import { saveUserSettings } from '../services/userSettingsService.js';
 
 export const templatesRouter = Router();
 
@@ -108,7 +109,9 @@ templatesRouter.post('/download', async (req, res) => {
   let savedFilename: string;
   try {
     savedFilename = filename?.trim() || path.basename(new URL(url).pathname) || `template-${Date.now()}.qcow2`;
-    if (!savedFilename.match(/\.(qcow2|img)$/)) savedFilename += '.qcow2';
+    // Accept the common cloud-image and installer-image extensions. Anything
+    // else gets `.qcow2` appended as a safe default for the templates dir.
+    if (!savedFilename.match(/\.(qcow2|img|raw|iso|iso\.gz)$/)) savedFilename += '.qcow2';
   } catch {
     return res.status(400).json({ error: 'Invalid URL' });
   }
@@ -183,6 +186,13 @@ templatesRouter.patch('/:filename', async (req, res) => {
 templatesRouter.delete('/:filename', async (req, res) => {
   try {
     await storageService.deleteTemplate(req.params.filename);
+    // If that delete emptied the templates directory, clear the starter-set
+    // dismissal so the card resurfaces on the next page load — handy for
+    // someone wiping their templates and starting over.
+    const remaining = await storageService.listTemplates();
+    if (remaining.length === 0) {
+      await saveUserSettings({ templateSetDismissed: false });
+    }
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });

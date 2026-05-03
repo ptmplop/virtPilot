@@ -13,6 +13,16 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.0',
+    date: '2026-05-03',
+    changes: [
+      { type: 'added', text: 'Starter template-set card on the Templates page. A fresh install with no templates now sees a one-click "Download starter set" card that pulls nine common amd64 cloud images (Rocky 9, AlmaLinux 9, Ubuntu 24.04, Debian 13, CentOS Stream 10, openSUSE Leap 15.6, Fedora 41, Alpine 3.21, Arch) sequentially in the background. Per-file progress + a "3 of 9" counter + cancel; logos are pre-assigned as each file lands. The card has a dismiss × for users who prefer to manage templates from scratch' },
+      { type: 'added', text: 'Card auto-resurrects on empty. Deleting the last template clears the dismissal flag server-side, so wiping everything brings the starter card back without digging into settings' },
+      { type: 'added', text: 'Configurable starter set. The list lives in `src/data/templateSets.ts` — edit the array, rebuild, ship. Each entry is `{ url, filename, name, logo }`; all bundled URLs validated against their mirrors before inclusion. Dead links at runtime are skipped per-item rather than aborting the whole set' },
+      { type: 'changed', text: '`POST /api/templates/download` now accepts `.qcow2`, `.img`, `.raw`, `.iso`, and `.iso.gz` filenames. Previously anything outside `.qcow2|.img` got `.qcow2` silently appended — affects both the manual "From URL" dialog and the starter-set flow' },
+    ],
+  },
+  {
     version: '1.18.2',
     date: '2026-05-03',
     changes: [

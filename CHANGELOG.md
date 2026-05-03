@@ -3,6 +3,17 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.0] — 2026-05-03
+
+### Added
+- **Starter template-set card on the Templates page.** A fresh install with no qcow2 templates yet now sees a one-click "Download starter set" card above the (empty) templates table. It pulls a curated list of nine common amd64 cloud images (Rocky Linux 9, AlmaLinux 9, Ubuntu 24.04 Noble, Debian 13 Trixie, CentOS Stream 10, openSUSE Leap 15.6, Fedora 41, Alpine 3.21, Arch rolling) sequentially in the background, reusing the existing `/api/templates/download` job system — one image at a time so the user can keep working. Per-file progress bar plus a "3 of 9" counter and a running succeeded/failed tally on the card itself; cancelling aborts the in-flight job and skips the rest. Each entry brings its OS logo with it so logos are pre-assigned the moment the file lands. The card has an explicit dismiss `×` for users who want to manage their own templates from scratch.
+- **Card auto-resurrects on empty.** `DELETE /api/templates/:filename` now checks whether the directory is empty after the delete and clears `templateSetDismissed` if so, so wiping every template brings the starter card back without the user having to dig into settings. The frontend invalidates the settings query alongside the templates query on delete so the card reappears without a reload.
+- **Configurable starter set.** The list lives in `packages/frontend/src/data/templateSets.ts` (a TypeScript constant, not a backend file) — edit the array, rebuild the frontend, ship a new release. Each entry is `{ url, filename, name, logo }`; `logo` slugs come from `src/lib/osLogos.ts`. All bundled URLs were validated against their upstream mirrors (HTTP 200) before inclusion. Dead links at runtime are caught by the existing fast-fail in `streamUrl` (the `.part` file isn't even allocated until the upstream returns 200) and counted as a per-item failure rather than aborting the whole set.
+
+### Changed
+- **`POST /api/templates/download` accepts more file extensions without auto-renaming.** The filename-extension guard now allows `.qcow2`, `.img`, `.raw`, `.iso`, and `.iso.gz`; previously anything outside `.qcow2|.img` got `.qcow2` silently appended. Affects both the manual "From URL" download dialog and the new starter-set flow — installer ISOs and raw disk images now land with their real extension instead of being mangled to `foo.iso.gz.qcow2`.
+- **`UserSettings.templateSetDismissed` (boolean, default `false`)** added to `$STORAGE_ROOT/user-settings.json` and exposed via `GET/PUT /api/settings`. The Templates page reads it to decide whether to render the starter card; the dismiss button on the card writes `true`.
+
 ## [1.18.2] — 2026-05-03
 
 ### Fixed
