@@ -40,6 +40,12 @@ interface DownloadJobResponse {
 }
 
 const POLL_INTERVAL_MS = 800;
+// Per-item retry policy for transient failures (TLS handshake blip, mirror
+// momentarily 5xx, redirector-of-the-day pointing at a half-broken mirror).
+// 3 attempts total with a brief backoff — most transient issues resolve in
+// well under a minute.
+const MAX_ATTEMPTS = 3;
+const RETRY_BACKOFF_MS = 5_000;
 
 // Single-instance guard. Without this, `resumeTemplateSetDownloadIfNeeded`
 // firing on App mount and the user clicking "Download starter set" could
@@ -106,6 +112,7 @@ async function runOrchestrator(): Promise<void> {
   }
 
   const existingBefore = await fetchExistingFilenames();
+  const failures: { name: string; reason: string }[] = [];
 
   for (let i = startIndex; i < items.length; i++) {
     if (useUploadProgressStore.getState().templateBulkCancelled) break;
@@ -130,8 +137,13 @@ async function runOrchestrator(): Promise<void> {
       continue;
     }
 
-    if (await downloadOne(item)) succeeded++;
-    else failed++;
+    const result = await downloadWithRetries(item);
+    if (result.ok) {
+      succeeded++;
+    } else {
+      failed++;
+      failures.push({ name: item.name, reason: result.error ?? 'unknown error' });
+    }
 
     useUploadProgressStore.getState().updateTemplateBulk((b) => b ? { ...b, succeeded, failed } : null);
     queryClient.invalidateQueries({ queryKey: ['templates'] });
@@ -146,16 +158,48 @@ async function runOrchestrator(): Promise<void> {
     toast.info(`Cancelled — ${succeeded} downloaded, ${items.length - succeeded - failed} skipped`);
   } else if (failed === 0) {
     toast.success(`Starter set downloaded — ${succeeded} template${succeeded === 1 ? '' : 's'}`);
-  } else if (succeeded === 0) {
-    toast.error(`Starter set failed — ${failed} download${failed === 1 ? '' : 's'} failed`);
   } else {
-    toast.warning(`Starter set partial — ${succeeded} done, ${failed} failed`);
+    // Stick the failure summary on screen until the user dismisses it — the
+    // default 3.5s duration was too short to read and easy to miss while on
+    // another page. Include each failed item with its reason so the user
+    // doesn't have to dig through journalctl to figure out what happened.
+    const description = failures.map((f) => `${f.name}: ${f.reason}`).join('\n');
+    const headline = succeeded === 0
+      ? `Starter set failed — ${failed} download${failed === 1 ? '' : 's'} failed`
+      : `Starter set partial — ${succeeded} done, ${failed} failed`;
+    if (succeeded === 0) {
+      toast.error(headline, { description, duration: Infinity });
+    } else {
+      toast.warning(headline, { description, duration: Infinity });
+    }
   }
 }
 
-// Returns true on success, false on failure/cancel. Manages the per-item
-// store updates (jobId, job progress) so the card can render live progress.
-async function downloadOne(item: TemplateSetItem): Promise<boolean> {
+// Result of one (possibly retried) per-item download attempt.
+type ItemResult = { ok: true } | { ok: false; error: string; cancelled?: boolean };
+
+// Wrap downloadOne with bounded retries for transient failures (TLS handshake
+// blip, mirror momentarily 5xx, redirector-of-the-day pointing at a half-
+// broken mirror). Cancelled bulk runs short-circuit immediately — we don't
+// keep retrying after the user hit Cancel.
+async function downloadWithRetries(item: TemplateSetItem): Promise<ItemResult> {
+  let last: ItemResult = { ok: false, error: 'no attempt made' };
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (useUploadProgressStore.getState().templateBulkCancelled) return { ok: false, error: 'cancelled', cancelled: true };
+    last = await downloadOne(item);
+    if (last.ok) return last;
+    if (last.cancelled) return last;
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
+    }
+  }
+  return last;
+}
+
+// Single-attempt download. Manages the per-item store updates (jobId, job
+// progress) so the card can render live progress, and returns the failure
+// reason from the backend (job.error) when one is available.
+async function downloadOne(item: TemplateSetItem): Promise<ItemResult> {
   let jobId: string | null = null;
   try {
     const { data } = await api.post<{ jobId: string; filename: string }>('/api/templates/download', {
@@ -164,8 +208,8 @@ async function downloadOne(item: TemplateSetItem): Promise<boolean> {
     jobId = data.jobId;
     useLogoStore.getState().setTemplateLogo(data.filename, item.logo);
     useUploadProgressStore.getState().updateTemplateBulk((b) => b ? { ...b, jobId } : null);
-  } catch {
-    return false;
+  } catch (err: unknown) {
+    return { ok: false, error: extractApiError(err, 'failed to start download') };
   }
 
   // Poll until this job leaves 'downloading'. Bypasses the single-job
@@ -174,19 +218,27 @@ async function downloadOne(item: TemplateSetItem): Promise<boolean> {
   while (true) {
     if (useUploadProgressStore.getState().templateBulkCancelled) {
       if (jobId) api.delete(`/api/templates/download/${jobId}`).catch(() => { /* ignore */ });
-      return false;
+      return { ok: false, error: 'cancelled', cancelled: true };
     }
     try {
       const { data: job } = await api.get<DownloadJobResponse>(`/api/templates/download/${jobId}`);
       useUploadProgressStore.getState().updateTemplateBulk((b) => b ? { ...b, job } : null);
-      if (job.status === 'done') return true;
-      if (job.status === 'error') return false;
-      if (job.status === 'cancelled') return false;
-    } catch {
-      // Includes the case where the backend was restarted mid-download and
-      // the in-memory job map was wiped. Surface as failed so we move on.
-      return false;
+      if (job.status === 'done') return { ok: true };
+      if (job.status === 'error') return { ok: false, error: job.error ?? 'download failed' };
+      if (job.status === 'cancelled') return { ok: false, error: 'cancelled', cancelled: true };
+    } catch (err: unknown) {
+      // Includes 404 if the backend was restarted mid-download and dropped
+      // the in-memory job map.
+      return { ok: false, error: extractApiError(err, 'lost contact with backend mid-download') };
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+}
+
+function extractApiError(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object') {
+    const e = err as { response?: { data?: { error?: string } }; message?: string };
+    return e.response?.data?.error ?? e.message ?? fallback;
+  }
+  return fallback;
 }

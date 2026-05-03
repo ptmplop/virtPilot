@@ -386,11 +386,17 @@ export function TemplatesPage() {
   const dismissTemplateSet = useDismissTemplateSet();
   const bulk = useUploadProgressStore((s) => s.templateBulk);
 
-  // Show the card on a fresh install (no templates yet, never dismissed).
-  // Also keep it visible while a bulk run is in flight — otherwise the first
-  // downloaded image would yank the progress UI away.
+  // Show the card while:
+  //   - a bulk run is in flight (so progress UI doesn't vanish mid-download), OR
+  //   - any item from TEMPLATE_SET is still missing on disk AND the user hasn't
+  //     dismissed it. This covers the fresh-install case (nothing on disk yet)
+  //     AND the partial-failure case (some items succeeded, some didn't) so
+  //     the user has a one-click "Download starter set" path to retry the
+  //     missing items — the orchestrator dedupe-skips files already present.
+  const installedFilenames = new Set((templates ?? []).map((t) => t.filename));
+  const someSetItemMissing = TEMPLATE_SET.templates.some((t) => !installedFilenames.has(t.filename));
   const showTemplateSet = bulk !== null
-    || (!isLoading && (templates?.length ?? 0) === 0 && settings?.templateSetDismissed === false);
+    || (!isLoading && someSetItemMissing && settings?.templateSetDismissed === false);
 
   const startBulkDownload = useCallback(() => {
     void startTemplateSetDownload();

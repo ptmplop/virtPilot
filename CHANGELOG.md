@@ -3,6 +3,17 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.3] — 2026-05-03
+
+### Fixed
+- **Starter template-set bulk now retries transient failures and surfaces the failure reason.** A v1.19.2 production run completed with 5 of 9 templates downloaded; the 4 that failed (Debian 13, CentOS Stream 10, openSUSE Leap 15.6, Fedora 41) all returned HTTP 200 from the same host moments later, so the failures were transient — most likely a brief network blip or the Fedora redirector pointing at a half-broken mirror (`download.fedoraproject.org` round-robins across mirrors, ~1 in 5 served a 404 in repeated probes). Added bounded retries: each item now gets up to 3 attempts with a 5s backoff before being marked failed, which masks the most common transient causes. Cancelled runs short-circuit retries immediately.
+- **Failure summary toast now sticky and itemised.** The previous "Starter set partial — 5 done, 4 failed" toast vanished after 3.5s with no breakdown of which items failed or why — easy to miss while on another tab. Now the partial/failure toast persists until the user dismisses it and lists each failed item with the backend's error reason (e.g. `Debian 13 Trixie: HTTP 503`, `Fedora 41 Cloud: Upstream stalled — no bytes for 60s`). Backend's `job.error` field is now surfaced through the polling response into the orchestrator instead of being discarded.
+- **Card resurfaces when any starter-set item is missing.** Previously the card hid as soon as any template existed, so a partial run left no obvious retry path — the user had to delete the existing templates to get the card back. Now the card is visible whenever any item from `TEMPLATE_SET.templates` is not on disk (and the user hasn't dismissed it). Clicking Download starter set runs the orchestrator, which dedupe-skips already-present files and only re-downloads the missing ones, so retrying a partial run is a single click.
+
+### Changed
+- **Backend now logs each template download's start/done/error to stderr** (visible via `journalctl -u virtpilot`). Lines look like `[template-download] start jobId=… file=… url=…` / `done jobId=… bytes=… duration=…s` / `error jobId=… err=…`. Without this, prior-release failures left no trail and were impossible to diagnose without re-running the bulk.
+- **`streamUrl` enforces an idle-stall timeout (60s after the last byte) and a headers timeout (30s)**. Previously a mirror that opened a connection then went silent would hang the orchestrator forever — the new timeouts surface as `Upstream stalled — no bytes for 60s` / `Upstream did not send headers within 30s` so the per-item retry can take over.
+
 ## [1.19.2] — 2026-05-03
 
 ### Fixed

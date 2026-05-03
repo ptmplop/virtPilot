@@ -35,14 +35,26 @@ async function safeUnlink(p: string): Promise<void> {
   try { await fsp.unlink(p); } catch { /* ignore */ }
 }
 
+// If the upstream sends headers but then stops feeding bytes, abort the
+// request so the job moves to error state instead of sitting forever. Picked
+// generously because some mirrors throttle to a trickle but still progress.
+const STALL_TIMEOUT_MS = 60_000;
+// Guard against a mirror that accepts the connection but never sends headers
+// — fail fast so the orchestrator can move on or retry.
+const HEADERS_TIMEOUT_MS = 30_000;
+
 function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<void> {
   return new Promise((resolve, reject) => {
     let activeReq: http.ClientRequest | null = null;
     let activeFile: fs.WriteStream | null = null;
+    let stallTimer: NodeJS.Timeout | null = null;
     let cancelled = false;
+
+    const clearStall = () => { if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; } };
 
     job.abort = () => {
       cancelled = true;
+      clearStall();
       activeReq?.destroy(new Error('cancelled'));
       activeFile?.destroy();
     };
@@ -63,12 +75,31 @@ function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<voi
         job.totalBytes = parseInt(res.headers['content-length'] ?? '0', 10);
         const file = fs.createWriteStream(destPath);
         activeFile = file;
-        res.on('data', (chunk: Buffer) => { job.bytesDownloaded += chunk.length; });
+        // Reset the stall timer on every chunk; if it fires, the upstream
+        // has gone silent and we should bail rather than hang the orchestrator.
+        const armStall = () => {
+          clearStall();
+          stallTimer = setTimeout(() => {
+            const err = new Error(`Upstream stalled — no bytes for ${STALL_TIMEOUT_MS / 1000}s`);
+            activeReq?.destroy(err);
+            reject(err);
+          }, STALL_TIMEOUT_MS);
+        };
+        armStall();
+        res.on('data', (chunk: Buffer) => { job.bytesDownloaded += chunk.length; armStall(); });
         res.pipe(file);
-        file.on('finish', () => { file.close(); resolve(); });
-        file.on('error', reject);
-        res.on('error', reject);
-      }).on('error', reject);
+        file.on('finish', () => { clearStall(); file.close(); resolve(); });
+        file.on('error', (err) => { clearStall(); reject(err); });
+        res.on('error', (err) => { clearStall(); reject(err); });
+      }).on('error', (err) => { clearStall(); reject(err); });
+      // Headers must arrive within HEADERS_TIMEOUT_MS or we treat the upstream
+      // as dead. setTimeout on the request fires only on socket inactivity,
+      // which is exactly what we want here.
+      activeReq.setTimeout(HEADERS_TIMEOUT_MS, () => {
+        const err = new Error(`Upstream did not send headers within ${HEADERS_TIMEOUT_MS / 1000}s`);
+        activeReq?.destroy(err);
+        reject(err);
+      });
     };
     attempt(url);
   });
@@ -133,6 +164,13 @@ templatesRouter.post('/download', async (req, res) => {
 
   res.json({ jobId, filename: savedFilename });
 
+  // Log to stderr so failures are visible via `journalctl -u virtpilot`. The
+  // request itself doesn't go through any per-request middleware that records
+  // these, and the absence of a trail made the v1.19.1/.2 bulk failures hard
+  // to diagnose without backend visibility.
+  const startedAt = Date.now();
+  console.log(`[template-download] start jobId=${jobId} file=${savedFilename} url=${url}`);
+
   streamUrl(url, partPath, job)
     .then(async () => {
       await fsp.rename(partPath, destPath);
@@ -140,14 +178,19 @@ templatesRouter.post('/download', async (req, res) => {
       if (job.displayName) {
         await storageService.setTemplateDisplayName(job.filename, job.displayName);
       }
+      const durationS = ((Date.now() - startedAt) / 1000).toFixed(1);
+      console.log(`[template-download] done  jobId=${jobId} file=${savedFilename} bytes=${job.bytesDownloaded} duration=${durationS}s`);
     })
     .catch(async (err) => {
       await safeUnlink(partPath);
       if (String(err.message ?? err) === 'cancelled') {
         job.status = 'cancelled';
+        console.log(`[template-download] cancel jobId=${jobId} file=${savedFilename}`);
       } else {
         job.status = 'error';
         job.error = String(err);
+        const durationS = ((Date.now() - startedAt) / 1000).toFixed(1);
+        console.error(`[template-download] error jobId=${jobId} file=${savedFilename} duration=${durationS}s err=${String(err)}`);
       }
     })
     .finally(() => { setTimeout(() => activeDownloads.delete(jobId), 60_000); });

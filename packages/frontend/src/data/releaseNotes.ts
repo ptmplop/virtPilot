@@ -13,6 +13,17 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.3',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: 'Starter template-set now retries transient failures. A v1.19.2 run finished 5 of 9 because 4 mirrors had a brief blip — all 4 URLs returned HTTP 200 from the same host moments later. Each item now gets up to 3 attempts with a 5s backoff before being marked failed; cancelled runs short-circuit retries' },
+      { type: 'fixed', text: 'Failure toast is sticky and lists each failed item with its reason (e.g. `Debian 13: HTTP 503`). Previously the toast vanished after 3.5s with no breakdown of what failed or why — easy to miss while on another tab. Backend `job.error` is now surfaced through the polling response into the orchestrator' },
+      { type: 'fixed', text: 'Starter card resurfaces whenever any item from the set is missing on disk (and not dismissed) — the orchestrator dedupe-skips already-present files, so retrying a partial run is one click. Previously the card hid as soon as any template existed, leaving no obvious retry path' },
+      { type: 'changed', text: 'Backend now logs each template download to stderr (`journalctl -u virtpilot`): `[template-download] start jobId=… file=… url=…` / `done jobId=… bytes=… duration=…s` / `error jobId=… err=…`. Prior-release failures left no trail and were impossible to diagnose without re-running the bulk' },
+      { type: 'changed', text: '`streamUrl` enforces an idle-stall timeout (60s after the last byte) and a headers timeout (30s). Previously a mirror that opened a connection then went silent would hang the orchestrator forever — surfaces as `Upstream stalled — no bytes for 60s` / `Upstream did not send headers within 30s` so the per-item retry can take over' },
+    ],
+  },
+  {
     version: '1.19.2',
     date: '2026-05-03',
     changes: [
