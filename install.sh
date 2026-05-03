@@ -66,6 +66,11 @@ if [[ ! -d "${INSTALL_DIR}/.git" ]]; then
   die "VirtPilot must be installed from a git clone (no .git directory at ${INSTALL_DIR}). Use bootstrap.sh or run: git clone https://github.com/ptmplop/virtPilot.git ${STANDARD_DIR} && cd ${STANDARD_DIR} && sudo bash install.sh"
 fi
 
+# We chown the install dir to the virtpilot user later; persist a safe.directory
+# entry in root's gitconfig so subsequent root-run git operations (re-running
+# install.sh, future bootstrap.sh runs) don't get blocked by "dubious ownership".
+git config --global --add safe.directory "${INSTALL_DIR}" 2>/dev/null || true
+
 if [[ "${INSTALL_DIR}" != "${STANDARD_DIR}" ]]; then
   warn "Installing outside the standard path ${STANDARD_DIR} — fine for development, but the bootstrap installer expects ${STANDARD_DIR}."
 fi

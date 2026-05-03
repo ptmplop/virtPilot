@@ -73,6 +73,12 @@ else
 fi
 
 # ─── Clone or update ──────────────────────────────────────────────────────────
+# After v1.21.0 install.sh chowns the repo to the unprivileged virtpilot user,
+# so when we re-run as root git refuses to operate on it ("dubious ownership").
+# Whitelist the install path globally for root so `git fetch`/`git reset` work
+# regardless of who owns the files. Idempotent — git de-duplicates entries.
+git config --global --add safe.directory "${INSTALL_DIR}"
+
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
   info "Existing clone found at ${INSTALL_DIR} — fetching..."
   cd "${INSTALL_DIR}"

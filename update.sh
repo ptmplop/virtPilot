@@ -33,6 +33,11 @@ info "Project root: ${INSTALL_DIR}"
 info "Pulling latest changes..."
 cd "$INSTALL_DIR"
 
+# install.sh chowns the repo to the unprivileged virtpilot user. update.sh runs
+# as root (via systemd-run from the dashboard), so git would refuse to touch
+# the now-non-root-owned tree. Whitelist the path; git de-dupes the entry.
+git config --global --add safe.directory "$INSTALL_DIR"
+
 # `npm install` below rewrites package-lock.json on the install host (e.g. adds
 # linux-x64 binary entries that aren't in the macOS-generated lockfile). Discard
 # that drift so the next `git pull --ff-only` doesn't abort on a dirty tree.

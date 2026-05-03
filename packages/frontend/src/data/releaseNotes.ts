@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.21.2',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: '`bootstrap.sh` and `update.sh` failed with "fatal: detected dubious ownership in repository" on any host that had already run the v1.21 installer. The new `install.sh` chowns `/usr/local/virtpilot` to the unprivileged `virtpilot` service user, but bootstrap and update both run git as root, which then refuses to operate on a non-root-owned tree. Both scripts (and `install.sh` itself) now `git config --global --add safe.directory ${INSTALL_DIR}` before any git operation, so the whitelist entry is persisted in root\'s gitconfig and subsequent runs work without manual intervention' },
+    ],
+  },
+  {
     version: '1.21.1',
     date: '2026-05-03',
     changes: [

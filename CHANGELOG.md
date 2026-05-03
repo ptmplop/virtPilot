@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.21.2] — 2026-05-03
+
+### Fixed
+
+- **`bootstrap.sh` and `update.sh` failed with "fatal: detected dubious ownership in repository" on any host that had already run the v1.21 installer.** The new `install.sh` chowns `/usr/local/virtpilot` to the unprivileged `virtpilot` service user, but bootstrap and update both run git as root, which then refuses to operate on a non-root-owned tree. Both scripts (and `install.sh` itself) now `git config --global --add safe.directory ${INSTALL_DIR}` before any git operation, so the whitelist entry is persisted in root's gitconfig and subsequent runs work without manual intervention. Idempotent — git de-duplicates the entry.
+
 ## [1.21.1] — 2026-05-03
 
 ### Fixed
