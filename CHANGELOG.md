@@ -3,6 +3,11 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.10] — 2026-05-03
+
+### Changed
+- **Dashboard's Host Metrics section is now collapsible.** The four full-width charts (CPU, Memory, Disk I/O, Network) take up a lot of vertical space, which is wasted when you've come to the dashboard for the Overview tiles or to check System Updates. Click the "Host Metrics" header (or its chevron) to fold the whole block away — the Live/1h/24h range toggle is hidden alongside the charts so the collapsed header sits clean. State persists in `localStorage` under `virtpilotHostMetricsCollapsed` so the preference survives reload.
+
 ## [1.19.9] — 2026-05-03
 
 ### Added

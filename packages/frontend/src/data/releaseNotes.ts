@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.19.10',
+    date: '2026-05-03',
+    changes: [
+      { type: 'changed', text: 'Dashboard\'s Host Metrics section is now collapsible. The four full-width charts (CPU, Memory, Disk I/O, Network) take up a lot of vertical space, which is wasted when you\'ve come to the dashboard for the Overview tiles or to check System Updates. Click the "Host Metrics" header (or its chevron) to fold the whole block away — the Live/1h/24h range toggle is hidden alongside the charts so the collapsed header sits clean. State persists in `localStorage` under `virtpilotHostMetricsCollapsed` so the preference survives reload' },
+    ],
+  },
+  {
     version: '1.19.9',
     date: '2026-05-03',
     changes: [

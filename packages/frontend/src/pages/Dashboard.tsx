@@ -7,6 +7,7 @@ import {
   ArrowUp,
   Boxes,
   CheckCircle2,
+  ChevronDown,
   Cog,
   Cpu,
   ExternalLink,
@@ -1375,6 +1376,12 @@ export function DashboardPage() {
   const current = data?.current;
 
   const [range, setRange] = useState<HostMetricsRange>('live');
+  const [metricsCollapsed, setMetricsCollapsed] = useState<boolean>(
+    () => localStorage.getItem('virtpilotHostMetricsCollapsed') === '1',
+  );
+  useEffect(() => {
+    localStorage.setItem('virtpilotHostMetricsCollapsed', metricsCollapsed ? '1' : '0');
+  }, [metricsCollapsed]);
   const historyEnabled = range !== 'live';
   const { data: persisted } = useSystemMetricsHistory(
     range === 'live' ? '1h' : range,
@@ -1422,26 +1429,42 @@ export function DashboardPage() {
         {/* ── Host Metrics ── */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <SectionLabel label="Host Metrics" />
-            <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-card">
-              {(['live', '1h', '24h'] as const).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRange(r)}
-                  className={cn(
-                    'rounded-md px-3 py-1 text-[10px] font-semibold uppercase tracking-widest transition',
-                    range === r
-                      ? 'bg-muted text-foreground'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {r === 'live' ? 'Live' : r}
-                </button>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => setMetricsCollapsed((v) => !v)}
+              aria-expanded={!metricsCollapsed}
+              className="group flex items-center gap-1.5 select-none"
+            >
+              <ChevronDown
+                className={cn(
+                  'h-3 w-3 text-muted-foreground/40 transition-transform duration-200 group-hover:text-muted-foreground/70',
+                  metricsCollapsed && '-rotate-90',
+                )}
+              />
+              <SectionLabel label="Host Metrics" />
+            </button>
+            {!metricsCollapsed && (
+              <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-card">
+                {(['live', '1h', '24h'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRange(r)}
+                    className={cn(
+                      'rounded-md px-3 py-1 text-[10px] font-semibold uppercase tracking-widest transition',
+                      range === r
+                        ? 'bg-muted text-foreground'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {r === 'live' ? 'Live' : r}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
+          {!metricsCollapsed && (
           <div className="flex flex-col gap-4">
             <HostMetricCard
               id="host-cpu"
@@ -1521,6 +1544,7 @@ export function DashboardPage() {
               delay={180}
             />
           </div>
+          )}
         </section>
 
         {/* ── System ── */}
