@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.18.2] — 2026-05-03
+
+### Fixed
+- **Cloud-init network-config now applies on RHEL-family guests (AlmaLinux/Rocky/CentOS).** Default routes were emitted as `to: default`, which is a netplan shorthand. Debian/Ubuntu cloud-init forwards network-config straight to the `netplan` binary, which understands it; RHEL-family cloud-init parses v2 internally via `cloudinit.net.network_state` and that parser blew up with `ValueError: Address default is not a valid ip address`, aborting the whole network apply. Result: a freshly-created Alma 10 VM came up with `eth0` link-up but no IPv4 — the host then got `EHOSTUNREACH` when the in-dashboard SSH console tried to reach the configured static IP. Fixed by emitting the spec-conformant `to: 0.0.0.0/0` instead.
+- **Cloud-init `ssh_authorized_keys` now actually nests under the user.** The keys list was indented at 2 spaces but `ssh_authorized_keys:` lives at 4 spaces inside the `- name:` user dict, so the keys were parsed as sibling list items in `users:` rather than as the user's keys. YAML-valid but semantically wrong: cloud-init's `users_groups` module failed schema validation, no SSH keys were ever installed on any VM, and the `lock_passwd: false` directive was dropped along with the rest of the user dict (visible as `Not unlocking password for user X. 'lock_passwd: false' present... but no 'passwd'/...'hashed_passwd' provided` in `cloud-init-output.log`). Bumped indent to 6 spaces. **Existing VMs are unaffected at runtime** — they were already provisioned with the broken seed and won't re-run cloud-init — but every new VM created after this release gets working key auth.
+
 ## [1.18.1] — 2026-05-03
 
 ### Changed

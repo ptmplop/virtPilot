@@ -47,7 +47,7 @@ function buildNetworkConfig(nics: NicCloudInit[]): string {
       lines.push(`      - ${nic.ipConfig.ip}/${nic.ipConfig.prefix}`);
       if (nic.isPrimary) {
         lines.push(`    routes:`);
-        lines.push(`      - to: default`);
+        lines.push(`      - to: 0.0.0.0/0`);
         lines.push(`        via: ${nic.ipConfig.gateway}`);
       }
       lines.push(`    nameservers:`);
@@ -97,7 +97,7 @@ export async function buildCloudInitIso(vmName: string, cfg: CloudInitConfig, tr
 
   const metaData = `instance-id: ${vmName}\nlocal-hostname: ${cfg.hostname}\n`;
 
-  const sshKeyLines = (cfg.sshKeys ?? []).map((k) => `  - ${k}`).join('\n');
+  const sshKeyLines = (cfg.sshKeys ?? []).map((k) => `      - ${k}`).join('\n');
   const userData = [
     '#cloud-config',
     `hostname: ${cfg.hostname}`,

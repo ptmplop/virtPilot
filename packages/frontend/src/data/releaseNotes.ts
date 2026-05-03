@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.18.2',
+    date: '2026-05-03',
+    changes: [
+      { type: 'fixed', text: 'Cloud-init network-config now applies on RHEL-family guests (AlmaLinux/Rocky/CentOS). Default routes were emitted as `to: default`, which is a netplan shorthand. Debian/Ubuntu cloud-init forwards the config straight to `netplan` (which understands it); RHEL-family cloud-init parses v2 internally and blew up with `ValueError: Address default is not a valid ip address`, aborting the whole network apply. Result: a fresh Alma 10 VM came up with `eth0` link-up but no IPv4 — the host then got `EHOSTUNREACH` when the in-dashboard SSH console tried to reach the configured static IP. Fixed by emitting `to: 0.0.0.0/0` instead' },
+      { type: 'fixed', text: 'Cloud-init `ssh_authorized_keys` now actually nests under the user. The keys list was indented at 2 spaces but `ssh_authorized_keys:` lives at 4 spaces inside the `- name:` user dict, so the keys were parsed as sibling list items in `users:` rather than as the user\'s keys. YAML-valid but semantically wrong — cloud-init failed schema validation, no SSH keys were ever installed on any VM, and `lock_passwd: false` was silently dropped along with the rest of the user dict. Existing VMs are unaffected (they won\'t re-run cloud-init) but every VM created after this release gets working key auth' },
+    ],
+  },
+  {
     version: '1.18.1',
     date: '2026-05-03',
     changes: [
