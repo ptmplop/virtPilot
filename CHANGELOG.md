@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.21.3] — 2026-05-04
+
+### Fixed
+
+- **`bootstrap.sh` and `update.sh` still hit "dubious ownership" on hosts that already had v1.21 installed, even after the v1.21.2 fix.** The previous fix wrote `safe.directory` via `git config --global`, but under `curl … | sudo bash` the resolved `$HOME` doesn't always end up at `/root` — the config write lands somewhere git won't read back from. Both scripts now pass `safe.directory` inline via `git -c safe.directory=…` on every invocation, which is immune to whichever `.gitconfig` HOME ends up resolving to. They also try a best-effort `git config --system --add safe.directory` (writes to `/etc/gitconfig` so future tooling still benefits) but no longer depend on it.
+
 ## [1.21.2] — 2026-05-03
 
 ### Fixed

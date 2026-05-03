@@ -35,29 +35,32 @@ cd "$INSTALL_DIR"
 
 # install.sh chowns the repo to the unprivileged virtpilot user. update.sh runs
 # as root (via systemd-run from the dashboard), so git would refuse to touch
-# the now-non-root-owned tree. Whitelist the path; git de-dupes the entry.
-git config --global --add safe.directory "$INSTALL_DIR"
+# the now-non-root-owned tree. Pass safe.directory inline via `-c` on every
+# invocation — robust against whichever .gitconfig HOME ends up resolving to
+# in the systemd-run environment.
+GIT_SAFE=(git -c "safe.directory=$INSTALL_DIR")
+git config --system --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
 
 # `npm install` below rewrites package-lock.json on the install host (e.g. adds
 # linux-x64 binary entries that aren't in the macOS-generated lockfile). Discard
 # that drift so the next `git pull --ff-only` doesn't abort on a dirty tree.
-git checkout -- package-lock.json 2>/dev/null || true
+"${GIT_SAFE[@]}" checkout -- package-lock.json 2>/dev/null || true
 
-BEFORE=$(git rev-parse HEAD)
-git pull --ff-only
-AFTER=$(git rev-parse HEAD)
+BEFORE=$("${GIT_SAFE[@]}" rev-parse HEAD)
+"${GIT_SAFE[@]}" pull --ff-only
+AFTER=$("${GIT_SAFE[@]}" rev-parse HEAD)
 
 if [[ "$BEFORE" == "$AFTER" ]]; then
   if [[ "$FORCE" == true ]]; then
     warn "Already up to date — rebuilding anyway (--force)"
   else
-    log "Already up to date ($(git rev-parse --short HEAD))"
+    log "Already up to date ($("${GIT_SAFE[@]}" rev-parse --short HEAD))"
     exit 0
   fi
 fi
 
-log "Updated $(git rev-parse --short "$BEFORE") → $(git rev-parse --short "$AFTER")"
-git log --oneline "${BEFORE}..${AFTER}"
+log "Updated $("${GIT_SAFE[@]}" rev-parse --short "$BEFORE") → $("${GIT_SAFE[@]}" rev-parse --short "$AFTER")"
+"${GIT_SAFE[@]}" log --oneline "${BEFORE}..${AFTER}"
 echo ""
 
 # ─── APT packages ─────────────────────────────────────────────────────────────

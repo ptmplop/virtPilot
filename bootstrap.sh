@@ -75,24 +75,27 @@ fi
 # ─── Clone or update ──────────────────────────────────────────────────────────
 # After v1.21.0 install.sh chowns the repo to the unprivileged virtpilot user,
 # so when we re-run as root git refuses to operate on it ("dubious ownership").
-# Whitelist the install path globally for root so `git fetch`/`git reset` work
-# regardless of who owns the files. Idempotent — git de-duplicates entries.
-git config --global --add safe.directory "${INSTALL_DIR}"
+# Pass safe.directory inline via `-c` on every invocation — that's immune to
+# whatever HOME resolution happens under `curl | sudo bash` (a `git config
+# --global` write under that flow can land somewhere git won't read back).
+GIT_SAFE=(git -c "safe.directory=${INSTALL_DIR}")
+# Also persist it where future tooling will look, best-effort.
+git config --system --add safe.directory "${INSTALL_DIR}" 2>/dev/null || true
 
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
   info "Existing clone found at ${INSTALL_DIR} — fetching..."
   cd "${INSTALL_DIR}"
-  git fetch --quiet --tags origin
-  git reset --hard --quiet "${VP_REF}"
-  log "Updated to $(git rev-parse --short HEAD) (${VP_REF})"
+  "${GIT_SAFE[@]}" fetch --quiet --tags origin
+  "${GIT_SAFE[@]}" reset --hard --quiet "${VP_REF}"
+  log "Updated to $("${GIT_SAFE[@]}" rev-parse --short HEAD) (${VP_REF})"
 elif [[ -e "${INSTALL_DIR}" ]]; then
   die "${INSTALL_DIR} exists but is not a git clone — refusing to overwrite. Move or remove it and re-run."
 else
   info "Cloning ${REPO_URL} → ${INSTALL_DIR}..."
   git clone --quiet "${REPO_URL}" "${INSTALL_DIR}"
   cd "${INSTALL_DIR}"
-  git fetch --quiet --tags
-  git checkout --quiet "${VP_REF}"
+  "${GIT_SAFE[@]}" fetch --quiet --tags
+  "${GIT_SAFE[@]}" checkout --quiet "${VP_REF}"
   log "Cloned and checked out ${VP_REF}"
 fi
 
