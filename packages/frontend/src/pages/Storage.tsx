@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { HardDrive, Disc, Database, Trash2 } from 'lucide-react';
+import { HardDrive, Disc, Database, Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { cn } from '@/lib/cn';
 import { useTemplates } from '@/hooks/useTemplates';
 import { useIsos } from '@/hooks/useIsos';
-import { useVmDisks, useDeleteOrphanedVmDisk } from '@/hooks/useVmDisks';
+import { useVmDisks, useDeleteOrphanedVmDisk, useDownloadVmDisk } from '@/hooks/useVmDisks';
 
 function ResourceCard({
   label,
@@ -43,6 +44,7 @@ export function StoragePage() {
   const { data: isos } = useIsos();
   const { data: vmDisks } = useVmDisks();
   const deleteOrphan = useDeleteOrphanedVmDisk();
+  const downloadDisk = useDownloadVmDisk();
   const [deleteTarget, setDeleteTarget] = useState<{ uuid: string; name: string } | null>(null);
 
   const totalTemplateGb = templates?.reduce((s, t) => s + t.sizeGb, 0) ?? 0;
@@ -191,16 +193,44 @@ export function StoragePage() {
                       {d.sizeGb} GB
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      {!d.vmExists && (
-                        <button
-                          type="button"
-                          onClick={() => setDeleteTarget({ uuid: d.vmUuid, name: d.vmName })}
-                          title="Delete orphaned VM folder"
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      )}
+                      <div className="inline-flex items-center gap-1">
+                        {(() => {
+                          // Allowed when the VM is undefined (orphan) or stopped.
+                          const downloadable = !d.vmExists || d.vmStatus === 'stopped';
+                          const tooltip = downloadable
+                            ? 'Download disk image'
+                            : 'Stop the VM before downloading its disk';
+                          return (
+                            <Tooltip label={tooltip}>
+                              <button
+                                type="button"
+                                disabled={!downloadable || downloadDisk.isPending}
+                                onClick={async () => {
+                                  try {
+                                    await downloadDisk.mutateAsync({ vmUuid: d.vmUuid, filename: d.filename });
+                                  } catch (err: unknown) {
+                                    toast.error(err instanceof Error ? err.message : 'Failed to start download');
+                                  }
+                                }}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                              >
+                                <Download size={13} />
+                              </button>
+                            </Tooltip>
+                          );
+                        })()}
+                        {!d.vmExists && (
+                          <Tooltip label="Delete orphaned VM folder">
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget({ uuid: d.vmUuid, name: d.vmName })}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </Tooltip>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

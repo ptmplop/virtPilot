@@ -285,6 +285,7 @@ export interface VmDiskFile {
   filename: string;
   sizeGb: number;
   vmExists: boolean;
+  vmStatus: VmStatus | null;
 }
 
 export interface PciAddress {

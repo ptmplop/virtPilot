@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] — 2026-05-04
+
+### Added
+
+- **Download a VM's disk image.** New download buttons on the VM detail "Disks" tab and on the Storage page next to each qcow2 file. Clicking either streams the disk straight from the host to the browser — no temp file, no double disk usage — so disks of any size go through without buffering. The VM must be stopped (or undefined / orphaned) before its disk can be downloaded; otherwise the file is being mutated live and the download would be torn. The button is disabled with a tooltip when the VM is running. Auth uses a single-shot, 60-second signed ticket bound to that one filename rather than the regular Bearer token, so it can ride in the URL without exposing the long-lived session. Useful for moving VMs between VirtPilot installations: download the disk on the source host, upload it back as a template on the destination.
+
 ## [2.0.5] — 2026-05-04
 
 ### Fixed

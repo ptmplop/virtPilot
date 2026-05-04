@@ -3,9 +3,10 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { virsh, qemuImg } from '../services/safeExec.js';
-import { validateVmName, validateVmUuid } from '../lib/validate.js';
+import { validateVmName, validateVmUuid, validateFilename } from '../lib/validate.js';
 import * as vmService from '../services/vmService.js';
 import * as deviceService from '../services/deviceService.js';
 import * as storageService from '../services/storageService.js';
@@ -60,13 +61,18 @@ vmsRouter.get('/', async (_req, res) => {
 
 vmsRouter.get('/disks', async (_req, res) => {
   try {
-    // Map UUID -> friendly name. Live VMs are the source of truth for "still
-    // defined"; vmMeta gives us the display label even when libvirt has
-    // already forgotten the VM (e.g. operator did `virsh undefine` directly).
+    // Map UUID -> friendly name and live status. Live VMs are the source of
+    // truth for "still defined" and "running"; vmMeta gives us the display
+    // label even when libvirt has already forgotten the VM (e.g. operator did
+    // `virsh undefine` directly).
     const definedUuids = new Set<string>();
+    const statusByUuid = new Map<string, string>();
     try {
       const vms = await vmService.listVmsRaw();
-      for (const v of vms) definedUuids.add(v.id);
+      for (const v of vms) {
+        definedUuids.add(v.id);
+        statusByUuid.set(v.id, v.status);
+      }
     } catch { /* libvirt unavailable */ }
 
     let entries: string[] = [];
@@ -74,7 +80,7 @@ vmsRouter.get('/disks', async (_req, res) => {
       entries = await fs.readdir(config.vmsDir);
     } catch { /* vms dir not created yet */ }
 
-    const disks: Array<{ vmUuid: string; vmName: string; filename: string; sizeGb: number; vmExists: boolean }> = [];
+    const disks: Array<{ vmUuid: string; vmName: string; filename: string; sizeGb: number; vmExists: boolean; vmStatus: string | null }> = [];
 
     for (const entry of entries) {
       const vmDir = path.join(config.vmsDir, entry);
@@ -115,6 +121,7 @@ vmsRouter.get('/disks', async (_req, res) => {
             filename: file,
             sizeGb: Math.round((fileStat.size / 1_073_741_824) * 100) / 100,
             vmExists: definedUuids.has(vmUuid),
+            vmStatus: statusByUuid.get(vmUuid) ?? null,
           });
         } catch { continue; }
       }
@@ -962,6 +969,52 @@ vmsRouter.put('/:uuid/autostart', requireUuidParam, async (req, res) => {
     res.json({ ok: true });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.autostart.set', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Disk download — issues a short-lived ticket (60s) tied to a specific qcow2
+// file. The actual stream lives at GET /api/downloads/disk?t=<ticket> so the
+// browser can trigger a save without needing the Bearer token in the URL.
+vmsRouter.post('/:uuid/disk-files/:filename/download-ticket', requireUuidParam, async (req, res) => {
+  try {
+    const { uuid } = req.params;
+    let safeFilename: string;
+    try {
+      safeFilename = validateFilename(req.params.filename);
+    } catch {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+    if (!/\.qcow2$/i.test(safeFilename)) {
+      return res.status(400).json({ error: 'Only qcow2 disk files can be downloaded' });
+    }
+    const filePath = path.join(config.vmsDir, uuid, safeFilename);
+    try {
+      await fs.access(filePath);
+    } catch {
+      return res.status(404).json({ error: 'Disk file not found' });
+    }
+
+    // Block tickets while the VM is running — a live qcow2 is being mutated
+    // and the resulting download would be torn. Orphaned VMs (no libvirt
+    // record) are fine to download from.
+    try {
+      const vmInfo = await vmService.getVmInfo(uuid);
+      if (vmInfo.status !== 'stopped') {
+        return res.status(409).json({ error: 'VM must be stopped before downloading its disk' });
+      }
+    } catch { /* VM undefined — orphan disk, allow */ }
+
+    const exp = Math.floor(Date.now() / 1000) + 60;
+    const token = jwt.sign(
+      { scope: 'disk-download', vmUuid: uuid, filename: safeFilename, exp },
+      config.jwtSecret,
+    );
+    res.json({
+      url: `/api/downloads/disk?t=${encodeURIComponent(token)}`,
+      expiresAt: new Date(exp * 1000).toISOString(),
+    });
+  } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });

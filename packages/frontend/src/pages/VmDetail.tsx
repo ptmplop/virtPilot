@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
-  Copy, Cpu, Disc, Eye, EyeOff, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
+  Copy, Cpu, Disc, Download, Eye, EyeOff, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
   Power, PowerOff, RotateCcw, Server, Shield, Terminal, Trash2, Usb, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -27,6 +27,7 @@ import {
 } from '@/hooks/useVms';
 import type { VmMetricsRange } from '@/types';
 import { useHostDevices, useAttachDevice, useDetachDevice } from '@/hooks/useDevices';
+import { useDownloadVmDisk } from '@/hooks/useVmDisks';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
@@ -653,6 +654,7 @@ function DisksTab({
   const resizeDisk = useResizeDisk(vmUuid);
   const setBootOrder = useSetBootOrder(vmUuid);
   const bootOnce = useBootOnce(vmUuid);
+  const downloadDisk = useDownloadVmDisk();
   const { data: isos = [] } = useIsos();
 
   // Exclude the cloud-init seed ISO — it's a system detail, not user-managed
@@ -795,6 +797,25 @@ function DisksTab({
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <div className="inline-flex items-center gap-1">
+                        {d.type === 'disk' && d.source && /\.qcow2$/i.test(d.source) && (
+                          <Tooltip label={vmStatus === 'stopped' ? 'Download disk image' : 'Stop the VM before downloading its disk'}>
+                            <button
+                              type="button"
+                              disabled={vmStatus !== 'stopped' || downloadDisk.isPending}
+                              onClick={async () => {
+                                const filename = d.source!.split('/').pop()!;
+                                try {
+                                  await downloadDisk.mutateAsync({ vmUuid, filename });
+                                } catch (err: unknown) {
+                                  toast.error(err instanceof Error ? err.message : 'Failed to start download');
+                                }
+                              }}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                            >
+                              <Download size={13} />
+                            </button>
+                          </Tooltip>
+                        )}
                         {d.type === 'disk' && d.source && (
                           <Tooltip label="Grow disk">
                             <button

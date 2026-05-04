@@ -19,6 +19,7 @@ import { devicesRouter } from './routes/devices.js';
 import { sshKeysRouter } from './routes/sshKeys.js';
 import { totpRouter } from './routes/totp.js';
 import { backupsRouter } from './routes/backups.js';
+import { downloadsRouter } from './routes/downloads.js';
 import { requireAuth, verifyWsToken, isIpAllowed } from './middleware/auth.js';
 import { getUserSettings } from './services/userSettingsService.js';
 import { createConsoleWss } from './console.js';
@@ -114,6 +115,9 @@ app.use('/api/devices', requireAuth, devicesRouter);
 app.use('/api/ssh-keys', requireAuth, sshKeysRouter);
 app.use('/api/2fa', requireAuth, totpRouter);
 app.use('/api/backups', requireAuth, backupsRouter);
+// Disk downloads use signed tickets in the URL (issued by /api/vms/:uuid/disk-files/.../download-ticket)
+// rather than the Bearer token — so the route is mounted outside requireAuth.
+app.use('/api/downloads', downloadsRouter);
 
 // Reject API paths that didn't match a router so the SPA fallback below
 // doesn't return 200/HTML for unknown /api/ requests.
