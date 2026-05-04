@@ -468,9 +468,8 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
 # libvirt for virsh/qemu. kvm for /dev/kvm device access. systemd-journal so
-# the in-app self-upgrade can stream the unit's journal output. NoNewPrivileges
-# below means we MUST grant CAP_NET_ADMIN here rather than via sudo, otherwise
-# iptables/ip-link calls would fail.
+# the in-app self-upgrade can stream the unit's journal output. iptables/ip
+# get CAP_NET_ADMIN as an ambient capability rather than going via sudo.
 SupplementaryGroups=libvirt kvm systemd-journal
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
@@ -483,10 +482,12 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=virtpilot
 
-# Hardening — limits the blast radius if the backend is ever exploited. Any
-# RCE inside the Node process now lands in a sandbox: no new privileges, no
-# kernel tunable writes, no module loads, no setuid execs.
-NoNewPrivileges=true
+# Hardening — limits the blast radius if the backend is ever exploited. We
+# deliberately do NOT set NoNewPrivileges here: the in-app self-upgrade and
+# `apt upgrade` flows shell out to `sudo systemd-run` / `sudo apt-get`, and
+# the kernel's no_new_privs bit makes sudo refuse to elevate even with the
+# NOPASSWD rules in /etc/sudoers.d/virtpilot. The other hardening below all
+# stays in force.
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true

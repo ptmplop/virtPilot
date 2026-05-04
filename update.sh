@@ -146,6 +146,21 @@ info "Building VirtPilot..."
 sudo -u "${SERVICE_USER}" npm run build 2>&1
 log "Build complete"
 
+# ─── Heal systemd unit (idempotent) ──────────────────────────────────────────
+# Pre-v1.21.8 installs shipped with NoNewPrivileges=true in the unit file, but
+# the in-app self-upgrade and apt-upgrade flows both rely on `sudo systemd-run`
+# / `sudo apt-get`, which the kernel's no_new_privs bit blocks regardless of
+# the NOPASSWD sudoers rules. Strip the line if present so the next in-app
+# upgrade actually works. daemon-reload picks up the change before the
+# restart below.
+UNIT_FILE="/etc/systemd/system/virtpilot.service"
+if [[ -f "${UNIT_FILE}" ]] && grep -q '^NoNewPrivileges=' "${UNIT_FILE}"; then
+  info "Removing NoNewPrivileges= from ${UNIT_FILE} (broke sudo-based upgrade flow)"
+  sed -i '/^NoNewPrivileges=/d' "${UNIT_FILE}"
+  systemctl daemon-reload
+  log "Unit file healed"
+fi
+
 # ─── Restart service ──────────────────────────────────────────────────────────
 info "Restarting service..."
 systemctl restart virtpilot

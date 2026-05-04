@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.21.8',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: 'In-app self-upgrade failed with `sudo: The "no new privileges" flag is set, which prevents sudo from running as root`. v1.21.0 added `NoNewPrivileges=true` to `virtpilot.service` for hardening, but the upgrade flow shells out to `sudo systemd-run --unit=virtpilot-update … bash update.sh` (and `apt upgrade` does `sudo apt-get`), and the kernel\'s `no_new_privs` bit makes sudo refuse to elevate even with the NOPASSWD rules in `/etc/sudoers.d/virtpilot`. The hardening was self-defeating: it broke the upgrade path while contributing nothing meaningful, since the iptables/ip-link surface that matters already runs via `CAP_NET_ADMIN` ambient capability rather than sudo. `install.sh` no longer writes the line; `update.sh` strips it from any pre-existing live unit and runs `daemon-reload` before restarting, so a one-time `sudo bash /usr/local/virtpilot/update.sh` from SSH heals an already-stuck install. All other hardening stays in force.' },
+    ],
+  },
+  {
     version: '1.21.7',
     date: '2026-05-04',
     changes: [
