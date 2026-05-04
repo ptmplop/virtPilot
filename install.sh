@@ -306,40 +306,15 @@ log "Configuration written"
 #
 # Ports 80 and 443 are intentionally left alone.
 
-if [[ -n "${VP_NGINX:-}" ]]; then
-  INSTALL_NGINX="${VP_NGINX}"
-elif [[ ! -r /dev/tty ]]; then
-  INSTALL_NGINX="no"
-else
-  echo ""
-  echo -e "${BOLD}Reverse proxy (nginx)${NC}"
-  echo "  nginx will listen on port ${PUBLIC_PORT} with the self-signed cert and"
-  echo "  proxy to the Node backend on 127.0.0.1:${BACKEND_PORT}. Ports 80 and 443"
-  echo "  are not touched."
-  echo ""
-  echo "  Skipping leaves the backend reachable directly on 0.0.0.0:${PUBLIC_PORT}"
-  echo "  with its own self-signed TLS — same as before."
-  echo ""
-  while true; do
-    read -rp "  Set up nginx? [Y/n] " ans < /dev/tty
-    case "${ans:-Y}" in
-      Y|y) INSTALL_NGINX="yes"; break ;;
-      N|n) INSTALL_NGINX="no"; break ;;
-      *)   warn "Please answer Y or n." ;;
-    esac
-  done
-fi
+info "Installing nginx..."
+apt-get install -y -qq nginx
 
-if [[ "${INSTALL_NGINX}" == "yes" ]]; then
-  info "Installing nginx..."
-  apt-get install -y -qq nginx
+# nginx (running as www-data) needs to read the private key.
+chgrp www-data "${TLS_DIR}/key.pem"
+chmod 640 "${TLS_DIR}/key.pem"
 
-  # nginx (running as www-data) needs to read the private key.
-  chgrp www-data "${TLS_DIR}/key.pem"
-  chmod 640 "${TLS_DIR}/key.pem"
-
-  info "Writing VirtPilot nginx site..."
-  cat > /etc/nginx/sites-available/virtpilot << NGINXSITE
+info "Writing VirtPilot nginx site..."
+cat > /etc/nginx/sites-available/virtpilot << NGINXSITE
 # VirtPilot — managed by install.sh
 # Public TLS termination on ${PUBLIC_PORT}; backend on 127.0.0.1:${BACKEND_PORT}.
 
@@ -394,43 +369,34 @@ server {
     }
 }
 NGINXSITE
-  ln -sf /etc/nginx/sites-available/virtpilot /etc/nginx/sites-enabled/virtpilot
+ln -sf /etc/nginx/sites-available/virtpilot /etc/nginx/sites-enabled/virtpilot
 
-  # Pull nginx's default vhost off port 80 only if it's currently enabled —
-  # don't clobber a config the operator might have already customised.
-  rm -f /etc/nginx/sites-enabled/default
+# Pull nginx's default vhost off port 80 only if it's currently enabled —
+# don't clobber a config the operator might have already customised.
+rm -f /etc/nginx/sites-enabled/default
 
-  if ! nginx -t >/dev/null 2>&1; then
-    nginx -t || true
-    die "nginx config validation failed. Check /etc/nginx/sites-available/virtpilot"
-  fi
+if ! nginx -t >/dev/null 2>&1; then
+  nginx -t || true
+  die "nginx config validation failed. Check /etc/nginx/sites-available/virtpilot"
+fi
 
-  systemctl enable --quiet nginx
-  systemctl restart nginx
-  log "nginx listening on :${PUBLIC_PORT} with the self-signed cert"
+systemctl enable --quiet nginx
+systemctl restart nginx
+log "nginx listening on :${PUBLIC_PORT} with the self-signed cert"
 
-  # Move the backend off the public port and disable its own TLS — nginx
-  # terminates TLS on ${PUBLIC_PORT}, the backend speaks plain HTTP locally.
-  sed -i "s|^PORT=.*|PORT=${BACKEND_PORT}|" "${ENV_FILE}"
-  sed -i 's|^TLS_CERT_PATH=.*|TLS_CERT_PATH=|' "${ENV_FILE}" || true
-  sed -i 's|^TLS_KEY_PATH=.*|TLS_KEY_PATH=|' "${ENV_FILE}" || true
-  grep -q '^TLS_CERT_PATH=' "${ENV_FILE}" || echo "TLS_CERT_PATH=" >> "${ENV_FILE}"
-  grep -q '^TLS_KEY_PATH=' "${ENV_FILE}" || echo "TLS_KEY_PATH=" >> "${ENV_FILE}"
+# Move the backend off the public port and disable its own TLS — nginx
+# terminates TLS on ${PUBLIC_PORT}, the backend speaks plain HTTP locally.
+sed -i "s|^PORT=.*|PORT=${BACKEND_PORT}|" "${ENV_FILE}"
+sed -i 's|^TLS_CERT_PATH=.*|TLS_CERT_PATH=|' "${ENV_FILE}" || true
+sed -i 's|^TLS_KEY_PATH=.*|TLS_KEY_PATH=|' "${ENV_FILE}" || true
+grep -q '^TLS_CERT_PATH=' "${ENV_FILE}" || echo "TLS_CERT_PATH=" >> "${ENV_FILE}"
+grep -q '^TLS_KEY_PATH=' "${ENV_FILE}" || echo "TLS_KEY_PATH=" >> "${ENV_FILE}"
 
-  # Firewall: allow public access to nginx, deny direct backend.
-  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
-    ufw allow ${PUBLIC_PORT}/tcp >/dev/null 2>&1 || true
-    ufw deny ${BACKEND_PORT}/tcp >/dev/null 2>&1 || true
-    log "Opened ${PUBLIC_PORT}, denied ${BACKEND_PORT} in UFW"
-  fi
-
-  USE_NGINX=true
-else
-  warn "Skipping nginx setup."
-  warn "  Backend will bind to 0.0.0.0:${PUBLIC_PORT} directly — ${BOLD}port ${PUBLIC_PORT} is reachable from the internet.${NC}"
-  warn "  Run install.sh again with VP_NGINX=yes to add nginx in front later."
-  sed -i 's|^BIND_ADDRESS=.*|BIND_ADDRESS=0.0.0.0|' "${ENV_FILE}"
-  USE_NGINX=false
+# Firewall: allow public access to nginx, deny direct backend.
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
+  ufw allow ${PUBLIC_PORT}/tcp >/dev/null 2>&1 || true
+  ufw deny ${BACKEND_PORT}/tcp >/dev/null 2>&1 || true
+  log "Opened ${PUBLIC_PORT}, denied ${BACKEND_PORT} in UFW"
 fi
 
 # ─── Sudoers rules ────────────────────────────────────────────────────────────
@@ -528,6 +494,66 @@ EOF
 
 systemctl daemon-reload
 systemctl enable virtpilot
+
+# ─── Default NAT network (myNet) ──────────────────────────────────────────────
+# Seed a NAT network on bridge vp0 / 10.0.1.0/24 so a fresh install has working
+# VM networking without first visiting the dashboard. Idempotent: skipped if
+# networks.json already contains an entry named "myNet".
+NETWORKS_JSON="/var/lib/virtpilot/networks.json"
+if [[ -f "${NETWORKS_JSON}" ]] && grep -q '"name": *"myNet"' "${NETWORKS_JSON}"; then
+  log "Default network 'myNet' already present — leaving in place"
+else
+  info "Creating default NAT network 'myNet' (10.0.1.0/24, bridge vp0)..."
+  NET_UUID="$(cat /proc/sys/kernel/random/uuid)"
+  LIBVIRT_NET_NAME="virtpilot-${NET_UUID:0:8}"
+  NET_XML="$(mktemp)"
+  cat > "${NET_XML}" << NETXML
+<network>
+  <name>${LIBVIRT_NET_NAME}</name>
+  <forward mode='nat'/>
+  <bridge name='vp0' stp='on' delay='0'/>
+  <ip address='10.0.1.1' prefix='24'>
+    <dhcp>
+      <range start='10.0.1.2' end='10.0.1.254'/>
+    </dhcp>
+  </ip>
+</network>
+NETXML
+  virsh -c qemu:///system net-define "${NET_XML}" >/dev/null
+  virsh -c qemu:///system net-start "${LIBVIRT_NET_NAME}" >/dev/null
+  virsh -c qemu:///system net-autostart "${LIBVIRT_NET_NAME}" >/dev/null
+  rm -f "${NET_XML}"
+
+  # Append to networks.json so the dashboard sees it. The backend reads this
+  # file from disk on every list call, so no service restart is needed.
+  NET_CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+  NETWORKS_JSON="${NETWORKS_JSON}" \
+  NET_UUID="${NET_UUID}" \
+  LIBVIRT_NET_NAME="${LIBVIRT_NET_NAME}" \
+  NET_CREATED_AT="${NET_CREATED_AT}" \
+  node -e '
+    const fs = require("fs");
+    const p = process.env.NETWORKS_JSON;
+    let arr = [];
+    try { arr = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+    arr.push({
+      id: process.env.NET_UUID,
+      name: "myNet",
+      type: "nat",
+      cidr: "10.0.1.0/24",
+      gateway: "10.0.1.1",
+      dns: ["1.1.1.1", "8.8.8.8"],
+      bridge: "vp0",
+      libvirtName: process.env.LIBVIRT_NET_NAME,
+      createdAt: process.env.NET_CREATED_AT,
+    });
+    fs.writeFileSync(p, JSON.stringify(arr, null, 2));
+  '
+  chown "${SERVICE_USER}:${SERVICE_USER}" "${NETWORKS_JSON}"
+  chmod 600 "${NETWORKS_JSON}"
+  log "Default network 'myNet' created (${LIBVIRT_NET_NAME})"
+fi
+
 systemctl restart virtpilot
 
 # Brief wait then check status
@@ -553,19 +579,12 @@ echo ""
 echo -e "  ${YELLOW}Note:${NC} The TLS certificate is self-signed, so your browser will"
 echo -e "        warn on first visit. Click \"Advanced → Proceed\" to continue."
 echo ""
-if [[ "${USE_NGINX}" == "true" ]]; then
-  echo -e "  ${BOLD}Front:${NC} nginx on :${PUBLIC_PORT} (TLS) → backend 127.0.0.1:${BACKEND_PORT} (HTTP)"
-else
-  echo -e "  ${YELLOW}Heads up:${NC} nginx wasn't installed, so the backend serves directly on"
-  echo -e "        :${PUBLIC_PORT}. Re-run install.sh with VP_NGINX=yes to add it later."
-fi
+echo -e "  ${BOLD}Front:${NC} nginx on :${PUBLIC_PORT} (TLS) → backend 127.0.0.1:${BACKEND_PORT} (HTTP)"
 echo ""
 echo -e "  ${BOLD}Useful commands:${NC}"
 echo -e "    systemctl status virtpilot"
 echo -e "    journalctl -u virtpilot -f"
 echo -e "    systemctl restart virtpilot"
-if [[ "${USE_NGINX}" == "true" ]]; then
-  echo -e "    systemctl reload nginx          # after editing /etc/nginx/sites-available/virtpilot"
-  echo -e "    nginx -t                        # validate nginx config"
-fi
+echo -e "    systemctl reload nginx          # after editing /etc/nginx/sites-available/virtpilot"
+echo -e "    nginx -t                        # validate nginx config"
 echo ""

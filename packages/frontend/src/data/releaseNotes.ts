@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.22.0',
+    date: '2026-05-04',
+    changes: [
+      { type: 'changed', text: '`install.sh` no longer prompts for nginx — it is always installed. The reverse proxy is the only sensible default (TLS termination, request streaming, large-upload handling, single public surface), and the prompt was a foot-gun: skipping it left the Node backend bound to `0.0.0.0:3001` directly, with no separation between TLS termination and application code. The `VP_NGINX=` env var, the TTY question, and the `USE_NGINX` branches in the closing summary are gone. Existing installs are unaffected — `update.sh` doesn\'t run install.sh — but every fresh install now lands on the nginx-fronted topology that v1.21.0 introduced.' },
+      { type: 'added', text: 'Default NAT network "myNet" is seeded on fresh install. Before today, a freshly installed dashboard had zero networks and the operator had to visit the Networks page and create one before any VM could get a NIC. `install.sh` now defines a libvirt NAT network (bridge `vp0`, CIDR `10.0.1.0/24`, gateway `10.0.1.1`, DHCP `10.0.1.2–10.0.1.254`, DNS `1.1.1.1` + `8.8.8.8`) and appends a matching entry to `/var/lib/virtpilot/networks.json` so the dashboard surfaces it immediately. The seed step is idempotent — re-running `install.sh` on an install that already has a `myNet` entry leaves it in place — and only fires on fresh installs (`update.sh` never runs install.sh).' },
+    ],
+  },
+  {
     version: '1.21.11',
     date: '2026-05-04',
     changes: [
