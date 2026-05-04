@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
-import { run, virsh } from '../services/safeExec.js';
+import { virsh, qemuImg } from '../services/safeExec.js';
 import { validateVmName, validateVmUuid } from '../lib/validate.js';
 import * as vmService from '../services/vmService.js';
 import * as deviceService from '../services/deviceService.js';
@@ -871,7 +871,7 @@ vmsRouter.post('/:uuid/snapshots/:snapshot/to-template', requireUuidParam, async
         const disks = await vmService.getVmDisks(uuid);
         const primaryDisk = disks.find((d) => d.target === 'vda' && d.source);
         if (primaryDisk?.source) {
-          const stdout = await run('qemu-img', ['info', '--output=json', primaryDisk.source]);
+          const stdout = await qemuImg(['info', '--output=json', primaryDisk.source]);
           const info = JSON.parse(stdout) as { 'backing-filename'?: string };
           const backingFile = info['backing-filename'];
           if (backingFile) {

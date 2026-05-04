@@ -7,7 +7,7 @@ import { getUserSettings } from './userSettingsService.js';
 import { getVmInfo, getVmXml, getVmNics, getVmDisks } from './vmService.js';
 import { getVmMeta } from './vmMetaService.js';
 import { appendLog } from './logService.js';
-import { run, virsh } from './safeExec.js';
+import { virsh, qemuImg } from './safeExec.js';
 import { validateVmUuid } from '../lib/validate.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -331,7 +331,7 @@ async function _createBackupInner(
       const convertArgs = ['convert', '-U'];
       if (compress) convertArgs.push('-c');
       convertArgs.push('-f', 'qcow2', '-O', 'qcow2', disk.source, destPath);
-      await run('sudo', ['-n', '-u', 'libvirt-qemu', '/usr/bin/qemu-img', ...convertArgs], { timeout: 60 * 60_000 });
+      await qemuImg(convertArgs, { timeout: 60 * 60_000 });
       const stat = await fs.stat(destPath);
       diskEntries.push({
         target: disk.target,

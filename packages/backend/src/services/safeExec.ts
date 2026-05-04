@@ -74,3 +74,19 @@ export async function sudo(file: string, args: readonly string[], opts: RunOpts 
 export async function sudoSafe(file: string, args: readonly string[], opts: RunOpts = {}): Promise<string | null> {
   return runSafe('sudo', ['-n', file, ...args], opts);
 }
+
+// qemu-img wrapper that runs as libvirt-qemu via sudo. Required because
+// libvirt's `dynamic_ownership=1` chowns VM disk files to libvirt-qemu when
+// the domain starts (mode 0644 for the active disk, 0600 for snapshot
+// overlays), so the unprivileged backend user can't write — and can't even
+// read the 0600 overlay files. The sudoers rule in install.sh grants
+// `virtpilot ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img`, scoped to
+// exactly this binary.
+//
+// Use this for any qemu-img call that touches an existing VM disk
+// (everything under `${vmsDir}/${uuid}/`). Fresh-create calls in storageService
+// don't need it — they write a brand-new file alongside virtpilot-owned
+// templates.
+export async function qemuImg(args: readonly string[], opts: RunOpts = {}): Promise<string> {
+  return run('sudo', ['-n', '-u', 'libvirt-qemu', '/usr/bin/qemu-img', ...args], opts);
+}

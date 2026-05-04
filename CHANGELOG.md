@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.3] — 2026-05-04
+
+### Fixed
+
+- **Snapshot delete (and other qcow2-touching operations on started VMs) failed with `qemu-img: Could not open …: Permission denied`.** Once a VM has run, libvirt's `dynamic_ownership=1` chowns the active qcow2 to `libvirt-qemu:kvm` mode 0644 and the snapshot overlay to mode 0600. The unprivileged backend user (`virtpilot`) can read mode-0644 group-readable files but cannot write them, and cannot read mode-0600 files at all — so any `qemu-img commit`, `qemu-img info` on the overlay, `qemu-img resize`, or `qemu-img convert` (snapshot-export-to-template) hit EACCES. v1.21.9 solved the same shape on the backup path by running `qemu-img convert` via `sudo -u libvirt-qemu`. v2.0.3 generalises that fix into a `qemuImg()` helper in `safeExec.ts` and routes every VM-disk-touching qemu-img call through it: snapshot delete (running + stopped paths), snapshot revert, snapshot-export-to-template (both external and live paths), disk resize, getSnapshotSizeBytes, and the to-template flow's backing-chain probe. The existing `virtpilot ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img` sudoers rule (added in v1.21.9) covers all of them. `qemu-img create` calls in `storageService` are unchanged — they write fresh files in already-virtpilot-owned directories. Pre-existing in v1.x — unrelated to the v2.0.0 UUID refactor — but fixed alongside the release.
+
 ## [2.0.2] — 2026-05-04
 
 ### Fixed

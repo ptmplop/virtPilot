@@ -4,7 +4,7 @@ import path from 'path';
 import { config } from '../config.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
-import { run, virsh as safeVirsh } from './safeExec.js';
+import { run, virsh as safeVirsh, qemuImg } from './safeExec.js';
 import {
   validateVmName,
   validateSnapshotName,
@@ -593,7 +593,7 @@ async function getSnapshotSizeBytes(
         .filter((d) => d.type !== 'cdrom' && d.source)
         .map(async (d) => {
           try {
-            const stdout = await run('qemu-img', ['info', '--force-share', '--output=json', d.source]);
+            const stdout = await qemuImg(['info', '--force-share', '--output=json', d.source]);
             const info = JSON.parse(stdout) as { snapshots?: Array<{ name: string; 'vm-state-size'?: number }> };
             const snap = info.snapshots?.find((s) => s.name === snapshotName);
             if (snap && typeof snap['vm-state-size'] === 'number') total += snap['vm-state-size'];
@@ -725,7 +725,7 @@ export async function deleteSnapshot(
   for (const sd of snapDisks) {
     overlayFiles.push(sd.file);
     if (running) {
-      const chainJson = await run('qemu-img', ['info', '--force-share', '--output=json', '--backing-chain', sd.file]);
+      const chainJson = await qemuImg(['info', '--force-share', '--output=json', '--backing-chain', sd.file]);
       const chain = JSON.parse(chainJson) as Array<{ filename: string; 'backing-filename'?: string }>;
       const backing = chain[0]?.['backing-filename'];
       if (!backing) throw new Error(`Could not determine backing file for ${sd.file}`);
@@ -736,8 +736,8 @@ export async function deleteSnapshot(
         SNAPSHOT_TIMEOUT,
       );
     } else {
-      await run('qemu-img', ['commit', '-d', sd.file], { timeout: SNAPSHOT_TIMEOUT, trace });
-      const stdout = await run('qemu-img', ['info', '--output=json', '--backing-chain', sd.file]);
+      await qemuImg(['commit', '-d', sd.file], { timeout: SNAPSHOT_TIMEOUT, trace });
+      const stdout = await qemuImg(['info', '--output=json', '--backing-chain', sd.file]);
       const chain = JSON.parse(stdout) as Array<{ filename: string; 'backing-filename'?: string }>;
       const backing = chain[0]?.['backing-filename'];
       if (!backing) throw new Error(`Could not determine backing file for ${sd.file}`);
@@ -791,7 +791,7 @@ export async function revertSnapshot(nameOrId: string, snapshotName: string): Pr
       if (!sealed) continue;
       const dir = path.dirname(sealed);
       const overlay = path.join(dir, `${name}-${sd.target}-revert-${stamp}.qcow2`);
-      await run('qemu-img', ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', sealed, overlay], { timeout: 60_000, trace });
+      await qemuImg(['create', '-f', 'qcow2', '-F', 'qcow2', '-b', sealed, overlay], { timeout: 60_000, trace });
       pivotedXml = pivotedXml.replace(
         new RegExp(`(<source\\s+file=['"])${escapeRegex(sealed)}(['"])`),
         `$1${overlay}$2`,
@@ -832,8 +832,7 @@ export async function exportSnapshotAsTemplate(vmName: string, snapshotName: str
     if (!savedXml) throw new Error('Snapshot XML missing saved <domain> element');
     const sealed = parseDiskSourceFromDomainXml(savedXml, 'vda');
     if (!sealed) throw new Error('Snapshot does not include vda');
-    await run(
-      'qemu-img',
+    await qemuImg(
       ['convert', '-U', '-f', 'qcow2', '-O', 'qcow2', sealed, destPath],
       { timeout: 300_000, trace },
     );
@@ -841,8 +840,7 @@ export async function exportSnapshotAsTemplate(vmName: string, snapshotName: str
     const disks = await getVmDisks(name);
     const primaryDisk = disks.find((d) => d.target === 'vda' && d.source);
     if (!primaryDisk?.source) throw new Error('Primary disk (vda) not found or has no source path');
-    await run(
-      'qemu-img',
+    await qemuImg(
       ['convert', '-U', '-f', 'qcow2', '-O', 'qcow2', '-l', `snapshot.name=${snap}`, primaryDisk.source, destPath],
       { timeout: 300_000, trace },
     );
@@ -875,12 +873,12 @@ export async function resizeDisk(nameOrId: string, target: string, addGb: number
   const running = parseStatus(state) === 'running';
 
   if (running) {
-    const stdout = await run('qemu-img', ['info', '-U', '--output=json', disk.source]);
+    const stdout = await qemuImg(['info', '-U', '--output=json', disk.source]);
     const info = JSON.parse(stdout) as { 'virtual-size': number };
     const newSizeBytes = info['virtual-size'] + addGb * 1024 * 1024 * 1024;
     await virsh(['blockresize', name, tgt, `${newSizeBytes}b`], trace);
   } else {
-    await run('qemu-img', ['resize', disk.source, `+${addGb}G`], { timeout: 120_000, trace });
+    await qemuImg(['resize', disk.source, `+${addGb}G`], { timeout: 120_000, trace });
   }
 
   return formatTrace(trace);
