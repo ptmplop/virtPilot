@@ -639,6 +639,14 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
 
   const frozen = await fsFreeze(name);
 
+  // External snapshot overlays land owned `virtpilot:virtpilot` mode 0600,
+  // so the libvirt-qemu user can't later read them when we run qemu-img
+  // commit / info / resize via sudo. Bumping the new overlay to 0660 keeps
+  // virtpilot ownership but lets libvirt-qemu (a member of the `virtpilot`
+  // group) read and write — both directions of the qcow2-chain operations
+  // then succeed.
+  const overlayPaths: string[] = [];
+
   try {
     if (uefi) {
       const disks = await getVmDisks(name);
@@ -653,6 +661,7 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
         const dir = path.dirname(d.source);
         const overlay = path.join(dir, `${name}-${d.target}-${snap}.qcow2`);
         args.push('--diskspec', `${d.target},file=${overlay},snapshot=external`);
+        overlayPaths.push(overlay);
       }
       for (const d of disks) {
         if (!persistent.find((p) => p.target === d.target)) {
@@ -668,6 +677,13 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
     }
   } finally {
     if (frozen) await fsThaw(name);
+  }
+
+  // Best-effort chmod — only fires for external snapshots where we know the
+  // overlay paths up front. Any commit/resize on the overlay later relies on
+  // libvirt-qemu being able to read+write the file.
+  for (const overlay of overlayPaths) {
+    await fs.chmod(overlay, 0o660).catch(() => { /* file may have been re-chowned by libvirt */ });
   }
 
   return formatTrace(trace);
@@ -724,6 +740,11 @@ export async function deleteSnapshot(
 
   for (const sd of snapDisks) {
     overlayFiles.push(sd.file);
+    // Defensive chmod 0660 — the overlay is owned virtpilot:virtpilot 0600 by
+    // default, which blocks libvirt-qemu (running qemu-img via sudo) from
+    // reading. Group-readable + libvirt-qemu being in the virtpilot group
+    // gives it the access it needs.
+    await fs.chmod(sd.file, 0o660).catch(() => { /* file may not exist or already correct */ });
     if (running) {
       const chainJson = await qemuImg(['info', '--force-share', '--output=json', '--backing-chain', sd.file]);
       const chain = JSON.parse(chainJson) as Array<{ filename: string; 'backing-filename'?: string }>;
@@ -791,7 +812,13 @@ export async function revertSnapshot(nameOrId: string, snapshotName: string): Pr
       if (!sealed) continue;
       const dir = path.dirname(sealed);
       const overlay = path.join(dir, `${name}-${sd.target}-revert-${stamp}.qcow2`);
+      // Make the sealed backing file readable by libvirt-qemu (group)
+      // before we ask it to read from it via qemu-img create -b.
+      await fs.chmod(sealed, 0o660).catch(() => { /* may not need it */ });
       await qemuImg(['create', '-f', 'qcow2', '-F', 'qcow2', '-b', sealed, overlay], { timeout: 60_000, trace });
+      // The new revert overlay will become the active disk on next start;
+      // bump to 0660 so subsequent qemu-img calls (commit/info/resize) work.
+      await fs.chmod(overlay, 0o660).catch(() => { /* ignore */ });
       pivotedXml = pivotedXml.replace(
         new RegExp(`(<source\\s+file=['"])${escapeRegex(sealed)}(['"])`),
         `$1${overlay}$2`,
@@ -868,6 +895,11 @@ export async function resizeDisk(nameOrId: string, target: string, addGb: number
   const disks = await getVmDisks(name);
   const disk = disks.find((d) => d.target === tgt);
   if (!disk?.source) throw new Error(`Disk ${tgt} not found or has no source path`);
+
+  // The active disk may be a snapshot overlay (virtpilot:virtpilot 0600) that
+  // blocks libvirt-qemu reads. Bump to 0660 so qemuImg (running as
+  // libvirt-qemu via sudo, which is in the virtpilot group) can read+write.
+  await fs.chmod(disk.source, 0o660).catch(() => { /* may already be correct or owned differently */ });
 
   const state = await virsh(['domstate', name]);
   const running = parseStatus(state) === 'running';

@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.0.4',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: 'Snapshot delete (stopped path) and disk resize on a post-snapshot active disk still failed after v2.0.3. v2.0.3 routed VM-disk qemu-img calls via `sudo -u libvirt-qemu`, but external snapshot overlays emerge from `virsh snapshot-create-as` owned `virtpilot:virtpilot` mode 0600 — meaning libvirt-qemu (a member of the virtpilot group, but not the owner) could neither read nor write them. The qemu-img-as-libvirt-qemu invocations therefore EACCESed on the overlay even though the helper itself was correct. v2.0.4 adds a chmod 0660 in three places: (1) right after `virsh snapshot-create-as` succeeds, on every newly-created overlay path; (2) defensively at the start of each `deleteSnapshot` iteration in case libvirt has re-chowned in the interim; (3) in `resizeDisk` before invoking `qemu-img resize`, since the active disk may itself be a snapshot overlay. With the file mode at 0660 the virtpilot group (which includes libvirt-qemu per v1.21.6\'s group plumbing) gets read+write, and the qcow2-chain operations all succeed under either user.' },
+    ],
+  },
+  {
     version: '2.0.3',
     date: '2026-05-04',
     changes: [
