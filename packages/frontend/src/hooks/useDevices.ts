@@ -18,21 +18,21 @@ export function useHostDevices() {
   });
 }
 
-export function useAttachDevice(vmName: string) {
+export function useAttachDevice(vmUuid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (deviceId: string) => {
-      await api.post(`/api/vms/${vmName}/devices`, { deviceId });
+      await api.post(`/api/vms/${vmUuid}/devices`, { deviceId });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.devices }),
   });
 }
 
-export function useDetachDevice(vmName: string) {
+export function useDetachDevice(vmUuid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (deviceId: string) => {
-      await api.delete(`/api/vms/${vmName}/devices/${deviceId}`);
+      await api.delete(`/api/vms/${vmUuid}/devices/${deviceId}`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.devices }),
   });

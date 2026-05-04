@@ -119,16 +119,16 @@ networksRouter.get('/:id/port-forwards', async (req, res) => {
 networksRouter.post('/:id/port-forwards', async (req, res) => {
   const start = Date.now();
   try {
-    const { vmName, mac, protocol, hostPort, vmPort, description } = req.body;
-    if (!vmName || !mac || !protocol || !hostPort || !vmPort) {
-      return res.status(400).json({ error: 'vmName, mac, protocol, hostPort, and vmPort are required' });
+    const { vmUuid, mac, protocol, hostPort, vmPort, description } = req.body;
+    if (!vmUuid || !mac || !protocol || !hostPort || !vmPort) {
+      return res.status(400).json({ error: 'vmUuid, mac, protocol, hostPort, and vmPort are required' });
     }
     if (protocol !== 'tcp' && protocol !== 'udp') {
       return res.status(400).json({ error: 'protocol must be "tcp" or "udp"' });
     }
     const forward = await portForwardService.createPortForward({
       networkId: req.params.id,
-      vmName,
+      vmUuid,
       mac,
       protocol,
       hostPort: Number(hostPort),
@@ -137,16 +137,17 @@ networksRouter.post('/:id/port-forwards', async (req, res) => {
     });
     void logService.appendLog({
       type: 'network.port-forward.create',
-      subject: vmName,
+      subject: vmUuid,
+      subjectUuid: vmUuid,
       status: 'success',
-      output: `${protocol} :${hostPort} → ${vmName}:${vmPort}${description ? ` (${description})` : ''}`,
+      output: `${protocol} :${hostPort} → ${vmUuid}:${vmPort}${description ? ` (${description})` : ''}`,
       durationMs: Date.now() - start,
     });
     res.status(201).json({ forward });
   } catch (err: unknown) {
     void logService.appendLog({
       type: 'network.port-forward.create',
-      subject: (req.body as { vmName?: string }).vmName ?? 'unknown',
+      subject: (req.body as { vmUuid?: string }).vmUuid ?? 'unknown',
       status: 'error',
       output: String(err),
       durationMs: Date.now() - start,
@@ -170,9 +171,9 @@ networksRouter.delete('/:id/port-forwards/:forwardId', async (req, res) => {
 
 networksRouter.post('/:id/reserve', async (req, res) => {
   try {
-    const { vmName, mac } = req.body as { vmName: string; mac: string };
-    if (!vmName || !mac) return res.status(400).json({ error: 'vmName and mac are required' });
-    const ip = await portForwardService.reserveVmIp(req.params.id, vmName, mac);
+    const { vmUuid, mac } = req.body as { vmUuid: string; mac: string };
+    if (!vmUuid || !mac) return res.status(400).json({ error: 'vmUuid and mac are required' });
+    const ip = await portForwardService.reserveVmIp(req.params.id, vmUuid, mac);
     res.json({ ip });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });

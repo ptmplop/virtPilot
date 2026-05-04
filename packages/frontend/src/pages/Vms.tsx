@@ -216,7 +216,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [flash, setFlash] = useState<'success' | 'error' | null>(null);
   const deleteVm = useDeleteVm();
-  const action = useVmAction(vm.name);
+  const action = useVmAction(vm.id);
   const logoSlug = useLogoStore((s) => s.vms[vm.name]);
 
   const triggerFlash = (type: 'success' | 'error') => {
@@ -241,7 +241,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
 
   const handleDelete = async (deleteStorage: boolean) => {
     try {
-      await deleteVm.mutateAsync({ name: vm.name, deleteStorage });
+      await deleteVm.mutateAsync({ uuid: vm.id, deleteStorage });
       toast.success(`${vm.name} deleted`);
       setDeleteOpen(false);
     } catch {
@@ -268,7 +268,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
           <VmLogo slug={logoSlug} size={28} />
           <div className="min-w-0">
             <Link
-              to={`/vms/${vm.name}`}
+              to={`/vms/${vm.id}`}
               className="block truncate font-mono text-sm font-semibold text-foreground transition-colors hover:text-primary"
             >
               {vm.name}
@@ -354,7 +354,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
           )}
           <Tooltip label="Console">
             <Link
-              to={`/vms/${vm.name}/console`}
+              to={`/vms/${vm.id}/console`}
               className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <Terminal className="h-3.5 w-3.5" />

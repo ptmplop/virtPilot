@@ -10,7 +10,7 @@ import type {
 
 const KEYS = {
   summaries: ['backups'] as const,
-  vm: (vmName: string) => ['backups', vmName] as const,
+  vm: (vmUuid: string) => ['backups', vmUuid] as const,
 };
 
 export function useBackupSummaries() {
@@ -24,14 +24,14 @@ export function useBackupSummaries() {
   });
 }
 
-export function useVmBackups(vmName: string) {
+export function useVmBackups(vmUuid: string) {
   return useQuery({
-    queryKey: KEYS.vm(vmName),
+    queryKey: KEYS.vm(vmUuid),
     queryFn: async () => {
-      const { data } = await api.get<{ backups: BackupEntry[]; schedule: BackupSchedule | null }>(`/api/backups/${vmName}`);
+      const { data } = await api.get<{ backups: BackupEntry[]; schedule: BackupSchedule | null }>(`/api/backups/${vmUuid}`);
       return data;
     },
-    enabled: !!vmName,
+    enabled: !!vmUuid,
     refetchInterval: 15_000,
   });
 }
@@ -47,22 +47,22 @@ export function useRunningBackups() {
   });
 }
 
-export function useCreateBackup(vmName: string) {
+export function useCreateBackup(vmUuid: string, vmName: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const { data } = await api.post<{ backup: BackupEntry }>(`/api/backups/${vmName}`, undefined, { timeout: 0 });
+      const { data } = await api.post<{ backup: BackupEntry }>(`/api/backups/${vmUuid}`, undefined, { timeout: 0 });
       return data.backup;
     },
     onMutate: () => {
       const prev = qc.getQueryData<BackupInProgress[]>(['backups', 'running']) ?? [];
       qc.setQueryData<BackupInProgress[]>(['backups', 'running'], [
         ...prev,
-        { vmName, startedAt: new Date().toISOString(), triggerType: 'manual' },
+        { vmUuid, vmName, startedAt: new Date().toISOString(), triggerType: 'manual' },
       ]);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEYS.vm(vmName) });
+      qc.invalidateQueries({ queryKey: KEYS.vm(vmUuid) });
       qc.invalidateQueries({ queryKey: KEYS.summaries });
     },
     onSettled: () => {
@@ -71,24 +71,24 @@ export function useCreateBackup(vmName: string) {
   });
 }
 
-export function useDeleteBackup(vmName: string) {
+export function useDeleteBackup(vmUuid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (backupId: string) => {
-      await api.delete(`/api/backups/${vmName}/${backupId}`);
+      await api.delete(`/api/backups/${vmUuid}/${backupId}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEYS.vm(vmName) });
+      qc.invalidateQueries({ queryKey: KEYS.vm(vmUuid) });
       qc.invalidateQueries({ queryKey: KEYS.summaries });
     },
   });
 }
 
-export function useRestoreBackup(vmName: string) {
+export function useRestoreBackup(vmUuid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ backupId, newVmName }: { backupId: string; newVmName?: string }) => {
-      await api.post(`/api/backups/${vmName}/${backupId}/restore`, { newVmName }, { timeout: 0 });
+    mutationFn: async ({ backupId, targetVmUuid }: { backupId: string; targetVmUuid?: string }) => {
+      await api.post(`/api/backups/${vmUuid}/${backupId}/restore`, { targetVmUuid }, { timeout: 0 });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['vms'] });
@@ -96,7 +96,7 @@ export function useRestoreBackup(vmName: string) {
   });
 }
 
-export function useSaveSchedule(vmName: string) {
+export function useSaveSchedule(vmUuid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (schedule: {
@@ -108,24 +108,24 @@ export function useSaveSchedule(vmName: string) {
       retentionDays?: number | null;
       enabled?: boolean;
     }) => {
-      const { data } = await api.put<{ schedule: BackupSchedule }>(`/api/backups/schedules/${vmName}`, schedule);
+      const { data } = await api.put<{ schedule: BackupSchedule }>(`/api/backups/schedules/${vmUuid}`, schedule);
       return data.schedule;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEYS.vm(vmName) });
+      qc.invalidateQueries({ queryKey: KEYS.vm(vmUuid) });
       qc.invalidateQueries({ queryKey: KEYS.summaries });
     },
   });
 }
 
-export function useDeleteSchedule(vmName: string) {
+export function useDeleteSchedule(vmUuid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      await api.delete(`/api/backups/schedules/${vmName}`);
+      await api.delete(`/api/backups/schedules/${vmUuid}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEYS.vm(vmName) });
+      qc.invalidateQueries({ queryKey: KEYS.vm(vmUuid) });
       qc.invalidateQueries({ queryKey: KEYS.summaries });
     },
   });

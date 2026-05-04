@@ -12,7 +12,10 @@ export interface VmNetworkAlloc {
 }
 
 export interface VmMeta {
-  vmName: string;
+  /** Storage identity — never changes */
+  uuid: string;
+  /** User-typed display label — mutable via rename */
+  name: string;
   username: string;
   password: string;
   networks?: VmNetworkAlloc[];
@@ -32,7 +35,7 @@ async function readAllRaw(): Promise<VmMeta[]> {
 
 async function readAll(): Promise<VmMeta[]> {
   const all = await readAllRaw();
-  // Decrypt passwords on read. Legacy plaintext values pass through.
+  // Decrypt passwords on read.
   return all.map((m) => ({ ...m, password: decryptSecret(m.password) ?? '' }));
 }
 
@@ -44,15 +47,27 @@ async function writeAll(entries: VmMeta[]): Promise<void> {
 
 export async function saveVmMeta(meta: VmMeta): Promise<void> {
   const all = await readAll();
-  await writeAll([...all.filter((m) => m.vmName !== meta.vmName), meta]);
+  await writeAll([...all.filter((m) => m.uuid !== meta.uuid), meta]);
 }
 
-export async function getVmMeta(vmName: string): Promise<VmMeta | null> {
+export async function getVmMeta(uuid: string): Promise<VmMeta | null> {
   const all = await readAll();
-  return all.find((m) => m.vmName === vmName) ?? null;
+  return all.find((m) => m.uuid === uuid) ?? null;
 }
 
-export async function deleteVmMeta(vmName: string): Promise<void> {
+export async function deleteVmMeta(uuid: string): Promise<void> {
   const all = await readAll();
-  await writeAll(all.filter((m) => m.vmName !== vmName));
+  await writeAll(all.filter((m) => m.uuid !== uuid));
+}
+
+/**
+ * Updates the friendly name on an existing meta record. Used by the rename
+ * flow — UUID is the stable key, only the label changes.
+ */
+export async function setVmMetaName(uuid: string, newName: string): Promise<void> {
+  const all = await readAll();
+  const idx = all.findIndex((m) => m.uuid === uuid);
+  if (idx === -1) return;
+  all[idx] = { ...all[idx], name: newName };
+  await writeAll(all);
 }

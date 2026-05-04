@@ -43,7 +43,7 @@ export function StoragePage() {
   const { data: isos } = useIsos();
   const { data: vmDisks } = useVmDisks();
   const deleteOrphan = useDeleteOrphanedVmDisk();
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ uuid: string; name: string } | null>(null);
 
   const totalTemplateGb = templates?.reduce((s, t) => s + t.sizeGb, 0) ?? 0;
   const totalIsoGb = isos?.reduce((s, i) => s + i.sizeGb, 0) ?? 0;
@@ -170,15 +170,20 @@ export function StoragePage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {vmDisks.map((d) => (
-                  <tr key={`${d.vmName}/${d.filename}`} className="transition-colors hover:bg-muted/30">
+                  <tr key={`${d.vmUuid}/${d.filename}`} className="transition-colors hover:bg-muted/30">
                     <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-foreground">{d.vmName}</span>
-                        {!d.vmExists && (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
-                            orphaned
-                          </span>
-                        )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-foreground">{d.vmName}</span>
+                          {!d.vmExists && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                              orphaned
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/50">
+                          {d.vmUuid}
+                        </p>
                       </div>
                     </td>
                     <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{d.filename}</td>
@@ -189,7 +194,7 @@ export function StoragePage() {
                       {!d.vmExists && (
                         <button
                           type="button"
-                          onClick={() => setDeleteTarget(d.vmName)}
+                          onClick={() => setDeleteTarget({ uuid: d.vmUuid, name: d.vmName })}
                           title="Delete orphaned VM folder"
                           className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                         >
@@ -219,8 +224,8 @@ export function StoragePage() {
               onClick={async () => {
                 if (!deleteTarget) return;
                 try {
-                  await deleteOrphan.mutateAsync(deleteTarget);
-                  toast.success(`${deleteTarget} folder deleted`);
+                  await deleteOrphan.mutateAsync(deleteTarget.uuid);
+                  toast.success(`${deleteTarget.name} folder deleted`);
                   setDeleteTarget(null);
                 } catch { toast.error('Failed to delete folder'); }
               }}
@@ -231,7 +236,7 @@ export function StoragePage() {
         }
       >
         <p className="text-sm text-foreground">
-          Permanently delete the <span className="font-mono">{deleteTarget}</span> folder and all of its contents (qcow2 disks, cloud-init seed.iso, leftover scaffolding)? This cannot be undone.
+          Permanently delete the <span className="font-mono">{deleteTarget?.name}</span> folder and all of its contents (qcow2 disks, cloud-init seed.iso, leftover scaffolding)? This cannot be undone.
         </p>
       </Dialog>
 

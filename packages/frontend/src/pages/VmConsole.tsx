@@ -174,11 +174,11 @@ function VncPane({ name, onConnState }: { name: string; onConnState: (s: ConnSta
 }
 
 export function VmConsolePage() {
-  const { name } = useParams<{ name: string }>();
+  const { uuid } = useParams<{ uuid: string }>();
   const [tab, setTab] = useState<Tab>('console');
   const [connState, setConnState] = useState<ConnState>('connecting');
-  const { data: vm } = useVm(name!);
-  const rawAction = useVmAction(name!);
+  const { data: vm } = useVm(uuid!);
+  const rawAction = useVmAction(uuid!);
   const fire = (opts: { action: 'start' | 'stop' | 'reboot'; params?: Record<string, string> }, label: string) => {
     rawAction.mutate(opts, {
       onSuccess: () => toast.success(`${label} sent`),
@@ -210,11 +210,11 @@ export function VmConsolePage() {
 
         {/* Back link */}
         <Link
-          to={`/vms/${name}`}
+          to={`/vms/${uuid}`}
           className="flex items-center gap-1.5 text-xs text-white/40 transition-colors hover:text-white/70"
         >
           <ArrowLeft size={12} />
-          {name}
+          {vm?.name ?? uuid}
         </Link>
 
         <span className="h-4 w-px bg-white/8" />
@@ -321,7 +321,7 @@ export function VmConsolePage() {
               </button>
             </>
           )}
-          <span className="ml-1 font-mono text-xs text-white/20">{tab}/{name}</span>
+          <span className="ml-1 font-mono text-xs text-white/20">{tab}/{vm?.name ?? uuid}</span>
         </div>
       </div>
 
@@ -334,9 +334,9 @@ export function VmConsolePage() {
           </p>
         </div>
       ) : tab === 'vnc' ? (
-        <VncPane key="vnc" name={name!} onConnState={setConnState} />
+        <VncPane key="vnc" name={uuid!} onConnState={setConnState} />
       ) : (
-        <TerminalPane key={tab} name={name!} tab={tab} onConnState={setConnState} />
+        <TerminalPane key={tab} name={uuid!} tab={tab} onConnState={setConnState} />
       )}
     </div>
   );

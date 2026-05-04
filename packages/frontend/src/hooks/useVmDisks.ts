@@ -16,8 +16,8 @@ export function useVmDisks() {
 export function useDeleteOrphanedVmDisk() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (vmName: string) => {
-      await api.delete(`/api/vms/disks/${encodeURIComponent(vmName)}`);
+    mutationFn: async (vmUuid: string) => {
+      await api.delete(`/api/vms/disks/${encodeURIComponent(vmUuid)}`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['vm-disks'] }),
   });

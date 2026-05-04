@@ -31,30 +31,30 @@ export interface FirewallConfig {
   allowEstablishedOutbound?: boolean;
 }
 
-function firewallPath(vmName: string): string {
-  return path.join(config.cloudInitDir, `${vmName}-firewall.json`);
+function firewallPath(vmUuid: string): string {
+  return path.join(config.cloudInitDir, `${vmUuid}-firewall.json`);
 }
 
-// Sanitise the VM name into the form iptables chain names allow. Chain
-// names are limited to 28 chars, alphanumeric only — anything else and
-// iptables refuses, so this also catches names that would be hostile.
-function safeChainSegment(vmName: string): string {
-  const safe = vmName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
-  if (safe.length === 0) throw new Error('VM name produces empty iptables segment');
-  return safe;
+// First 8 hex chars of the UUID (no hyphens) — used as the iptables chain
+// suffix. Chain names are limited to 28 characters; `VP-IN-` + 8 chars = 14,
+// well under the limit.
+function uuidShort(vmUuid: string): string {
+  const hex = vmUuid.replace(/-/g, '').slice(0, 8);
+  if (!/^[0-9a-f]{8}$/.test(hex)) throw new Error('Invalid VM UUID');
+  return hex;
 }
 
-function inChain(vmName: string): string {
-  return `VP-IN-${safeChainSegment(vmName)}`;
+function inChain(vmUuid: string): string {
+  return `VP-IN-${uuidShort(vmUuid)}`;
 }
 
-function outChain(vmName: string): string {
-  return `VP-OUT-${safeChainSegment(vmName)}`;
+function outChain(vmUuid: string): string {
+  return `VP-OUT-${uuidShort(vmUuid)}`;
 }
 
-export async function getFirewallConfig(vmName: string): Promise<FirewallConfig> {
+export async function getFirewallConfig(vmUuid: string): Promise<FirewallConfig> {
   try {
-    const raw = await fs.readFile(firewallPath(vmName), 'utf8');
+    const raw = await fs.readFile(firewallPath(vmUuid), 'utf8');
     const cfg = JSON.parse(raw) as Partial<FirewallConfig>;
     return {
       rules: (cfg.rules ?? []).map((r) => ({ ...r, id: r.id || randomUUID() })),
@@ -68,25 +68,17 @@ export async function getFirewallConfig(vmName: string): Promise<FirewallConfig>
   }
 }
 
-export async function saveFirewallConfig(vmName: string, cfg: FirewallConfig): Promise<void> {
+export async function saveFirewallConfig(vmUuid: string, cfg: FirewallConfig): Promise<void> {
   const withIds = cfg.rules.map((r) => ({ ...r, id: r.id || randomUUID() }));
   await fs.writeFile(
-    firewallPath(vmName),
+    firewallPath(vmUuid),
     JSON.stringify({ ...cfg, rules: withIds }, null, 2),
     'utf8'
   );
 }
 
-export async function deleteFirewallConfig(vmName: string): Promise<void> {
-  await fs.unlink(firewallPath(vmName)).catch(() => {});
-}
-
-export async function renameFirewallConfig(oldName: string, newName: string): Promise<void> {
-  try {
-    const content = await fs.readFile(firewallPath(oldName), 'utf8');
-    await fs.writeFile(firewallPath(newName), content, 'utf8');
-    await fs.unlink(firewallPath(oldName));
-  } catch { /* no firewall config for this VM */ }
+export async function deleteFirewallConfig(vmUuid: string): Promise<void> {
+  await fs.unlink(firewallPath(vmUuid)).catch(() => {});
 }
 
 async function chainExists(chain: string): Promise<boolean> {
@@ -105,11 +97,11 @@ function portArgs(portRange: string): string[] {
   return ['--dport', range];
 }
 
-export async function applyFirewallRules(vmName: string, vmIpRaw: string, cfg: FirewallConfig): Promise<void> {
+export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: FirewallConfig): Promise<void> {
   const vmIp = validateIpv4(vmIpRaw);
   const { rules, defaultInbound, defaultOutbound, allowEstablishedInbound, allowEstablishedOutbound } = cfg;
-  const inC = inChain(vmName);
-  const outC = outChain(vmName);
+  const inC = inChain(vmUuid);
+  const outC = outChain(vmUuid);
 
   // Remove existing jump rules
   await runSafe('iptables', ['-D', 'FORWARD', '-d', vmIp, '-j', inC]);
@@ -156,7 +148,7 @@ export async function applyFirewallRules(vmName: string, vmIpRaw: string, cfg: F
       }
     }
     args.push('-j', target);
-    args.push('-m', 'comment', '--comment', `virtpilot-fw-${safeChainSegment(vmName)}`);
+    args.push('-m', 'comment', '--comment', `virtpilot-fw-${uuidShort(vmUuid)}`);
     await runSafe('iptables', args);
   }
 
@@ -169,10 +161,10 @@ export async function applyFirewallRules(vmName: string, vmIpRaw: string, cfg: F
   await run('iptables', ['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
 }
 
-export async function removeVmFirewall(vmName: string, vmIpRaw: string): Promise<void> {
+export async function removeVmFirewall(vmUuid: string, vmIpRaw: string): Promise<void> {
   const vmIp = validateIpv4(vmIpRaw);
-  const inC = inChain(vmName);
-  const outC = outChain(vmName);
+  const inC = inChain(vmUuid);
+  const outC = outChain(vmUuid);
   await runSafe('iptables', ['-D', 'FORWARD', '-d', vmIp, '-j', inC]);
   await runSafe('iptables', ['-D', 'FORWARD', '-s', vmIp, '-j', outC]);
   for (const chain of [inC, outC]) {

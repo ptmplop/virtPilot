@@ -69,6 +69,7 @@ export interface NicDefinition {
 }
 
 interface DomainXmlOptions {
+  uuid: string;
   name: string;
   cpus: number;
   memoryMb: number;
@@ -112,7 +113,7 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
       : OVMF.vars;
     loaderXml = `
     <loader readonly="yes"${secureAttr} type="pflash">${loaderPath}</loader>
-    <nvram template="${varsTemplate}">${opts.nvramPath ?? `/var/lib/libvirt/qemu/nvram/${opts.name}_VARS.fd`}</nvram>`;
+    <nvram template="${varsTemplate}">${opts.nvramPath ?? `/var/lib/libvirt/qemu/nvram/${opts.uuid}_VARS.fd`}</nvram>`;
   }
 
   const nicsXml = opts.nics
@@ -133,6 +134,7 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
 
   return `<domain type="${domainType}">
   <name>${opts.name}</name>
+  <uuid>${opts.uuid}</uuid>
   <memory unit="KiB">${memKb}</memory>
   <currentMemory unit="KiB">${memKb}</currentMemory>
   <vcpu placement="static">${opts.cpus}</vcpu>

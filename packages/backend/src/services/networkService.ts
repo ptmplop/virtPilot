@@ -28,7 +28,7 @@ export interface Network {
 export interface IpAllocation {
   networkId: string;
   ip: string;
-  vmName: string;
+  vmUuid: string;
   /** MAC of the NIC that holds this IP */
   mac: string;
   allocatedAt: string;
@@ -333,7 +333,7 @@ export async function deleteNetwork(id: string): Promise<void> {
   await writeNetworks(networks.filter((n) => n.id !== id));
 }
 
-export async function getNetworkIpStatus(id: string): Promise<{ ip: string; allocated: boolean; vmName?: string }[]> {
+export async function getNetworkIpStatus(id: string): Promise<{ ip: string; allocated: boolean; vmUuid?: string }[]> {
   const networks = await readNetworks();
   const network = networks.find((n) => n.id === id);
   if (!network || (network.type !== 'bridge' && network.type !== 'existing-bridge') || network.ipMode !== 'static') return [];
@@ -344,23 +344,23 @@ export async function getNetworkIpStatus(id: string): Promise<{ ip: string; allo
 
   return usable.map((ip) => {
     const alloc = mine.find((a) => a.ip === ip);
-    return { ip, allocated: !!alloc, vmName: alloc?.vmName };
+    return { ip, allocated: !!alloc, vmUuid: alloc?.vmUuid };
   });
 }
 
-export async function allocateSpecificIp(networkId: string, vmName: string, mac: string, ip: string): Promise<void> {
+export async function allocateSpecificIp(networkId: string, vmUuid: string, mac: string, ip: string): Promise<void> {
   const allocations = await readAllocations();
   const conflict = allocations.find((a) => a.networkId === networkId && a.ip === ip);
-  if (conflict) throw new Error(`IP ${ip} is already allocated to VM "${conflict.vmName}"`);
+  if (conflict) throw new Error(`IP ${ip} is already allocated to VM "${conflict.vmUuid}"`);
   await writeAllocations([
     ...allocations,
-    { networkId, ip, vmName, mac, allocatedAt: new Date().toISOString() },
+    { networkId, ip, vmUuid, mac, allocatedAt: new Date().toISOString() },
   ]);
 }
 
-export async function deallocateVmIps(vmName: string): Promise<void> {
+export async function deallocateVmIps(vmUuid: string): Promise<void> {
   const allocations = await readAllocations();
-  await writeAllocations(allocations.filter((a) => a.vmName !== vmName));
+  await writeAllocations(allocations.filter((a) => a.vmUuid !== vmUuid));
 }
 
 export async function deallocateByMac(mac: string): Promise<void> {

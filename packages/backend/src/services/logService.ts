@@ -8,7 +8,10 @@ export interface LogEntry {
   id: string;
   timestamp: string;
   type: string;
+  /** Friendly display label captured at write time — survives renames as a snapshot */
   subject: string;
+  /** UUID identity for VM-scoped events; lets the UI group entries across renames */
+  subjectUuid?: string;
   status: 'success' | 'error';
   output?: string;
   durationMs?: number;

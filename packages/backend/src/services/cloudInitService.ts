@@ -3,7 +3,7 @@ import path from 'path';
 import { config } from '../config.js';
 import { type TraceEntry, execTraced } from './traceService.js';
 import { run } from './safeExec.js';
-import { validateVmName, validateMac } from '../lib/validate.js';
+import { validateVmUuid, validateMac } from '../lib/validate.js';
 
 export type NicIpConfig =
   | { mode: 'dhcp' }
@@ -139,8 +139,8 @@ export async function getHostSshPublicKey(): Promise<string | null> {
   }
 }
 
-export async function buildCloudInitIso(vmNameRaw: string, cfg: CloudInitConfig, trace?: TraceEntry[]): Promise<string> {
-  const vmName = validateVmName(vmNameRaw);
+export async function buildCloudInitIso(vmUuidRaw: string, cfg: CloudInitConfig, trace?: TraceEntry[]): Promise<string> {
+  const vmUuid = validateVmUuid(vmUuidRaw);
   const hostname = validateHostname(cfg.hostname);
   const username = validateLinuxUser(cfg.username);
   // Password: the cloud-init `chpasswd: list:` block accepts plain text, but
@@ -152,10 +152,12 @@ export async function buildCloudInitIso(vmNameRaw: string, cfg: CloudInitConfig,
   }
   const sshKeys = (cfg.sshKeys ?? []).map(validateSshKey);
 
-  const dir = path.join(config.cloudInitDir, vmName);
+  const dir = path.join(config.cloudInitDir, vmUuid);
   await fs.mkdir(dir, { recursive: true });
 
-  const metaData = `instance-id: ${yamlQuote(vmName)}\nlocal-hostname: ${yamlQuote(hostname)}\n`;
+  // instance-id is the UUID — stable across renames so cloud-init never
+  // re-runs user-data when the operator changes the VM's friendly name.
+  const metaData = `instance-id: ${yamlQuote(vmUuid)}\nlocal-hostname: ${yamlQuote(hostname)}\n`;
 
   const sshKeyLines = sshKeys.map((k) => `      - ${yamlQuote(k)}`).join('\n');
   const userData = [
@@ -184,7 +186,7 @@ export async function buildCloudInitIso(vmNameRaw: string, cfg: CloudInitConfig,
   const networkConfig = buildNetworkConfig(cfg.nics);
   await fs.writeFile(path.join(dir, 'network-config'), networkConfig, 'utf8');
 
-  const isoPath = path.join(config.cloudInitDir, `${vmName}-seed.iso`);
+  const isoPath = path.join(config.cloudInitDir, `${vmUuid}-seed.iso`);
   await execTraced(
     'genisoimage',
     [
@@ -203,11 +205,11 @@ export async function buildCloudInitIso(vmNameRaw: string, cfg: CloudInitConfig,
 
 // Removes everything we wrote into config.cloudInitDir for this VM.
 // Best-effort: missing files are ignored.
-export async function deleteCloudInitArtifacts(vmNameRaw: string): Promise<void> {
-  const vmName = validateVmName(vmNameRaw);
-  const dir = path.join(config.cloudInitDir, vmName);
-  const seedIso = path.join(config.cloudInitDir, `${vmName}-seed.iso`);
-  const domainXml = path.join(config.cloudInitDir, `${vmName}-domain.xml`);
+export async function deleteCloudInitArtifacts(vmUuidRaw: string): Promise<void> {
+  const vmUuid = validateVmUuid(vmUuidRaw);
+  const dir = path.join(config.cloudInitDir, vmUuid);
+  const seedIso = path.join(config.cloudInitDir, `${vmUuid}-seed.iso`);
+  const domainXml = path.join(config.cloudInitDir, `${vmUuid}-domain.xml`);
   await Promise.all([
     fs.rm(dir, { recursive: true, force: true }).catch(() => {}),
     fs.unlink(seedIso).catch(() => {}),

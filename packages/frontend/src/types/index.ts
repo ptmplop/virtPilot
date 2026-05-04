@@ -100,7 +100,8 @@ export interface VmNetworkAlloc {
 }
 
 export interface VmMeta {
-  vmName: string;
+  uuid: string;
+  name: string;
   username: string;
   // Password is fetched separately via /credentials so it doesn't ride along
   // in the routine /meta poll, the React Query cache, or any incidental log.
@@ -144,7 +145,7 @@ export interface Network {
 export interface NetworkIpStatus {
   ip: string;
   allocated: boolean;
-  vmName?: string;
+  vmUuid?: string;
 }
 
 export interface HostNic {
@@ -161,14 +162,14 @@ export interface DhcpReservation {
   libvirtName: string;
   mac: string;
   ip: string;
-  vmName: string;
+  vmUuid: string;
   createdAt: string;
 }
 
 export interface PortForward {
   id: string;
   networkId: string;
-  vmName: string;
+  vmUuid: string;
   mac: string;
   /** Reserved DHCP IP assigned to this VM NIC */
   vmIp: string;
@@ -223,6 +224,7 @@ export interface Settings {
 export type BackupTrigger = 'manual' | 'scheduled';
 
 export interface BackupInProgress {
+  vmUuid: string;
   vmName: string;
   startedAt: string;
   triggerType: BackupTrigger;
@@ -241,6 +243,7 @@ export type BackupConsistency = 'app-consistent' | 'offline' | 'crash-consistent
 
 export interface BackupEntry {
   id: string;
+  vmUuid: string;
   vmName: string;
   createdAt: string;
   sizeBytes: number;
@@ -253,14 +256,17 @@ export interface BackupEntry {
 }
 
 export interface BackupVmSummary {
+  vmUuid: string;
   vmName: string;
   backupCount: number;
   totalSizeBytes: number;
   lastBackupAt: string | null;
   schedule: BackupSchedule | null;
+  vmExists: boolean;
 }
 
 export interface BackupSchedule {
+  vmUuid: string;
   vmName: string;
   frequency: BackupFrequency;
   hour: number;
@@ -274,6 +280,7 @@ export interface BackupSchedule {
 }
 
 export interface VmDiskFile {
+  vmUuid: string;
   vmName: string;
   filename: string;
   sizeGb: number;
@@ -312,6 +319,7 @@ export interface LogEntry {
   timestamp: string;
   type: string;
   subject: string;
+  subjectUuid?: string;
   status: 'success' | 'error';
   output?: string;
   durationMs?: number;

@@ -8,7 +8,7 @@ import { getVmInfo, getVmXml, getVmNics, getVmDisks } from './vmService.js';
 import { getVmMeta } from './vmMetaService.js';
 import { appendLog } from './logService.js';
 import { run, virsh } from './safeExec.js';
-import { validateVmName } from '../lib/validate.js';
+import { validateVmUuid } from '../lib/validate.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +31,8 @@ export interface BackupDiskEntry {
 
 export interface BackupManifest {
   id: string;
+  vmUuid: string;
+  /** Friendly name at backup time — informational only, can become stale */
   vmName: string;
   createdAt: string;
   virtpilotVersion: string;
@@ -52,6 +54,7 @@ export interface BackupManifest {
 
 export interface BackupEntry {
   id: string;
+  vmUuid: string;
   vmName: string;
   createdAt: string;
   sizeBytes: number;
@@ -64,6 +67,8 @@ export interface BackupEntry {
 }
 
 export interface BackupVmSummary {
+  vmUuid: string;
+  /** Last known friendly name — pulled from the most recent manifest, or schedule */
   vmName: string;
   backupCount: number;
   totalSizeBytes: number;
@@ -75,6 +80,8 @@ export interface BackupVmSummary {
 }
 
 export interface BackupSchedule {
+  vmUuid: string;
+  /** Last known friendly name — for display only */
   vmName: string;
   frequency: BackupFrequency;
   hour: number;
@@ -90,8 +97,8 @@ export interface BackupSchedule {
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 const backupRoot = () => config.backupRoot;
-const vmBackupDir = (vmName: string) => path.join(backupRoot(), vmName);
-const backupDir = (vmName: string, id: string) => path.join(vmBackupDir(vmName), id);
+const vmBackupDir = (vmUuid: string) => path.join(backupRoot(), vmUuid);
+const backupDir = (vmUuid: string, id: string) => path.join(vmBackupDir(vmUuid), id);
 const schedulesFile = () => path.join(config.storageRoot, 'backup-schedules.json');
 
 function backupId(): string {
@@ -102,12 +109,12 @@ function backupId(): string {
 
 // ─── Concurrency guard ────────────────────────────────────────────────────────
 
-interface BackupInProgressEntry { startedAt: string; triggerType: BackupTrigger; }
+interface BackupInProgressEntry { vmName: string; startedAt: string; triggerType: BackupTrigger; }
 const backupsInProgress = new Map<string, BackupInProgressEntry>();
 
-export function getBackupsInProgress(): Array<{ vmName: string; startedAt: string; triggerType: BackupTrigger }> {
-  return Array.from(backupsInProgress.entries()).map(([vmName, { startedAt, triggerType }]) => ({
-    vmName, startedAt, triggerType,
+export function getBackupsInProgress(): Array<{ vmUuid: string; vmName: string; startedAt: string; triggerType: BackupTrigger }> {
+  return Array.from(backupsInProgress.entries()).map(([vmUuid, { vmName, startedAt, triggerType }]) => ({
+    vmUuid, vmName, startedAt, triggerType,
   }));
 }
 
@@ -126,27 +133,27 @@ export async function writeSchedules(schedules: Record<string, BackupSchedule>):
   await fs.writeFile(schedulesFile(), JSON.stringify(schedules, null, 2), 'utf8');
 }
 
-export async function getSchedule(vmName: string): Promise<BackupSchedule | null> {
+export async function getSchedule(vmUuid: string): Promise<BackupSchedule | null> {
   const all = await readSchedules();
-  return all[vmName] ?? null;
+  return all[vmUuid] ?? null;
 }
 
 export async function saveSchedule(schedule: BackupSchedule): Promise<void> {
   const all = await readSchedules();
-  all[schedule.vmName] = schedule;
+  all[schedule.vmUuid] = schedule;
   await writeSchedules(all);
 }
 
-export async function deleteSchedule(vmName: string): Promise<void> {
+export async function deleteSchedule(vmUuid: string): Promise<void> {
   const all = await readSchedules();
-  delete all[vmName];
+  delete all[vmUuid];
   await writeSchedules(all);
 }
 
 // ─── Listing ──────────────────────────────────────────────────────────────────
 
-export async function listBackupsForVm(vmName: string): Promise<BackupEntry[]> {
-  const dir = vmBackupDir(vmName);
+export async function listBackupsForVm(vmUuid: string): Promise<BackupEntry[]> {
+  const dir = vmBackupDir(vmUuid);
   let subdirs: string[];
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -165,6 +172,7 @@ export async function listBackupsForVm(vmName: string): Promise<BackupEntry[]> {
         const sizeBytes = await dirSizeBytes(bdir);
         return {
           id: manifest.id,
+          vmUuid: manifest.vmUuid,
           vmName: manifest.vmName,
           createdAt: manifest.createdAt,
           sizeBytes,
@@ -185,9 +193,9 @@ export async function listBackupsForVm(vmName: string): Promise<BackupEntry[]> {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function getBackupManifest(vmName: string, id: string): Promise<BackupManifest | null> {
+export async function getBackupManifest(vmUuid: string, id: string): Promise<BackupManifest | null> {
   try {
-    const raw = await fs.readFile(path.join(backupDir(vmName, id), 'manifest.json'), 'utf8');
+    const raw = await fs.readFile(path.join(backupDir(vmUuid, id), 'manifest.json'), 'utf8');
     return JSON.parse(raw) as BackupManifest;
   } catch {
     return null;
@@ -196,32 +204,45 @@ export async function getBackupManifest(vmName: string, id: string): Promise<Bac
 
 export async function listAllVmBackupSummaries(): Promise<BackupVmSummary[]> {
   await fs.mkdir(backupRoot(), { recursive: true });
-  let vmNames: string[];
+  let vmUuids: string[];
   try {
     const entries = await fs.readdir(backupRoot(), { withFileTypes: true });
-    vmNames = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    vmUuids = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
-    vmNames = [];
+    vmUuids = [];
   }
 
   const schedules = await readSchedules();
   // Also include VMs that have a schedule but no backup directory yet
-  for (const vmName of Object.keys(schedules)) {
-    if (!vmNames.includes(vmName)) vmNames.push(vmName);
+  for (const uuid of Object.keys(schedules)) {
+    if (!vmUuids.includes(uuid)) vmUuids.push(uuid);
   }
 
   const summaries: BackupVmSummary[] = [];
-  for (const vmName of vmNames) {
-    const backups = await listBackupsForVm(vmName);
+  for (const vmUuid of vmUuids) {
+    const backups = await listBackupsForVm(vmUuid);
     const totalSizeBytes = backups.reduce((s, b) => s + b.sizeBytes, 0);
     const lastBackupAt = backups.length > 0 ? backups[0].createdAt : null;
-    const vmExists = await getVmInfo(vmName).then(() => true).catch(() => false);
+    const vmExists = await getVmInfo(vmUuid).then(() => true).catch(() => false);
+    // Resolve a friendly name in this priority: live VM > most recent manifest > schedule
+    let vmName = vmUuid;
+    try {
+      if (vmExists) {
+        const info = await getVmInfo(vmUuid);
+        vmName = info.name;
+      } else if (backups.length > 0) {
+        vmName = backups[0].vmName;
+      } else if (schedules[vmUuid]?.vmName) {
+        vmName = schedules[vmUuid].vmName;
+      }
+    } catch { /* fall through to UUID display */ }
     summaries.push({
+      vmUuid,
       vmName,
       backupCount: backups.length,
       totalSizeBytes,
       lastBackupAt,
-      schedule: schedules[vmName] ?? null,
+      schedule: schedules[vmUuid] ?? null,
       vmExists,
     });
   }
@@ -231,23 +252,29 @@ export async function listAllVmBackupSummaries(): Promise<BackupVmSummary[]> {
 // ─── Create backup ────────────────────────────────────────────────────────────
 
 export async function createBackup(
-  vmName: string,
+  vmUuid: string,
   opts: { triggerType: BackupTrigger; scheduleFrequency?: BackupFrequency; retentionDaysOverride?: number | null }
 ): Promise<BackupEntry> {
-  // Fix 5: Concurrency guard
-  if (backupsInProgress.has(vmName)) {
-    throw new Error(`Backup already in progress for VM "${vmName}"`);
+  if (backupsInProgress.has(vmUuid)) {
+    throw new Error(`Backup already in progress for VM "${vmUuid}"`);
   }
-  backupsInProgress.set(vmName, { startedAt: new Date().toISOString(), triggerType: opts.triggerType });
+  // The friendly name is captured at backup time; fallback to UUID if lookup fails.
+  let vmName = vmUuid;
+  try {
+    const info = await getVmInfo(vmUuid);
+    vmName = info.name;
+  } catch { /* VM may already be undefined — proceed with UUID as the label */ }
+  backupsInProgress.set(vmUuid, { vmName, startedAt: new Date().toISOString(), triggerType: opts.triggerType });
 
   try {
-    return await _createBackupInner(vmName, opts);
+    return await _createBackupInner(vmUuid, vmName, opts);
   } finally {
-    backupsInProgress.delete(vmName);
+    backupsInProgress.delete(vmUuid);
   }
 }
 
 async function _createBackupInner(
+  vmUuid: string,
   vmName: string,
   opts: { triggerType: BackupTrigger; scheduleFrequency?: BackupFrequency; retentionDaysOverride?: number | null }
 ): Promise<BackupEntry> {
@@ -256,11 +283,11 @@ async function _createBackupInner(
   const compress = settings.backup.compression;
 
   const id = backupId();
-  const bdir = backupDir(vmName, id);
+  const bdir = backupDir(vmUuid, id);
   await fs.mkdir(bdir, { recursive: true });
   // qemu-img convert runs as libvirt-qemu (see below) and writes the
   // destination qcow2 here. libvirt-qemu is in the `virtpilot` group via
-  // install.sh, so g+w on bdir and its vmName parent gets the write through
+  // install.sh, so g+w on bdir and its vmUuid parent gets the write through
   // without widening anything to other.
   await fs.chmod(path.dirname(bdir), 0o770);
   await fs.chmod(bdir, 0o770);
@@ -272,19 +299,19 @@ async function _createBackupInner(
   let xml = '';
 
   try {
-    vmInfo = await getVmInfo(vmName);
+    vmInfo = await getVmInfo(vmUuid);
     vmStateAtBackup = vmInfo.status;
-    xml = await getVmXml(vmName);
+    xml = await getVmXml(vmUuid);
   } catch (err) {
     await fs.rm(bdir, { recursive: true, force: true });
-    throw new Error(`VM "${vmName}" not found: ${err}`);
+    throw new Error(`VM "${vmUuid}" not found: ${err}`);
   }
 
   // Freeze guest filesystems for app-consistent backup if guest agent is up
   if (vmInfo.status === 'running' && vmInfo.guestAgent) {
     try {
       await virsh(
-        ['qemu-agent-command', validateVmName(vmName), '{"execute":"guest-fsfreeze-freeze"}', '--timeout', '5'],
+        ['qemu-agent-command', validateVmUuid(vmUuid), '{"execute":"guest-fsfreeze-freeze"}', '--timeout', '5'],
         { timeout: 10_000 }
       );
       frozen = true;
@@ -293,7 +320,7 @@ async function _createBackupInner(
   }
 
   try {
-    const disks = await getVmDisks(vmName);
+    const disks = await getVmDisks(vmUuid);
     const diskEntries: BackupDiskEntry[] = [];
 
     for (const disk of disks) {
@@ -301,12 +328,6 @@ async function _createBackupInner(
 
       const destFilename = path.basename(disk.source);
       const destPath = path.join(bdir, destFilename);
-      // -U skips QEMU's exclusive write-lock so we can read a running VM's disk.
-      // Safety is provided by guest-agent fsfreeze above (crash-consistent at minimum).
-      // Run qemu-img as libvirt-qemu via sudo: while a VM is (or has been)
-      // running, libvirt's dynamic_ownership leaves the source qcow2 owned by
-      // libvirt-qemu mode 0600, which the unprivileged service user cannot
-      // read. Sudoers grants exactly `(libvirt-qemu) /usr/bin/qemu-img`.
       const convertArgs = ['convert', '-U'];
       if (compress) convertArgs.push('-c');
       convertArgs.push('-f', 'qcow2', '-O', 'qcow2', disk.source, destPath);
@@ -321,14 +342,15 @@ async function _createBackupInner(
       });
     }
 
-    const nics = await getVmNics(vmName);
-    const vmMeta = await getVmMeta(vmName);
+    const nics = await getVmNics(vmUuid);
+    const vmMeta = await getVmMeta(vmUuid);
 
     const manifest: BackupManifest = {
       id,
+      vmUuid,
       vmName,
       createdAt: new Date().toISOString(),
-      virtpilotVersion: VERSION, // Fix 6: from config
+      virtpilotVersion: VERSION,
       triggerType: opts.triggerType,
       scheduleFrequency: opts.scheduleFrequency,
       consistent,
@@ -351,15 +373,17 @@ async function _createBackupInner(
     await appendLog({
       type: 'backup.create',
       subject: vmName,
+      subjectUuid: vmUuid,
       status: 'success',
       output: `Backup ${id} created (${diskEntries.length} disk(s), consistent=${consistent})`,
     });
 
-    await applyRetention(vmName);
+    await applyRetention(vmUuid);
 
     const sizeBytes = await dirSizeBytes(bdir);
     return {
       id,
+      vmUuid,
       vmName,
       createdAt: manifest.createdAt,
       sizeBytes,
@@ -372,13 +396,13 @@ async function _createBackupInner(
     };
   } catch (err) {
     await fs.rm(bdir, { recursive: true, force: true }).catch(() => {});
-    await appendLog({ type: 'backup.create', subject: vmName, status: 'error', output: String(err) });
+    await appendLog({ type: 'backup.create', subject: vmName, subjectUuid: vmUuid, status: 'error', output: String(err) });
     throw err;
   } finally {
     if (frozen) {
       try {
         await virsh(
-          ['qemu-agent-command', validateVmName(vmName), '{"execute":"guest-fsfreeze-thaw"}', '--timeout', '5'],
+          ['qemu-agent-command', validateVmUuid(vmUuid), '{"execute":"guest-fsfreeze-thaw"}', '--timeout', '5'],
           { timeout: 10_000 }
         );
       } catch { /* best-effort */ }
@@ -388,40 +412,41 @@ async function _createBackupInner(
 
 // ─── Delete backup ────────────────────────────────────────────────────────────
 
-export async function deleteBackup(vmName: string, id: string): Promise<void> {
-  const bdir = backupDir(vmName, id);
+export async function deleteBackup(vmUuid: string, id: string): Promise<void> {
+  const bdir = backupDir(vmUuid, id);
   await fs.rm(bdir, { recursive: true, force: true });
 }
 
 // ─── Restore backup ───────────────────────────────────────────────────────────
 
-export async function restoreBackup(vmName: string, id: string, newVmName?: string): Promise<void> {
-  const bdir = backupDir(vmName, id);
+/**
+ * Restores a backup's disk files into the target VM's storage directory. The
+ * target is identified by UUID — restore-into-an-existing-VM only. Creating a
+ * brand-new VM from a backup is a separate, future flow.
+ */
+export async function restoreBackup(sourceVmUuid: string, id: string, targetVmUuidArg?: string): Promise<void> {
+  const bdir = backupDir(sourceVmUuid, id);
   try {
     await fs.access(path.join(bdir, '.complete'));
   } catch {
     throw new Error('Backup is incomplete or corrupt');
   }
 
-  const manifest = await getBackupManifest(vmName, id);
+  const manifest = await getBackupManifest(sourceVmUuid, id);
   if (!manifest) throw new Error('Backup manifest not found');
 
-  // Validate before any path math: a payload like "../../etc/cron.d/x" would
-  // otherwise resolve outside config.vmsDir and let the disk-copy loop write
-  // qcow2 files to arbitrary directories the backend user can touch.
-  const targetVmName = validateVmName(newVmName ?? vmName);
+  // The restore target's UUID must be a valid UUID — never a free-form name.
+  const targetVmUuid = validateVmUuid(targetVmUuidArg ?? sourceVmUuid);
 
-  // Refuse to restore over a running VM
-  const vmInfo = await getVmInfo(targetVmName).catch(() => null);
+  const vmInfo = await getVmInfo(targetVmUuid).catch(() => null);
   if (vmInfo?.status === 'running') {
-    throw new Error(`VM "${targetVmName}" must be stopped before restoring`);
+    throw new Error(`VM "${targetVmUuid}" must be stopped before restoring`);
   }
 
-  const targetVmDir = path.join(config.vmsDir, targetVmName);
+  const targetVmDir = path.join(config.vmsDir, targetVmUuid);
   await fs.mkdir(targetVmDir, { recursive: true });
 
-  // Fix 3: Write atomically — copy to .restoring temp file, then rename
-  // Fix 10: Disk filenames (disk.qcow2, extra-disk-N.qcow2) are never VM-name-prefixed
+  // Disk filenames (disk.qcow2, extra-disk-N.qcow2) are not VM-name-prefixed.
   // Defend against a manifest crafted with `disk.filename = "../../etc/cron.d/x"`:
   // strip directory components and validate the leaf name before joining.
   for (const disk of manifest.disks) {
@@ -443,49 +468,48 @@ export async function restoreBackup(vmName: string, id: string, newVmName?: stri
 
   await appendLog({
     type: 'backup.restore',
-    subject: targetVmName,
+    subject: vmInfo?.name ?? targetVmUuid,
+    subjectUuid: targetVmUuid,
     status: 'success',
-    output: `Restored from backup ${id} (source VM: ${vmName})`,
+    output: `Restored from backup ${id} (source VM: ${manifest.vmName})`,
   });
 }
 
 // ─── Retention ────────────────────────────────────────────────────────────────
 
-// Fix 7: Each backup's stored retentionDays governs its own expiry.
-// Falls back to the current global setting for backups that have retentionDays=0
-// only when they were created with the "keep forever" policy (retentionDays=0).
-export async function applyRetention(vmName: string): Promise<void> {
+// Each backup's stored retentionDays governs its own expiry. Falls back to
+// the current global setting only when the backup was created with the
+// "keep forever" policy (retentionDays=0).
+export async function applyRetention(vmUuid: string): Promise<void> {
   const settings = await getUserSettings();
   const schedules = await readSchedules();
-  const schedule = schedules[vmName];
+  const schedule = schedules[vmUuid];
   const globalRetention = schedule?.retentionDays != null
     ? schedule.retentionDays
     : settings.backup.retentionDays;
 
-  const backups = await listBackupsForVm(vmName);
+  const backups = await listBackupsForVm(vmUuid);
   for (const b of backups) {
-    // Each backup stores the retention policy that was in effect when it was created.
-    // retentionDays=0 means "keep forever" for that specific backup.
     const days = b.retentionDays > 0 ? b.retentionDays : globalRetention;
     if (days === 0) continue;
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     if (new Date(b.createdAt).getTime() < cutoff) {
-      await deleteBackup(vmName, b.id);
+      await deleteBackup(vmUuid, b.id);
     }
   }
 }
 
 export async function applyRetentionAll(): Promise<void> {
   await fs.mkdir(backupRoot(), { recursive: true });
-  let vmNames: string[];
+  let vmUuids: string[];
   try {
     const entries = await fs.readdir(backupRoot(), { withFileTypes: true });
-    vmNames = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    vmUuids = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
     return;
   }
-  for (const vmName of vmNames) {
-    await applyRetention(vmName).catch(() => {});
+  for (const vmUuid of vmUuids) {
+    await applyRetention(vmUuid).catch(() => {});
   }
 }
 

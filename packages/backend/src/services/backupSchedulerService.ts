@@ -25,17 +25,17 @@ async function tick(): Promise<void> {
     return;
   }
 
-  for (const [vmName, schedule] of Object.entries(schedules)) {
+  for (const [vmUuid, schedule] of Object.entries(schedules)) {
     if (!schedule.enabled) continue;
     if (!schedule.nextRunAt) continue;
     if (new Date(schedule.nextRunAt) > now) continue;
 
     // Due — run in background, don't await
-    runScheduledBackup(vmName, schedule);
+    runScheduledBackup(vmUuid, schedule);
   }
 }
 
-async function runScheduledBackup(vmName: string, schedule: BackupSchedule): Promise<void> {
+async function runScheduledBackup(vmUuid: string, schedule: BackupSchedule): Promise<void> {
   // Mark next run immediately to avoid double-firing
   const next = computeNextRunAt(schedule);
   const updated: BackupSchedule = {
@@ -46,12 +46,12 @@ async function runScheduledBackup(vmName: string, schedule: BackupSchedule): Pro
   await saveSchedule(updated);
 
   try {
-    await createBackup(vmName, {
+    await createBackup(vmUuid, {
       triggerType: 'scheduled',
       scheduleFrequency: schedule.frequency,
       retentionDaysOverride: schedule.retentionDays,
     });
   } catch (err) {
-    console.error(`[backup-scheduler] Scheduled backup failed for ${vmName}:`, err);
+    console.error(`[backup-scheduler] Scheduled backup failed for ${vmUuid}:`, err);
   }
 }

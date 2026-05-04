@@ -3,6 +3,8 @@
 // returns the value unchanged or throws — never silently mutates.
 
 const VM_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
+// RFC 4122 lowercase hyphenated UUID. Used as the storage identity for VMs.
+const VM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const NETWORK_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
 const SNAPSHOT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
 const BRIDGE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,15}$/;
@@ -28,6 +30,12 @@ function check(re: RegExp, field: string, value: unknown): string {
 }
 
 export const validateVmName = (v: unknown): string => check(VM_NAME_RE, 'vmName', v);
+export const validateVmUuid = (v: unknown): string => {
+  if (typeof v !== 'string') throw new ValidationError('vmUuid', v);
+  const lower = v.toLowerCase();
+  if (!VM_UUID_RE.test(lower)) throw new ValidationError('vmUuid', v);
+  return lower;
+};
 export const validateNetworkName = (v: unknown): string => check(NETWORK_NAME_RE, 'networkName', v);
 export const validateSnapshotName = (v: unknown): string => check(SNAPSHOT_NAME_RE, 'snapshotName', v);
 export const validateBridgeName = (v: unknown): string => check(BRIDGE_NAME_RE, 'bridgeName', v);

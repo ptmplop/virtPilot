@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import { validateVmUuid } from '../lib/validate.js';
 import {
   listAllVmBackupSummaries,
   listBackupsForVm,
@@ -14,13 +15,15 @@ import {
   type BackupFrequency,
   type BackupSchedule,
 } from '../services/backupService.js';
+import * as vmMetaService from '../services/vmMetaService.js';
+import { getVmInfo } from '../services/vmService.js';
 
 export const backupsRouter = Router();
 
 // backupId() in backupService.ts produces e.g. "20260504T131415Z-abc123":
 // 8 digits date + T + 6 digits time + Z + dash + 6 hex chars. Anything else
 // is either malformed or an attempt to traverse — reject it before the path
-// it composes (`backupRoot/<vmName>/<id>`) reaches fs.* calls.
+// it composes (`backupRoot/<vmUuid>/<id>`) reaches fs.* calls.
 const BACKUP_ID_RE = /^\d{8}T\d{6}Z-[0-9a-f]{6}$/;
 function validateBackupId(req: Request, res: Response, next: NextFunction): void {
   if (!BACKUP_ID_RE.test(req.params.backupId ?? '')) {
@@ -28,6 +31,30 @@ function validateBackupId(req: Request, res: Response, next: NextFunction): void
     return;
   }
   next();
+}
+
+function requireUuidParam(req: Request, res: Response, next: NextFunction): void {
+  try {
+    validateVmUuid(req.params.vmUuid);
+    next();
+  } catch {
+    res.status(400).json({ error: 'Invalid VM UUID' });
+  }
+}
+
+// Resolve a friendly name for a VM identified by UUID. Used when the route
+// caller hasn't supplied one — schedules carry the name in the body, so this
+// is mostly the fallback for orphaned-VM display.
+async function resolveVmName(vmUuid: string): Promise<string> {
+  try {
+    const info = await getVmInfo(vmUuid);
+    return info.name;
+  } catch { /* VM may have been deleted */ }
+  try {
+    const meta = await vmMetaService.getVmMeta(vmUuid);
+    if (meta?.name) return meta.name;
+  } catch { /* fall through */ }
+  return vmUuid;
 }
 
 // ─── Summaries ────────────────────────────────────────────────────────────────
@@ -48,21 +75,21 @@ backupsRouter.get('/running', (_req, res) => {
 });
 
 // ─── Schedules ────────────────────────────────────────────────────────────────
-// Fix 1: Schedule routes must be registered BEFORE /:vmName/:backupId to avoid
-// "schedules" being captured as vmName and backupId by the wildcard routes.
+// Schedule routes must be registered BEFORE /:vmUuid/:backupId to avoid
+// "schedules" being captured as vmUuid by the wildcard routes.
 
-backupsRouter.get('/schedules/:vmName', async (req, res) => {
+backupsRouter.get('/schedules/:vmUuid', requireUuidParam, async (req, res) => {
   try {
-    const schedule = await getSchedule(req.params.vmName);
+    const schedule = await getSchedule(req.params.vmUuid);
     res.json({ schedule });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-backupsRouter.put('/schedules/:vmName', async (req, res) => {
+backupsRouter.put('/schedules/:vmUuid', requireUuidParam, async (req, res) => {
   try {
-    const { vmName } = req.params;
+    const { vmUuid } = req.params;
     const body = req.body as {
       frequency: BackupFrequency;
       hour?: number;
@@ -73,14 +100,16 @@ backupsRouter.put('/schedules/:vmName', async (req, res) => {
       enabled?: boolean;
     };
 
-    const existing = await getSchedule(vmName);
+    const existing = await getSchedule(vmUuid);
+    const vmName = existing?.vmName ?? await resolveVmName(vmUuid);
     const schedule: BackupSchedule = {
+      vmUuid,
       vmName,
       frequency: body.frequency,
       hour: Math.min(23, Math.max(0, body.hour ?? existing?.hour ?? 2)),
       minute: Math.min(59, Math.max(0, body.minute ?? existing?.minute ?? 0)),
       dayOfWeek: Math.min(6, Math.max(0, body.dayOfWeek ?? existing?.dayOfWeek ?? 1)),
-      // Fix 8: Clamp to 28 — day 29+ causes JavaScript Date.setDate overflow on short months
+      // Clamp to 28 — day 29+ overflows on short months.
       dayOfMonth: Math.min(28, Math.max(1, body.dayOfMonth ?? existing?.dayOfMonth ?? 1)),
       retentionDays: body.retentionDays !== undefined ? body.retentionDays : (existing?.retentionDays ?? null),
       enabled: body.enabled !== undefined ? body.enabled : true,
@@ -95,9 +124,9 @@ backupsRouter.put('/schedules/:vmName', async (req, res) => {
   }
 });
 
-backupsRouter.delete('/schedules/:vmName', async (req, res) => {
+backupsRouter.delete('/schedules/:vmUuid', requireUuidParam, async (req, res) => {
   try {
-    await deleteSchedule(req.params.vmName);
+    await deleteSchedule(req.params.vmUuid);
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
@@ -106,11 +135,11 @@ backupsRouter.delete('/schedules/:vmName', async (req, res) => {
 
 // ─── Per-VM backup list ───────────────────────────────────────────────────────
 
-backupsRouter.get('/:vmName', async (req, res) => {
+backupsRouter.get('/:vmUuid', requireUuidParam, async (req, res) => {
   try {
-    const { vmName } = req.params;
-    const backups = await listBackupsForVm(vmName);
-    const schedule = await getSchedule(vmName);
+    const { vmUuid } = req.params;
+    const backups = await listBackupsForVm(vmUuid);
+    const schedule = await getSchedule(vmUuid);
     res.json({ backups, schedule });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
@@ -119,10 +148,10 @@ backupsRouter.get('/:vmName', async (req, res) => {
 
 // ─── Trigger manual backup ────────────────────────────────────────────────────
 
-backupsRouter.post('/:vmName', async (req, res) => {
+backupsRouter.post('/:vmUuid', requireUuidParam, async (req, res) => {
   try {
-    const { vmName } = req.params;
-    const backup = await createBackup(vmName, { triggerType: 'manual' });
+    const { vmUuid } = req.params;
+    const backup = await createBackup(vmUuid, { triggerType: 'manual' });
     res.json({ backup });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
@@ -131,10 +160,10 @@ backupsRouter.post('/:vmName', async (req, res) => {
 
 // ─── Backup detail ────────────────────────────────────────────────────────────
 
-backupsRouter.get('/:vmName/:backupId', validateBackupId, async (req, res) => {
+backupsRouter.get('/:vmUuid/:backupId', requireUuidParam, validateBackupId, async (req, res) => {
   try {
-    const { vmName, backupId } = req.params;
-    const manifest = await getBackupManifest(vmName, backupId);
+    const { vmUuid, backupId } = req.params;
+    const manifest = await getBackupManifest(vmUuid, backupId);
     if (!manifest) return res.status(404).json({ error: 'Backup not found' });
     res.json({ manifest });
   } catch (err: unknown) {
@@ -144,10 +173,10 @@ backupsRouter.get('/:vmName/:backupId', validateBackupId, async (req, res) => {
 
 // ─── Delete backup ────────────────────────────────────────────────────────────
 
-backupsRouter.delete('/:vmName/:backupId', validateBackupId, async (req, res) => {
+backupsRouter.delete('/:vmUuid/:backupId', requireUuidParam, validateBackupId, async (req, res) => {
   try {
-    const { vmName, backupId } = req.params;
-    await deleteBackup(vmName, backupId);
+    const { vmUuid, backupId } = req.params;
+    await deleteBackup(vmUuid, backupId);
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
@@ -156,11 +185,11 @@ backupsRouter.delete('/:vmName/:backupId', validateBackupId, async (req, res) =>
 
 // ─── Restore backup ───────────────────────────────────────────────────────────
 
-backupsRouter.post('/:vmName/:backupId/restore', validateBackupId, async (req, res) => {
+backupsRouter.post('/:vmUuid/:backupId/restore', requireUuidParam, validateBackupId, async (req, res) => {
   try {
-    const { vmName, backupId } = req.params;
-    const { newVmName } = req.body as { newVmName?: string };
-    await restoreBackup(vmName, backupId, newVmName);
+    const { vmUuid, backupId } = req.params;
+    const { targetVmUuid } = req.body as { targetVmUuid?: string };
+    await restoreBackup(vmUuid, backupId, targetVmUuid);
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });

@@ -13,6 +13,17 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.0.0',
+    date: '2026-05-04',
+    changes: [
+      { type: 'changed', text: 'Storage paths are now keyed on a per-VM UUID instead of the user-typed name. Every VM gets a `crypto.randomUUID()` at create time, injected into the libvirt domain XML\'s `<uuid>` element, and used as the storage identity across the whole system: `${vmsDir}/${uuid}/`, `${cloudInitDir}/${uuid}/`, NVRAM `${uuid}-nvram.fd`, cloud-init seed `${uuid}-seed.iso`, domain XML stash `${uuid}-domain.xml`, firewall iptables chains `VP-IN-${uuid8}` / `VP-OUT-${uuid8}` (uuid8 = first 8 hex chars), `vm_metrics.vm_uuid` SQLite column, IP allocations, DHCP reservations, port-forwards, and backup directories `${backupRoot}/${uuid}/`. The libvirt domain `<name>` element stays the user-typed friendly label and is mutable via rename; the UUID is the immutable identity. Cloud-init `instance-id` now uses the UUID too, so cloud-init never re-runs user-data when the operator renames a VM. **Breaking change**: API routes `/api/vms/:name` → `/api/vms/:uuid`, backup routes `/api/backups/:vmName` → `/api/backups/:vmUuid`, WebSocket query param `?vm=<name>` → `?vm=<uuid>`. Frontend routes `/vms/:name` → `/vms/:uuid`.' },
+      { type: 'fixed', text: 'The 409 "Storage directory for X already exists. Remove manually before retrying." error is gone. Recreating a VM with the same friendly name as a previously deleted one used to collide with leftover storage; it now lands in a fresh UUID-keyed directory and never collides.' },
+      { type: 'fixed', text: 'Rename collapses to a single `virsh define`. The previous flow had to `undefine --keep-nvram` then redefine, plus rekey firewall chains, port-forwards, IP allocations, and SQLite metrics rows by name. With UUID-keyed storage, the libvirt domain (identified by its stable `<uuid>`) is updated in place with the new `<name>` element, the on-disk `name.txt` marker is rewritten, and the `vmMeta` record\'s `name` field is updated. Nothing else moves.' },
+      { type: 'added', text: '`name.txt` marker inside each `${vmsDir}/${uuid}/` records the VM\'s current friendly name for operators sshing into the host. `ls $vmsDir` shows UUIDs; `cat $uuid/name.txt` maps each one back to its label without going through libvirt or the dashboard.' },
+      { type: 'added', text: '`subjectUuid` field on log entries lets the Logs page group VM-scoped events across renames. The `subject` field continues to be the friendly name at write time, so the log line stays human-readable; `subjectUuid` carries the immutable identity.' },
+    ],
+  },
+  {
     version: '1.22.0',
     date: '2026-05-04',
     changes: [

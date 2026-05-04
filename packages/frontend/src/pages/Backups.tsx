@@ -71,42 +71,44 @@ function frequencyLabel(f: BackupFrequency): string {
 // ─── Page router ──────────────────────────────────────────────────────────────
 
 export function BackupsPage() {
-  const { vmName: selectedVm } = useParams<{ vmName?: string }>();
+  const { vmUuid: selectedVm } = useParams<{ vmUuid?: string }>();
   const navigate = useNavigate();
 
   if (selectedVm) {
     return (
       <VmBackupsPanel
-        vmName={selectedVm}
+        vmUuid={selectedVm}
         onBack={() => navigate('/backups', { replace: true })}
       />
     );
   }
 
-  return <BackupsList onSelect={(name) => navigate(`/backups/${name}`, { replace: true })} />;
+  return <BackupsList onSelect={(uuid) => navigate(`/backups/${uuid}`, { replace: true })} />;
 }
 
 // ─── Main list ────────────────────────────────────────────────────────────────
 
 const LIST_COLS = 'minmax(0,1fr) 90px 110px 150px 130px 186px';
 
-function BackupsList({ onSelect }: { onSelect: (name: string) => void }) {
+function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
   const { data: summaries, isLoading: summariesLoading } = useBackupSummaries();
   const { data: vms, isLoading: vmsLoading } = useVms();
   const { data: runningBackups = [] } = useRunningBackups();
 
   const isLoading = summariesLoading || vmsLoading;
-  const runningSet = new Set(runningBackups.map((r) => r.vmName));
+  const runningSet = new Set(runningBackups.map((r) => r.vmUuid));
 
-  const summaryMap = new Map((summaries ?? []).map((s) => [s.vmName, s]));
+  const summaryMap = new Map((summaries ?? []).map((s) => [s.vmUuid, s]));
   const rows: BackupVmSummary[] = (vms ?? []).map(
-    (vm) =>
-      summaryMap.get(vm.name) ?? {
+    (vm): BackupVmSummary =>
+      summaryMap.get(vm.id) ?? {
+        vmUuid: vm.id,
         vmName: vm.name,
         backupCount: 0,
         totalSizeBytes: 0,
         lastBackupAt: null,
         schedule: null,
+        vmExists: true,
       }
   );
 
@@ -153,7 +155,7 @@ function BackupsList({ onSelect }: { onSelect: (name: string) => void }) {
           ) : (
             <div className="divide-y divide-border/60">
               {rows.map((s, i) => (
-                <SummaryRow key={s.vmName} summary={s} onSelect={onSelect} index={i} isRunning={runningSet.has(s.vmName)} />
+                <SummaryRow key={s.vmUuid} summary={s} onSelect={onSelect} index={i} isRunning={runningSet.has(s.vmUuid)} />
               ))}
             </div>
           )}
@@ -304,7 +306,7 @@ function SummaryRow({
   isRunning: boolean;
 }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const createBackup = useCreateBackup(summary.vmName);
+  const createBackup = useCreateBackup(summary.vmUuid, summary.vmName);
   const busy = isRunning || createBackup.isPending;
 
   function handleBackupNow() {
@@ -325,7 +327,7 @@ function SummaryRow({
         {/* Name */}
         <button
           type="button"
-          onClick={() => onSelect(summary.vmName)}
+          onClick={() => onSelect(summary.vmUuid)}
           className="flex items-start gap-3 text-left"
         >
           <div className={cn(
@@ -401,7 +403,7 @@ function SummaryRow({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => onSelect(summary.vmName)}
+            onClick={() => onSelect(summary.vmUuid)}
             className="ml-1 h-7 px-1.5 text-[11px]"
             aria-label={`View backups for ${summary.vmName}`}
           >
@@ -412,6 +414,7 @@ function SummaryRow({
 
       {scheduleOpen && (
         <ScheduleDialog
+          vmUuid={summary.vmUuid}
           vmName={summary.vmName}
           existing={summary.schedule}
           onClose={() => setScheduleOpen(false)}
@@ -437,15 +440,19 @@ function EmptyState() {
 
 const BACKUP_COLS = 'minmax(0,1fr) 90px 60px 170px 110px 80px';
 
-function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void }) {
-  const { data, isLoading } = useVmBackups(vmName);
+function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void }) {
+  const { data, isLoading } = useVmBackups(vmUuid);
   const { data: runningBackups = [] } = useRunningBackups();
-  const createBackup = useCreateBackup(vmName);
+  // Friendly name comes from the backup summaries (live VM > most recent
+  // manifest > schedule). Falls back to the UUID if no summary exists.
+  const { data: summaries } = useBackupSummaries();
+  const vmName = summaries?.find((s) => s.vmUuid === vmUuid)?.vmName ?? vmUuid;
+  const createBackup = useCreateBackup(vmUuid, vmName);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BackupEntry | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<BackupEntry | null>(null);
 
-  const runningEntry: BackupInProgress | undefined = runningBackups.find((r) => r.vmName === vmName);
+  const runningEntry: BackupInProgress | undefined = runningBackups.find((r) => r.vmUuid === vmUuid);
   const busy = !!runningEntry || createBackup.isPending;
 
   function handleBackupNow() {
@@ -518,7 +525,7 @@ function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void
         </div>
 
         {/* Schedule banner */}
-        {schedule && <ScheduleBanner schedule={schedule} vmName={vmName} onEdit={() => setScheduleOpen(true)} />}
+        {schedule && <ScheduleBanner schedule={schedule} vmUuid={vmUuid} onEdit={() => setScheduleOpen(true)} />}
 
         {/* Backup table */}
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -564,13 +571,13 @@ function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void
       </div>
 
       {scheduleOpen && (
-        <ScheduleDialog vmName={vmName} existing={schedule} onClose={() => setScheduleOpen(false)} />
+        <ScheduleDialog vmUuid={vmUuid} vmName={vmName} existing={schedule} onClose={() => setScheduleOpen(false)} />
       )}
       {deleteTarget && (
-        <DeleteBackupDialog backup={deleteTarget} vmName={vmName} onClose={() => setDeleteTarget(null)} />
+        <DeleteBackupDialog backup={deleteTarget} vmUuid={vmUuid} onClose={() => setDeleteTarget(null)} />
       )}
       {restoreTarget && (
-        <RestoreDialog backup={restoreTarget} vmName={vmName} onClose={() => setRestoreTarget(null)} />
+        <RestoreDialog backup={restoreTarget} vmUuid={vmUuid} vmName={vmName} onClose={() => setRestoreTarget(null)} />
       )}
     </Layout>
   );
@@ -580,15 +587,15 @@ function VmBackupsPanel({ vmName, onBack }: { vmName: string; onBack: () => void
 
 function ScheduleBanner({
   schedule,
-  vmName,
+  vmUuid,
   onEdit,
 }: {
   schedule: BackupSchedule;
-  vmName: string;
+  vmUuid: string;
   onEdit: () => void;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const deleteSchedule = useDeleteSchedule(vmName);
+  const deleteSchedule = useDeleteSchedule(vmUuid);
 
   function handleConfirmDelete() {
     toast.promise(deleteSchedule.mutateAsync().then(() => setConfirmOpen(false)), {
@@ -802,15 +809,17 @@ function BackupRow({
 // ─── Schedule dialog ──────────────────────────────────────────────────────────
 
 function ScheduleDialog({
+  vmUuid,
   vmName,
   existing,
   onClose,
 }: {
+  vmUuid: string;
   vmName: string;
   existing: BackupSchedule | null;
   onClose: () => void;
 }) {
-  const saveSchedule = useSaveSchedule(vmName);
+  const saveSchedule = useSaveSchedule(vmUuid);
   const [frequency, setFrequency] = useState<BackupFrequency>(existing?.frequency ?? 'daily');
   const [hour, setHour] = useState(String(existing?.hour ?? 2));
   const [minute, setMinute] = useState(String(existing?.minute ?? 0).padStart(2, '0'));
@@ -924,14 +933,14 @@ function ScheduleDialog({
 
 function DeleteBackupDialog({
   backup,
-  vmName,
+  vmUuid,
   onClose,
 }: {
   backup: BackupEntry;
-  vmName: string;
+  vmUuid: string;
   onClose: () => void;
 }) {
-  const deleteBackup = useDeleteBackup(vmName);
+  const deleteBackup = useDeleteBackup(vmUuid);
 
   function handleDelete() {
     toast.promise(
@@ -966,22 +975,20 @@ function DeleteBackupDialog({
 
 function RestoreDialog({
   backup,
+  vmUuid,
   vmName,
   onClose,
 }: {
   backup: BackupEntry;
+  vmUuid: string;
   vmName: string;
   onClose: () => void;
 }) {
-  const restoreBackup = useRestoreBackup(vmName);
-  const [newVmName, setNewVmName] = useState('');
-  const [mode, setMode] = useState<'overwrite' | 'new'>('overwrite');
+  const restoreBackup = useRestoreBackup(vmUuid);
 
   function handleRestore() {
-    const targetName = mode === 'new' ? newVmName.trim() : undefined;
-    if (mode === 'new' && !targetName) return;
     toast.promise(
-      restoreBackup.mutateAsync({ backupId: backup.id, newVmName: targetName }).then(onClose),
+      restoreBackup.mutateAsync({ backupId: backup.id }).then(onClose),
       {
         loading: 'Restoring…',
         success: 'Restore complete — VM disks replaced',
@@ -1004,47 +1011,17 @@ function RestoreDialog({
             variant="danger"
             size="sm"
             onClick={handleRestore}
-            disabled={restoreBackup.isPending || (mode === 'new' && !newVmName.trim())}
+            disabled={restoreBackup.isPending}
           >
             <Zap size={13} className="mr-1.5" />Restore
           </Button>
         </>
       }
     >
-      <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Restoring will overwrite the VM's current disk(s). The VM must be{' '}
-          <strong className="text-foreground">stopped</strong> before restoring.
-        </p>
-
-        <div className="space-y-2">
-          <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border p-3 transition-colors hover:bg-muted/30">
-            <input type="radio" name="restore-mode" checked={mode === 'overwrite'} onChange={() => setMode('overwrite')} className="accent-primary" />
-            <div>
-              <p className="text-sm font-medium">Overwrite existing VM</p>
-              <p className="text-xs text-muted-foreground">Replace disks of <strong>{vmName}</strong></p>
-            </div>
-          </label>
-          <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border p-3 transition-colors hover:bg-muted/30">
-            <input type="radio" name="restore-mode" checked={mode === 'new'} onChange={() => setMode('new')} className="accent-primary" />
-            <div className="flex-1">
-              <p className="text-sm font-medium">Restore as new VM</p>
-              <p className="text-xs text-muted-foreground">Copy disks to a new VM directory</p>
-            </div>
-          </label>
-        </div>
-
-        {mode === 'new' && (
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">New VM name</label>
-            <Input
-              value={newVmName}
-              onChange={(e) => setNewVmName(e.target.value)}
-              placeholder={`${vmName}-restored`}
-            />
-          </div>
-        )}
-      </div>
+      <p className="text-sm text-muted-foreground">
+        Restoring will overwrite <strong className="text-foreground">{vmName}</strong>'s current disk(s).
+        The VM must be <strong className="text-foreground">stopped</strong> before restoring.
+      </p>
     </Dialog>
   );
 }

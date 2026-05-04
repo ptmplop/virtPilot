@@ -1,11 +1,11 @@
-import { Router } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { run, virsh } from '../services/safeExec.js';
-import { validateVmName } from '../lib/validate.js';
+import { validateVmName, validateVmUuid } from '../lib/validate.js';
 import * as vmService from '../services/vmService.js';
 import * as deviceService from '../services/deviceService.js';
 import * as storageService from '../services/storageService.js';
@@ -21,6 +21,34 @@ import { buildDomainXml, generateMac, type NicDefinition, type CpuMode, type Fir
 
 export const vmsRouter = Router();
 
+// Validates the `:uuid` path parameter as a strict RFC 4122 UUID before any
+// route handler runs. Rejects bad input with a 400 so handlers can assume
+// they're working with a well-formed identifier.
+function requireUuidParam(req: Request, res: Response, next: NextFunction): void {
+  try {
+    validateVmUuid(req.params.uuid);
+    next();
+  } catch {
+    res.status(400).json({ error: 'Invalid VM UUID' });
+  }
+}
+
+// Helper for log entries: pull the VM's friendly name to attach as `subject`,
+// while `subjectUuid` carries the immutable identity. Falls back to the UUID
+// if the lookup fails (deleted, libvirt offline, etc).
+async function logSubject(uuid: string): Promise<{ subject: string; subjectUuid: string }> {
+  let subject = uuid;
+  try {
+    const meta = await vmMetaService.getVmMeta(uuid);
+    if (meta?.name) subject = meta.name;
+    else {
+      const info = await vmService.getVmInfo(uuid);
+      subject = info.name;
+    }
+  } catch { /* fall back to UUID */ }
+  return { subject, subjectUuid: uuid };
+}
+
 vmsRouter.get('/', async (_req, res) => {
   try {
     const vms = await vmService.listVmsRaw();
@@ -32,10 +60,13 @@ vmsRouter.get('/', async (_req, res) => {
 
 vmsRouter.get('/disks', async (_req, res) => {
   try {
-    let vmNames: Set<string> = new Set();
+    // Map UUID -> friendly name. Live VMs are the source of truth for "still
+    // defined"; vmMeta gives us the display label even when libvirt has
+    // already forgotten the VM (e.g. operator did `virsh undefine` directly).
+    const definedUuids = new Set<string>();
     try {
       const vms = await vmService.listVmsRaw();
-      vmNames = new Set(vms.map((v) => v.name));
+      for (const v of vms) definedUuids.add(v.id);
     } catch { /* libvirt unavailable */ }
 
     let entries: string[] = [];
@@ -43,7 +74,7 @@ vmsRouter.get('/disks', async (_req, res) => {
       entries = await fs.readdir(config.vmsDir);
     } catch { /* vms dir not created yet */ }
 
-    const disks: Array<{ vmName: string; filename: string; sizeGb: number; vmExists: boolean }> = [];
+    const disks: Array<{ vmUuid: string; vmName: string; filename: string; sizeGb: number; vmExists: boolean }> = [];
 
     for (const entry of entries) {
       const vmDir = path.join(config.vmsDir, entry);
@@ -52,6 +83,26 @@ vmsRouter.get('/disks', async (_req, res) => {
         if (!s.isDirectory()) continue;
       } catch { continue; }
 
+      // Reject anything that doesn't look like a UUID — leftover cruft from
+      // manual operator action shouldn't be surfaced as if it were a VM.
+      let vmUuid: string;
+      try { vmUuid = validateVmUuid(entry); } catch { continue; }
+
+      // Resolve a friendly name: live VM > name.txt marker > vmMeta. Falls
+      // back to the UUID if everything else fails.
+      let displayName = vmUuid;
+      try {
+        const txt = await fs.readFile(path.join(vmDir, 'name.txt'), 'utf8');
+        const trimmed = txt.trim();
+        if (trimmed) displayName = trimmed;
+      } catch { /* no marker — try meta */ }
+      if (displayName === vmUuid) {
+        try {
+          const meta = await vmMetaService.getVmMeta(vmUuid);
+          if (meta?.name) displayName = meta.name;
+        } catch { /* fall through */ }
+      }
+
       let files: string[] = [];
       try { files = await fs.readdir(vmDir); } catch { continue; }
 
@@ -59,10 +110,11 @@ vmsRouter.get('/disks', async (_req, res) => {
         try {
           const fileStat = await fs.stat(path.join(vmDir, file));
           disks.push({
-            vmName: entry,
+            vmUuid,
+            vmName: displayName,
             filename: file,
             sizeGb: Math.round((fileStat.size / 1_073_741_824) * 100) / 100,
-            vmExists: vmNames.has(entry),
+            vmExists: definedUuids.has(vmUuid),
           });
         } catch { continue; }
       }
@@ -78,46 +130,42 @@ vmsRouter.get('/disks', async (_req, res) => {
 // `keep storage` VM delete, or after a manual `virsh undefine`). Refuses if
 // libvirt still knows the VM, so this can never wipe storage out from under a
 // running domain.
-vmsRouter.delete('/disks/:vmName', async (req, res) => {
+vmsRouter.delete('/disks/:uuid', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { vmName } = req.params;
+  const { uuid } = req.params;
   try {
-    if (vmName.includes('/') || vmName.includes('\\') || vmName === '.' || vmName === '..') {
-      return res.status(400).json({ error: 'Invalid VM name' });
-    }
-
     let stillDefined = false;
     try {
       const vms = await vmService.listVmsRaw();
-      stillDefined = vms.some((v) => v.name === vmName);
+      stillDefined = vms.some((v) => v.id === uuid);
     } catch { /* libvirt unavailable — treat as not defined */ }
     if (stillDefined) {
-      return res.status(409).json({ error: `VM "${vmName}" is still defined; delete the VM first` });
+      return res.status(409).json({ error: `VM "${uuid}" is still defined; delete the VM first` });
     }
 
-    await storageService.deleteVmDir(vmName);
-    await deleteCloudInitArtifacts(vmName);
+    await storageService.deleteVmDir(uuid);
+    await deleteCloudInitArtifacts(uuid);
 
-    void logService.appendLog({ type: 'vm.disk.orphan.delete', subject: vmName, status: 'success', output: '', durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.disk.orphan.delete', subject: uuid, subjectUuid: uuid, status: 'success', output: '', durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.disk.orphan.delete', subject: vmName, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.disk.orphan.delete', subject: uuid, subjectUuid: uuid, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.get('/:name', async (req, res) => {
+vmsRouter.get('/:uuid', requireUuidParam, async (req, res) => {
   try {
-    const vm = await vmService.getVmInfo(req.params.name);
+    const vm = await vmService.getVmInfo(req.params.uuid);
     res.json({ vm });
   } catch (err: unknown) {
     res.status(404).json({ error: String(err) });
   }
 });
 
-vmsRouter.get('/:name/meta', async (req, res) => {
+vmsRouter.get('/:uuid/meta', requireUuidParam, async (req, res) => {
   try {
-    const meta = await vmMetaService.getVmMeta(req.params.name);
+    const meta = await vmMetaService.getVmMeta(req.params.uuid);
 
     let ip: string | null = null;
     if (meta?.networks) {
@@ -127,7 +175,7 @@ vmsRouter.get('/:name/meta', async (req, res) => {
 
     if (!ip) {
       try {
-        const stdout = await virsh(['domifaddr', validateVmName(req.params.name), '--source', 'arp']);
+        const stdout = await virsh(['domifaddr', validateVmUuid(req.params.uuid), '--source', 'arp']);
         const match = stdout.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
         if (match) ip = match[1];
       } catch { /* VM not running or no lease yet */ }
@@ -146,9 +194,9 @@ vmsRouter.get('/:name/meta', async (req, res) => {
   }
 });
 
-vmsRouter.get('/:name/credentials', async (req, res) => {
+vmsRouter.get('/:uuid/credentials', requireUuidParam, async (req, res) => {
   try {
-    const meta = await vmMetaService.getVmMeta(req.params.name);
+    const meta = await vmMetaService.getVmMeta(req.params.uuid);
     if (!meta) {
       res.status(404).json({ error: 'VM metadata not found' });
       return;
@@ -159,27 +207,27 @@ vmsRouter.get('/:name/credentials', async (req, res) => {
   }
 });
 
-vmsRouter.get('/:name/ifaddrs', async (req, res) => {
+vmsRouter.get('/:uuid/ifaddrs', requireUuidParam, async (req, res) => {
   try {
-    const ips = await vmService.getVmInterfaceIps(req.params.name);
+    const ips = await vmService.getVmInterfaceIps(req.params.uuid);
     res.json({ ips });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.get('/:name/reservations', async (req, res) => {
+vmsRouter.get('/:uuid/reservations', requireUuidParam, async (req, res) => {
   try {
-    const reservations = await portForwardService.getReservationsForVm(req.params.name);
+    const reservations = await portForwardService.getReservationsForVm(req.params.uuid);
     res.json({ reservations });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.get('/:name/port-forwards', async (req, res) => {
+vmsRouter.get('/:uuid/port-forwards', requireUuidParam, async (req, res) => {
   try {
-    const forwards = await portForwardService.getPortForwardsForVm(req.params.name);
+    const forwards = await portForwardService.getPortForwardsForVm(req.params.uuid);
     res.json({ forwards });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
@@ -230,21 +278,13 @@ vmsRouter.post('/', async (req, res) => {
       return res.status(400).json({ error: 'cloudInit is required for template-based VMs' });
     }
 
-    // Check for duplicate VM name in libvirt
+    // Libvirt enforces uniqueness on the user-typed name. Catch the conflict
+    // here rather than waiting for `virsh define` to fail mid-way.
     try {
       await vmService.getVmInfo(name);
       return res.status(409).json({ error: `A VM named "${name}" already exists` });
     } catch {
       // expected — VM does not exist yet
-    }
-
-    // Check for orphaned disk directory from a previous partial creation
-    const vmDirPath = path.join(config.vmsDir, name);
-    try {
-      await fs.access(vmDirPath);
-      return res.status(409).json({ error: `Storage directory for "${name}" already exists. Remove ${vmDirPath} manually before retrying.` });
-    } catch {
-      // expected — directory does not exist yet
     }
 
     if (templateFilename) {
@@ -274,6 +314,13 @@ vmsRouter.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Exactly one network must be marked as primary' });
     }
 
+    // Generate the VM's storage identity up front so every downstream
+    // artefact (disk dir, NVRAM, cloud-init seed, domain XML) is keyed on it
+    // before any qemu-img call writes a single byte. Recreating a VM with the
+    // same friendly name now never collides with leftover storage from a
+    // previous incarnation — each VM gets its own UUID directory.
+    const uuid = randomUUID();
+
     const nicDefinitions: NicDefinition[] = [];
     const nicCloudInit: NicCloudInit[] = [];
     const metaNetworks: vmMetaService.VmNetworkAlloc[] = [];
@@ -290,7 +337,7 @@ vmsRouter.post('/', async (req, res) => {
         if (!req.staticIp) {
           return res.status(400).json({ error: `staticIp required for bridge/static network "${network.name}"` });
         }
-        await networkService.allocateSpecificIp(req.networkId, name, mac, req.staticIp);
+        await networkService.allocateSpecificIp(req.networkId, uuid, mac, req.staticIp);
         const { prefix } = networkService.parseCidr(network.cidr);
         nicCloudInit.push({
           mac,
@@ -314,28 +361,34 @@ vmsRouter.post('/', async (req, res) => {
     let diskPath: string;
     let domainXml: string;
 
-    const nvramPath = path.join(config.vmsDir, name, `${name}-nvram.fd`);
+    const nvramPath = path.join(config.vmsDir, uuid, `${uuid}-nvram.fd`);
     const firmwareOpts = { firmware, secureBoot, nvramPath, vtpm };
 
     if (isIsoInstall) {
-      diskPath = await storageService.createBlankPrimaryDisk(name, diskGb, trace);
+      diskPath = await storageService.createBlankPrimaryDisk(uuid, diskGb, trace);
       const installIsoPath = path.join(config.isosDir, isoFilename!);
-      domainXml = buildDomainXml({ name, cpus, memoryMb, diskPath, installIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
+      domainXml = buildDomainXml({ uuid, name, cpus, memoryMb, diskPath, installIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
     } else {
-      diskPath = await storageService.createVmDisk(name, templateFilename!, diskGb, trace);
+      diskPath = await storageService.createVmDisk(uuid, templateFilename!, diskGb, trace);
       const hostPubKey = await getHostSshPublicKey();
       const sshKeys = [...(cloudInit!.sshKeys ?? [])];
       if (hostPubKey && !sshKeys.includes(hostPubKey)) sshKeys.push(hostPubKey);
-      const cloudInitIsoPath = await buildCloudInitIso(name, { ...cloudInit!, sshKeys, nics: nicCloudInit }, trace);
-      domainXml = buildDomainXml({ name, cpus, memoryMb, diskPath, cloudInitIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
+      const cloudInitIsoPath = await buildCloudInitIso(uuid, { ...cloudInit!, sshKeys, nics: nicCloudInit }, trace);
+      domainXml = buildDomainXml({ uuid, name, cpus, memoryMb, diskPath, cloudInitIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
     }
 
-    const xmlPath = path.join(config.cloudInitDir, `${name}-domain.xml`);
+    // name.txt makes UUID-named directories operator-readable: someone sshing
+    // into the host and `ls`-ing $vmsDir gets a quick map back to friendly
+    // names without going through libvirt or the dashboard.
+    await storageService.writeVmNameMarker(uuid, name);
+
+    const xmlPath = path.join(config.cloudInitDir, `${uuid}-domain.xml`);
     await fs.writeFile(xmlPath, domainXml, 'utf8');
     await vmService.defineVm(xmlPath, trace);
 
     await vmMetaService.saveVmMeta({
-      vmName: name,
+      uuid,
+      name,
       username: cloudInit?.username ?? '',
       password: cloudInit?.password ?? '',
       networks: metaNetworks,
@@ -346,12 +399,13 @@ vmsRouter.post('/', async (req, res) => {
     void logService.appendLog({
       type: 'vm.create',
       subject: name,
+      subjectUuid: uuid,
       status: 'success',
       output: formatTrace(trace),
       durationMs: Date.now() - start,
     });
 
-    res.status(201).json({ name });
+    res.status(201).json({ uuid, name });
   } catch (err: unknown) {
     void logService.appendLog({
       type: 'vm.create',
@@ -364,105 +418,97 @@ vmsRouter.post('/', async (req, res) => {
   }
 });
 
-// Rename VM
-vmsRouter.put('/:name/rename', async (req, res) => {
+// Rename VM. Storage paths, firewall chains, metrics rows, port-forwards,
+// and IP allocations are all keyed on UUID — none of them need rewriting.
+// Rename touches just the libvirt domain `<name>` element, the vmMeta record,
+// and the on-disk name.txt marker.
+vmsRouter.put('/:uuid/rename', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
   const { newName } = req.body as { newName?: string };
 
   if (!newName || typeof newName !== 'string') return res.status(400).json({ error: 'newName is required' });
   if (!/^[a-zA-Z0-9_-]{1,80}$/.test(newName)) {
     return res.status(400).json({ error: 'VM name must be 1–80 characters: letters, numbers, hyphens, underscores only' });
   }
-  if (newName === name) return res.status(400).json({ error: 'New name is the same as the current name' });
 
   try {
-    const vm = await vmService.getVmInfo(name);
+    const vm = await vmService.getVmInfo(uuid);
     if (vm.status !== 'stopped') return res.status(400).json({ error: 'VM must be stopped before renaming' });
+    if (newName === vm.name) return res.status(400).json({ error: 'New name is the same as the current name' });
 
-    // Check new name is not already taken
+    // Check new name is not already taken (libvirt enforces name uniqueness)
     try {
       await vmService.getVmInfo(newName);
       return res.status(409).json({ error: `A VM named "${newName}" already exists` });
     } catch { /* expected */ }
 
-    const safeName = validateVmName(name);
+    const safeUuid = validateVmUuid(uuid);
     const safeNewName = validateVmName(newName);
     // Dump current XML, replace <name> element, write to tmpfile.
-    const xml = await virsh(['dumpxml', safeName]);
-    // newName already validated, but escape to be defensive against XML
-    // metacharacters even though validateVmName disallows them.
+    const xml = await virsh(['dumpxml', safeUuid]);
     const updatedXml = xml.replace(/<name>[^<]*<\/name>/, `<name>${safeNewName}</name>`);
     const tmpFile = path.join(os.tmpdir(), `virtpilot-rename-${randomUUID()}.xml`);
     await fs.writeFile(tmpFile, updatedXml, 'utf8');
 
     try {
-      try {
-        await virsh(['undefine', safeName, '--keep-nvram', '--snapshots-metadata']);
-      } catch {
-        await virsh(['undefine', safeName, '--snapshots-metadata']);
-      }
-
+      // `virsh define` on an XML with an existing <uuid> updates the
+      // libvirt domain in place — no undefine/redefine cycle needed, and
+      // NVRAM stays put because its path is UUID-keyed.
       await virsh(['define', tmpFile]);
     } finally {
       await fs.unlink(tmpFile).catch(() => {});
     }
 
-    // Update all persistent stores
-    const meta = await vmMetaService.getVmMeta(name);
-    if (meta) {
-      await vmMetaService.saveVmMeta({ ...meta, vmName: newName });
-      await vmMetaService.deleteVmMeta(name);
-    }
-    await portForwardService.renameVmReferences(name, newName);
-    await firewallService.renameFirewallConfig(name, newName);
-    vmMetricsService.renameVmMetrics(name, newName);
+    await vmMetaService.setVmMetaName(uuid, newName);
+    await storageService.writeVmNameMarker(uuid, newName);
 
-    void logService.appendLog({ type: 'vm.rename', subject: name, status: 'success', output: `Renamed to ${newName}`, durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.rename', subject: vm.name, subjectUuid: uuid, status: 'success', output: `Renamed to ${newName}`, durationMs: Date.now() - start });
     res.json({ ok: true, newName });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.rename', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.rename', subject: uuid, subjectUuid: uuid, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.delete('/:name', async (req, res) => {
+vmsRouter.delete('/:uuid', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     // Default `deleteStorage=true`: a VM the user just deleted shouldn't leave
-    // multi-GB qcow2 disks lying around — and not cleaning them blocked recreation
-    // with the same name. Pass `?deleteStorage=false` to keep the disks.
+    // multi-GB qcow2 disks lying around. Pass `?deleteStorage=false` to keep them.
     const deleteStorage = req.query.deleteStorage !== 'false';
-    const output = await vmService.deleteVm(name, deleteStorage);
+    const output = await vmService.deleteVm(uuid, deleteStorage);
     if (deleteStorage) {
-      await storageService.deleteVmDir(name);
+      await storageService.deleteVmDir(uuid);
     }
     // Cloud-init artefacts (seed.iso, domain.xml, per-VM cloud-init dir) are
     // always cleaned — they're VirtPilot-internal scaffolding, never user data.
-    await deleteCloudInitArtifacts(name);
-    await networkService.deallocateVmIps(name);
-    await portForwardService.deletePortForwardsForVm(name);
-    await vmMetaService.deleteVmMeta(name);
-    await firewallService.deleteFirewallConfig(name);
-    vmMetricsService.deleteVmMetrics(name);
-    void logService.appendLog({ type: 'vm.delete', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    await deleteCloudInitArtifacts(uuid);
+    await networkService.deallocateVmIps(uuid);
+    await portForwardService.deletePortForwardsForVm(uuid);
+    await vmMetaService.deleteVmMeta(uuid);
+    await firewallService.deleteFirewallConfig(uuid);
+    vmMetricsService.deleteVmMetrics(uuid);
+    void logService.appendLog({ type: 'vm.delete', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.delete', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.delete', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.post('/:name/start', async (req, res) => {
+vmsRouter.post('/:uuid/start', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
-    const output = await vmService.startVm(name);
-    void logService.appendLog({ type: 'vm.start', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.startVm(uuid);
+    void logService.appendLog({ type: 'vm.start', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.start', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.start', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -476,118 +522,122 @@ function readForceFlag(req: { query: { force?: unknown }; body?: { force?: unkno
   return q === 'true' || q === true || b === true || b === 'true';
 }
 
-vmsRouter.post('/:name/stop', async (req, res) => {
+vmsRouter.post('/:uuid/stop', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
   const force = readForceFlag(req);
+  const log = await logSubject(uuid);
   try {
-    const output = await vmService.stopVm(name, force);
-    void logService.appendLog({ type: force ? 'vm.stop.force' : 'vm.stop', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.stopVm(uuid, force);
+    void logService.appendLog({ type: force ? 'vm.stop.force' : 'vm.stop', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: force ? 'vm.stop.force' : 'vm.stop', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: force ? 'vm.stop.force' : 'vm.stop', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.post('/:name/reboot', async (req, res) => {
+vmsRouter.post('/:uuid/reboot', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
   const force = readForceFlag(req);
+  const log = await logSubject(uuid);
   try {
-    const output = force ? await vmService.hardRebootVm(name) : await vmService.rebootVm(name);
-    void logService.appendLog({ type: force ? 'vm.reboot.force' : 'vm.reboot', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = force ? await vmService.hardRebootVm(uuid) : await vmService.rebootVm(uuid);
+    void logService.appendLog({ type: force ? 'vm.reboot.force' : 'vm.reboot', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: force ? 'vm.reboot.force' : 'vm.reboot', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: force ? 'vm.reboot.force' : 'vm.reboot', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // Disks
-vmsRouter.post('/:name/disks', async (req, res) => {
+vmsRouter.post('/:uuid/disks', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { sizeGb, target } = req.body;
-    const vm = await vmService.getVmInfo(name);
+    const vm = await vmService.getVmInfo(uuid);
     const existingExtras = vm.disks.filter((d) => d.target.startsWith('vd') && d.target !== 'vda').length;
     const storageTrace: TraceEntry[] = [];
-    const diskPath = await storageService.createBlankDisk(name, existingExtras + 1, sizeGb ?? 20, storageTrace);
+    const diskPath = await storageService.createBlankDisk(uuid, existingExtras + 1, sizeGb ?? 20, storageTrace);
     const assignedTarget = target ?? `vd${String.fromCharCode(98 + existingExtras)}`;
-    const virshOutput = await vmService.attachDisk(name, diskPath, assignedTarget);
+    const virshOutput = await vmService.attachDisk(uuid, diskPath, assignedTarget);
     const output = [formatTrace(storageTrace), virshOutput].filter(Boolean).join('\n\n');
-    void logService.appendLog({ type: 'vm.disk.attach', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.disk.attach', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true, diskPath });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.disk.attach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.disk.attach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.delete('/:name/disks/:target', async (req, res) => {
+vmsRouter.delete('/:uuid/disks/:target', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name, target } = req.params;
+  const { uuid, target } = req.params;
+  const log = await logSubject(uuid);
   try {
-    const output = await vmService.detachDisk(name, target);
-    void logService.appendLog({ type: 'vm.disk.detach', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.detachDisk(uuid, target);
+    void logService.appendLog({ type: 'vm.disk.detach', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.disk.detach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.disk.detach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // CDROMs
-vmsRouter.post('/:name/cdrom', async (req, res) => {
+vmsRouter.post('/:uuid/cdrom', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { isoFilename, target } = req.body;
     const isoPath = path.join(config.isosDir, isoFilename);
-    const output = await vmService.attachCdrom(name, isoPath, target ?? 'sdb');
-    void logService.appendLog({ type: 'vm.cdrom.attach', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.attachCdrom(uuid, isoPath, target ?? 'sdb');
+    void logService.appendLog({ type: 'vm.cdrom.attach', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.cdrom.attach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.cdrom.attach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.delete('/:name/cdrom/:target', async (req, res) => {
+vmsRouter.delete('/:uuid/cdrom/:target', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name, target } = req.params;
+  const { uuid, target } = req.params;
+  const log = await logSubject(uuid);
   try {
-    const output = await vmService.detachCdrom(name, target);
-    void logService.appendLog({ type: 'vm.cdrom.detach', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.detachCdrom(uuid, target);
+    void logService.appendLog({ type: 'vm.cdrom.detach', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.cdrom.detach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.cdrom.detach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // Boot Order
-vmsRouter.get('/:name/boot-order', async (req, res) => {
+vmsRouter.get('/:uuid/boot-order', requireUuidParam, async (req, res) => {
   try {
-    const bootOrder = await vmService.getBootOrder(req.params.name);
+    const bootOrder = await vmService.getBootOrder(req.params.uuid);
     res.json({ bootOrder });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.put('/:name/boot-order', async (req, res) => {
+vmsRouter.put('/:uuid/boot-order', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { bootOrder } = req.body as { bootOrder: string[] };
     if (!Array.isArray(bootOrder)) return res.status(400).json({ error: 'bootOrder must be an array' });
     if (bootOrder.length > 0) {
-      // Validate every entry is an actual disk target on this VM. Without this
-      // check, sending logical names like "hd"/"cdrom" silently no-ops because
-      // `applyBootOrderToXml` only matches `<target dev="...">` entries.
-      const vm = await vmService.getVmInfo(name);
+      const vm = await vmService.getVmInfo(uuid);
       const validTargets = new Set(vm.disks.map((d) => d.target));
       const unknown = bootOrder.filter((t) => !validTargets.has(t));
       if (unknown.length > 0) {
@@ -596,34 +646,36 @@ vmsRouter.put('/:name/boot-order', async (req, res) => {
         });
       }
     }
-    const output = await vmService.setBootOrder(name, bootOrder);
-    void logService.appendLog({ type: 'vm.boot-order.set', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.setBootOrder(uuid, bootOrder);
+    void logService.appendLog({ type: 'vm.boot-order.set', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.boot-order.set', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.boot-order.set', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.post('/:name/boot-once', async (req, res) => {
+vmsRouter.post('/:uuid/boot-once', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { device } = req.body as { device: 'cdrom' | 'hd' };
     if (!device) return res.status(400).json({ error: 'device is required' });
-    const output = await vmService.startVmBootOnce(name, device);
-    void logService.appendLog({ type: 'vm.boot-once', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.startVmBootOnce(uuid, device);
+    void logService.appendLog({ type: 'vm.boot-once', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.boot-once', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.boot-once', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // NICs
-vmsRouter.post('/:name/nics', async (req, res) => {
+vmsRouter.post('/:uuid/nics', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { networkId, model, staticIp, inboundKbps, outboundKbps } = req.body as {
       networkId: string;
@@ -642,16 +694,16 @@ vmsRouter.post('/:name/nics', async (req, res) => {
     let allocatedIp: string | undefined;
     if ((network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static') {
       if (!staticIp) return res.status(400).json({ error: `staticIp required for static network "${network.name}"` });
-      await networkService.allocateSpecificIp(networkId, name, mac, staticIp);
+      await networkService.allocateSpecificIp(networkId, uuid, mac, staticIp);
       allocatedIp = staticIp;
     }
 
     const bandwidth = (inboundKbps && inboundKbps > 0) || (outboundKbps && outboundKbps > 0)
       ? { inboundKbps, outboundKbps }
       : undefined;
-    const output = await vmService.attachNic(name, network.bridge, model ?? 'virtio', mac, bandwidth);
+    const output = await vmService.attachNic(uuid, network.bridge, model ?? 'virtio', mac, bandwidth);
 
-    const meta = await vmMetaService.getVmMeta(name);
+    const meta = await vmMetaService.getVmMeta(uuid);
     if (meta) {
       await vmMetaService.saveVmMeta({
         ...meta,
@@ -659,21 +711,22 @@ vmsRouter.post('/:name/nics', async (req, res) => {
       });
     }
 
-    void logService.appendLog({ type: 'vm.nic.attach', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.nic.attach', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true, mac });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.nic.attach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.nic.attach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.delete('/:name/nics/:mac', async (req, res) => {
+vmsRouter.delete('/:uuid/nics/:mac', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name, mac } = req.params;
+  const { uuid, mac } = req.params;
+  const log = await logSubject(uuid);
   try {
-    const output = await vmService.detachNic(name, mac);
+    const output = await vmService.detachNic(uuid, mac);
 
-    const meta = await vmMetaService.getVmMeta(name);
+    const meta = await vmMetaService.getVmMeta(uuid);
     if (meta?.networks) {
       const alloc = meta.networks.find((n) => n.mac === mac);
       if (alloc?.ip) await networkService.deallocateByMac(mac);
@@ -683,91 +736,93 @@ vmsRouter.delete('/:name/nics/:mac', async (req, res) => {
       });
     }
 
-    void logService.appendLog({ type: 'vm.nic.detach', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.nic.detach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.put('/:name/nics/:mac/bandwidth', async (req, res) => {
+vmsRouter.put('/:uuid/nics/:mac/bandwidth', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name, mac } = req.params;
+  const { uuid, mac } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { inboundKbps, outboundKbps } = req.body as { inboundKbps?: number; outboundKbps?: number };
     const inb = typeof inboundKbps === 'number' && inboundKbps > 0 ? Math.floor(inboundKbps) : 0;
     const outb = typeof outboundKbps === 'number' && outboundKbps > 0 ? Math.floor(outboundKbps) : 0;
-    const output = await vmService.setNicBandwidth(name, mac, { inboundKbps: inb, outboundKbps: outb });
-    void logService.appendLog({ type: 'vm.nic.bandwidth', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.setNicBandwidth(uuid, mac, { inboundKbps: inb, outboundKbps: outb });
+    void logService.appendLog({ type: 'vm.nic.bandwidth', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true, inboundKbps: inb, outboundKbps: outb });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.nic.bandwidth', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.nic.bandwidth', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // Snapshots
-vmsRouter.get('/:name/snapshots', async (req, res) => {
+vmsRouter.get('/:uuid/snapshots', requireUuidParam, async (req, res) => {
   try {
-    const snapshots = await vmService.listSnapshots(req.params.name);
+    const snapshots = await vmService.listSnapshots(req.params.uuid);
     res.json({ snapshots });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.post('/:name/snapshots', async (req, res) => {
+vmsRouter.post('/:uuid/snapshots', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { name: snapshotName, description } = req.body as { name: string; description?: string };
     if (!snapshotName) return res.status(400).json({ error: 'name is required' });
     if (!/^[a-zA-Z0-9_-]{1,80}$/.test(snapshotName)) {
       return res.status(400).json({ error: 'Snapshot name may only contain letters, numbers, hyphens, and underscores' });
     }
-    const output = await vmService.createSnapshot(name, snapshotName, description);
-    void logService.appendLog({ type: 'vm.snapshot.create', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.createSnapshot(uuid, snapshotName, description);
+    void logService.appendLog({ type: 'vm.snapshot.create', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.snapshot.create', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.snapshot.create', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.delete('/:name/snapshots/:snapshot', async (req, res) => {
+vmsRouter.delete('/:uuid/snapshots/:snapshot', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name, snapshot } = req.params;
-  // ?metadataOnly=true drops just the libvirt snapshot record without merging
-  // the overlay back into its backing — the escape hatch for VMs whose chain
-  // has diverged from the snapshot (e.g. after a revert).
+  const { uuid, snapshot } = req.params;
   const metadataOnly = req.query.metadataOnly === 'true';
+  const log = await logSubject(uuid);
   try {
-    const output = await vmService.deleteSnapshot(name, snapshot, { metadataOnly });
-    void logService.appendLog({ type: 'vm.snapshot.delete', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.deleteSnapshot(uuid, snapshot, { metadataOnly });
+    void logService.appendLog({ type: 'vm.snapshot.delete', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.snapshot.delete', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.snapshot.delete', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.post('/:name/snapshots/:snapshot/revert', async (req, res) => {
+vmsRouter.post('/:uuid/snapshots/:snapshot/revert', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name, snapshot } = req.params;
+  const { uuid, snapshot } = req.params;
+  const log = await logSubject(uuid);
   try {
-    const output = await vmService.revertSnapshot(name, snapshot);
-    void logService.appendLog({ type: 'vm.snapshot.revert', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.revertSnapshot(uuid, snapshot);
+    void logService.appendLog({ type: 'vm.snapshot.revert', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.snapshot.revert', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.snapshot.revert', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.post('/:name/snapshots/:snapshot/to-template', async (req, res) => {
+vmsRouter.post('/:uuid/snapshots/:snapshot/to-template', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name, snapshot } = req.params;
+  const { uuid, snapshot } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { templateName } = req.body as { templateName?: string };
     if (!templateName?.trim()) return res.status(400).json({ error: 'templateName is required' });
@@ -777,15 +832,14 @@ vmsRouter.post('/:name/snapshots/:snapshot/to-template', async (req, res) => {
     // Source template recorded at VM-create time is the authoritative answer —
     // unlike walking the qcow2 backing chain, it stays correct when external
     // snapshots have inserted overlay layers between the active disk and the
-    // original template. Fall back to chain inspection only when metadata is
-    // missing (e.g. VMs created before metadata tracking was added).
+    // original template.
     let sourceTemplateFilename: string | undefined;
     try {
-      const meta = await vmMetaService.getVmMeta(name);
+      const meta = await vmMetaService.getVmMeta(uuid);
       if (meta?.sourceTemplateFilename) {
         sourceTemplateFilename = meta.sourceTemplateFilename;
       } else {
-        const disks = await vmService.getVmDisks(name);
+        const disks = await vmService.getVmDisks(uuid);
         const primaryDisk = disks.find((d) => d.target === 'vda' && d.source);
         if (primaryDisk?.source) {
           const stdout = await run('qemu-img', ['info', '--output=json', primaryDisk.source]);
@@ -799,27 +853,27 @@ vmsRouter.post('/:name/snapshots/:snapshot/to-template', async (req, res) => {
       }
     } catch { /* non-fatal — proceed without logo hint */ }
 
-    const output = await vmService.exportSnapshotAsTemplate(name, snapshot, filename);
+    const output = await vmService.exportSnapshotAsTemplate(uuid, snapshot, filename);
     await storageService.setTemplateDisplayName(filename, templateName.trim());
-    void logService.appendLog({ type: 'vm.snapshot.export', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.snapshot.export', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true, filename, sourceTemplateFilename });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.snapshot.export', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.snapshot.export', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // Firewall
-vmsRouter.get('/:name/firewall', async (req, res) => {
+vmsRouter.get('/:uuid/firewall', requireUuidParam, async (req, res) => {
   try {
-    const cfg = await firewallService.getFirewallConfig(req.params.name);
+    const cfg = await firewallService.getFirewallConfig(req.params.uuid);
     res.json(cfg);
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.put('/:name/firewall', async (req, res) => {
+vmsRouter.put('/:uuid/firewall', requireUuidParam, async (req, res) => {
   try {
     const body = req.body as firewallService.FirewallConfig;
     if (!Array.isArray(body.rules)) return res.status(400).json({ error: 'rules must be an array' });
@@ -830,96 +884,100 @@ vmsRouter.put('/:name/firewall', async (req, res) => {
       allowEstablishedInbound: body.allowEstablishedInbound ?? false,
       allowEstablishedOutbound: body.allowEstablishedOutbound ?? false,
     };
-    await firewallService.saveFirewallConfig(req.params.name, cfg);
+    await firewallService.saveFirewallConfig(req.params.uuid, cfg);
     res.json({ ok: true });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.post('/:name/firewall/apply', async (req, res) => {
+vmsRouter.post('/:uuid/firewall/apply', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     let ip: string | null = null;
-    const meta = await vmMetaService.getVmMeta(name);
+    const meta = await vmMetaService.getVmMeta(uuid);
     if (meta?.networks) {
       const primary = meta.networks.find((n) => n.isPrimary);
       ip = primary?.ip ?? null;
     }
     if (!ip) {
       try {
-        const stdout = await virsh(['domifaddr', validateVmName(name), '--source', 'arp']);
+        const stdout = await virsh(['domifaddr', validateVmUuid(uuid), '--source', 'arp']);
         const match = stdout.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
         if (match) ip = match[1];
       } catch { /* VM not running */ }
     }
     if (!ip) return res.status(400).json({ error: 'Could not resolve VM IP — ensure the VM is running' });
-    const cfg = await firewallService.getFirewallConfig(name);
-    await firewallService.applyFirewallRules(name, ip, cfg);
-    void logService.appendLog({ type: 'vm.firewall.apply', subject: name, status: 'success', output: `Applied ${cfg.rules.length} rule(s) to ${ip}`, durationMs: Date.now() - start });
+    const cfg = await firewallService.getFirewallConfig(uuid);
+    await firewallService.applyFirewallRules(uuid, ip, cfg);
+    void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'success', output: `Applied ${cfg.rules.length} rule(s) to ${ip}`, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.firewall.apply', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // Autostart
-vmsRouter.put('/:name/autostart', async (req, res) => {
+vmsRouter.put('/:uuid/autostart', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { enabled } = req.body as { enabled: boolean };
     if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
-    const output = await vmService.setAutostart(name, enabled);
-    void logService.appendLog({ type: 'vm.autostart.set', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.setAutostart(uuid, enabled);
+    void logService.appendLog({ type: 'vm.autostart.set', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.autostart.set', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.autostart.set', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // Disk resize
-vmsRouter.post('/:name/disks/:target/resize', async (req, res) => {
+vmsRouter.post('/:uuid/disks/:target/resize', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name, target } = req.params;
+  const { uuid, target } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { addGb } = req.body as { addGb: number };
     if (!addGb || addGb <= 0) return res.status(400).json({ error: 'addGb must be a positive number' });
-    const output = await vmService.resizeDisk(name, target, addGb);
-    void logService.appendLog({ type: 'vm.disk.resize', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.resizeDisk(uuid, target, addGb);
+    void logService.appendLog({ type: 'vm.disk.resize', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.disk.resize', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.disk.resize', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // Resource editing
-vmsRouter.put('/:name/resources', async (req, res) => {
+vmsRouter.put('/:uuid/resources', requireUuidParam, async (req, res) => {
   const start = Date.now();
-  const { name } = req.params;
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
   try {
     const { cpus, memoryMb } = req.body as { cpus: number; memoryMb: number };
     if (!cpus || cpus < 1) return res.status(400).json({ error: 'cpus must be ≥ 1' });
     if (!memoryMb || memoryMb < 128) return res.status(400).json({ error: 'memoryMb must be ≥ 128' });
-    const vm = await vmService.getVmInfo(name);
+    const vm = await vmService.getVmInfo(uuid);
     if (vm.status !== 'stopped') return res.status(400).json({ error: 'VM must be stopped before editing resources' });
-    const output = await vmService.updateVmResources(name, cpus, memoryMb);
-    void logService.appendLog({ type: 'vm.resources.update', subject: name, status: 'success', output, durationMs: Date.now() - start });
+    const output = await vmService.updateVmResources(uuid, cpus, memoryMb);
+    void logService.appendLog({ type: 'vm.resources.update', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.resources.update', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.resources.update', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
 // Per-VM stats
-vmsRouter.get('/:name/stats', async (req, res) => {
+vmsRouter.get('/:uuid/stats', requireUuidParam, async (req, res) => {
   try {
-    const stats = await vmService.getVmStats(req.params.name);
+    const stats = await vmService.getVmStats(req.params.uuid);
     if (!stats) return res.status(503).json({ error: 'VM is not running or stats unavailable' });
     res.json(stats);
   } catch (err: unknown) {
@@ -928,10 +986,10 @@ vmsRouter.get('/:name/stats', async (req, res) => {
 });
 
 // Per-VM persistent metrics history (SQLite-backed)
-vmsRouter.get('/:name/metrics', (req, res) => {
+vmsRouter.get('/:uuid/metrics', requireUuidParam, (req, res) => {
   const range = req.query.range === '24h' ? '24h' : '1h';
   try {
-    const history = vmMetricsService.getVmMetricsHistory(req.params.name, range);
+    const history = vmMetricsService.getVmMetricsHistory(req.params.uuid, range);
     res.json({ range, history });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
@@ -940,33 +998,35 @@ vmsRouter.get('/:name/metrics', (req, res) => {
 
 // ─── Device passthrough ───────────────────────────────────────────────────────
 
-vmsRouter.post('/:name/devices', async (req, res) => {
-  const { name } = req.params;
+vmsRouter.post('/:uuid/devices', requireUuidParam, async (req, res) => {
+  const { uuid } = req.params;
   const { deviceId } = req.body as { deviceId?: string };
   if (!deviceId) return res.status(400).json({ error: 'deviceId is required' });
 
   const start = Date.now();
   const trace: TraceEntry[] = [];
+  const log = await logSubject(uuid);
   try {
-    await deviceService.attachDevice(name, deviceId, trace);
-    void logService.appendLog({ type: 'vm.device.attach', subject: name, status: 'success', output: formatTrace(trace), durationMs: Date.now() - start });
+    await deviceService.attachDevice(uuid, deviceId, trace);
+    void logService.appendLog({ type: 'vm.device.attach', ...log, status: 'success', output: formatTrace(trace), durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.device.attach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.device.attach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });
 
-vmsRouter.delete('/:name/devices/:deviceId', async (req, res) => {
-  const { name, deviceId } = req.params;
+vmsRouter.delete('/:uuid/devices/:deviceId', requireUuidParam, async (req, res) => {
+  const { uuid, deviceId } = req.params;
   const start = Date.now();
   const trace: TraceEntry[] = [];
+  const log = await logSubject(uuid);
   try {
-    await deviceService.detachDevice(name, deviceId, trace);
-    void logService.appendLog({ type: 'vm.device.detach', subject: name, status: 'success', output: formatTrace(trace), durationMs: Date.now() - start });
+    await deviceService.detachDevice(uuid, deviceId, trace);
+    void logService.appendLog({ type: 'vm.device.detach', ...log, status: 'success', output: formatTrace(trace), durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.device.detach', subject: name, status: 'error', output: String(err), durationMs: Date.now() - start });
+    void logService.appendLog({ type: 'vm.device.detach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
   }
 });

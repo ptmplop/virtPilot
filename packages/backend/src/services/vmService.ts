@@ -14,6 +14,11 @@ import {
   validateNonNegativeInt,
 } from '../lib/validate.js';
 
+// Most callers now pass a UUID; listVmsRaw() still passes a name when
+// fanning out to per-VM `getVmInfo` lookups, so internal validators must
+// accept both shapes. validateVmName's regex (`[A-Za-z0-9][A-Za-z0-9._-]{0,62}`)
+// permits the 36-character RFC 4122 form, so it's safe to use here.
+
 // ─── Internal virsh helper ────────────────────────────────────────────────────
 
 // Thin wrapper over safeExec.virsh that records the invocation in `trace`

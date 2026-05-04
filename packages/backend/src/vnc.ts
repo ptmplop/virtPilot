@@ -1,7 +1,7 @@
 import net from 'net';
 import { WebSocketServer, WebSocket } from 'ws';
 import { virsh } from './services/safeExec.js';
-import { validateVmName } from './lib/validate.js';
+import { validateVmUuid } from './lib/validate.js';
 
 function pickProtocol(protocols: Set<string>): string | false {
   for (const p of protocols) {
@@ -10,9 +10,9 @@ function pickProtocol(protocols: Set<string>): string | false {
   return false;
 }
 
-async function resolveVncPort(vmName: string): Promise<number | null> {
+async function resolveVncPort(vmUuid: string): Promise<number | null> {
   try {
-    const out = await virsh(['vncdisplay', vmName]);
+    const out = await virsh(['vncdisplay', vmUuid]);
     const match = out.trim().match(/:(\d+)$/);
     if (match) return 5900 + parseInt(match[1], 10);
   } catch { /* VM not running or no VNC */ }
@@ -31,15 +31,15 @@ export function createVncWss(): WebSocketServer {
   wss.on('connection', async (ws, req) => {
     const url = new URL(req.url ?? '', 'http://localhost');
     const rawVm = url.searchParams.get('vm');
-    let vmName: string;
+    let vmUuid: string;
     try {
-      vmName = validateVmName(rawVm);
+      vmUuid = validateVmUuid(rawVm);
     } catch {
       ws.close(1008, 'Invalid vm parameter');
       return;
     }
 
-    const port = await resolveVncPort(vmName);
+    const port = await resolveVncPort(vmUuid);
     if (!port) {
       ws.close(1011, 'No VNC display found for this VM');
       return;

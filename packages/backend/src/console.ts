@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import * as pty from 'node-pty';
 import { config } from './config.js';
-import { validateVmName } from './lib/validate.js';
+import { validateVmUuid } from './lib/validate.js';
 
 // Pick the token-bearing subprotocol so the ws library echoes it back in the
 // 101 Switching Protocols response. Without this the browser tears the
@@ -26,9 +26,9 @@ export function createConsoleWss(): WebSocketServer {
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url ?? '', 'http://localhost');
     const rawVm = url.searchParams.get('vm');
-    let vmName: string;
+    let vmUuid: string;
     try {
-      vmName = validateVmName(rawVm);
+      vmUuid = validateVmUuid(rawVm);
     } catch {
       ws.close(1008, 'Invalid vm parameter');
       return;
@@ -37,7 +37,7 @@ export function createConsoleWss(): WebSocketServer {
     let ptyProcess: ReturnType<typeof pty.spawn> | null = null;
 
     try {
-      ptyProcess = pty.spawn('virsh', ['-c', config.libvirtUri, 'console', vmName, '--force'], {
+      ptyProcess = pty.spawn('virsh', ['-c', config.libvirtUri, 'console', vmUuid, '--force'], {
         name: 'xterm-256color',
         cols: 220,
         rows: 50,

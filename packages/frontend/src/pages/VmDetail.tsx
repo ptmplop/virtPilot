@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
   Copy, Cpu, Disc, Eye, EyeOff, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
@@ -57,30 +57,29 @@ const statusTextColour: Record<VmStatus, string> = {
 };
 
 export function VmDetailPage() {
-  const { name } = useParams<{ name: string }>();
-  const navigate = useNavigate();
+  const { uuid } = useParams<{ uuid: string }>();
   const [tab, setTab] = useState<Tab>('overview');
-  const { data: vm, isLoading } = useVm(name!);
-  const { data: metaData } = useVmMeta(name!);
+  const { data: vm, isLoading } = useVm(uuid!);
+  const { data: metaData } = useVmMeta(uuid!);
   const vmMeta = metaData?.meta ?? null;
-  const action = useVmAction(name!);
+  const action = useVmAction(uuid!);
 
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
-  const rename = useRenameVm(name!);
+  const rename = useRenameVm(uuid!);
 
   const handleRenameStart = () => {
-    setRenameValue(name!);
+    setRenameValue(vm?.name ?? '');
     setRenaming(true);
   };
   const handleRenameCancel = () => setRenaming(false);
   const handleRenameSubmit = async () => {
     const trimmed = renameValue.trim();
-    if (!trimmed || trimmed === name) { setRenaming(false); return; }
+    if (!trimmed || trimmed === vm?.name) { setRenaming(false); return; }
     try {
       await rename.mutateAsync(trimmed);
       setRenaming(false);
-      navigate(`/vms/${trimmed}`, { replace: true });
+      // URL is keyed on UUID — stays valid across renames, no navigation needed.
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to rename VM');
     }
@@ -122,7 +121,7 @@ export function VmDetailPage() {
           </div>
           <p className="text-sm font-semibold text-foreground">VM not found</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            "{name}" does not exist or has been deleted.
+            "{uuid}" does not exist or has been deleted.
           </p>
           <Link to="/" className="mt-5">
             <Button size="sm" variant="secondary">
@@ -172,7 +171,7 @@ export function VmDetailPage() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <h1 className="text-2xl font-bold tracking-tight text-foreground">{name}</h1>
+                    <h1 className="text-2xl font-bold tracking-tight text-foreground">{vm.name}</h1>
                     {vm.status === 'stopped' && (
                       <Tooltip label="Rename VM">
                         <button
@@ -249,7 +248,7 @@ export function VmDetailPage() {
                   </Tooltip>
                 </>
               )}
-              <Link to={`/vms/${name}/console`}>
+              <Link to={`/vms/${uuid}/console`}>
                 <Button size="sm" variant="secondary">
                   <Terminal size={13} /> Console
                 </Button>
@@ -277,13 +276,13 @@ export function VmDetailPage() {
           </div>
 
           {/* Always mount tab panels so in-flight operations (e.g. snapshot progress) survive tab switches */}
-          <div className={tab !== 'overview' ? 'hidden' : undefined}><OverviewTab vm={vm} vmName={name!} /></div>
-          <div className={tab !== 'disks' ? 'hidden' : undefined}><DisksTab vmName={name!} disks={vm.disks} vmStatus={vm.status} /></div>
-          <div className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmName={name!} nics={vm.nics} meta={vmMeta} /></div>
-          <div className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmName={name!} vmStatus={vm.status} /></div>
-          <div className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmName={name!} vmStatus={vm.status} /></div>
-          <div className={tab !== 'devices' ? 'hidden' : undefined}><DevicesTab vmName={name!} /></div>
-          <div className={tab !== 'metrics' ? 'hidden' : undefined}><MetricsTab vmName={name!} vmStatus={vm.status} /></div>
+          <div className={tab !== 'overview' ? 'hidden' : undefined}><OverviewTab vm={vm} vmUuid={uuid!} /></div>
+          <div className={tab !== 'disks' ? 'hidden' : undefined}><DisksTab vmUuid={uuid!} disks={vm.disks} vmStatus={vm.status} /></div>
+          <div className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmUuid={uuid!} nics={vm.nics} meta={vmMeta} /></div>
+          <div className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
+          <div className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmUuid={uuid!} vmStatus={vm.status} /></div>
+          <div className={tab !== 'devices' ? 'hidden' : undefined}><DevicesTab vmUuid={uuid!} /></div>
+          <div className={tab !== 'metrics' ? 'hidden' : undefined}><MetricsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
         </>
       )}
     </Layout>
@@ -294,15 +293,15 @@ export function VmDetailPage() {
 
 function OverviewTab({
   vm,
-  vmName,
+  vmUuid,
 }: {
   vm: NonNullable<ReturnType<typeof useVm>['data']>;
-  vmName: string;
+  vmUuid: string;
 }) {
-  const { data: metaData } = useVmMeta(vmName);
+  const { data: metaData } = useVmMeta(vmUuid);
   const meta = metaData?.meta ?? null;
   const ip = metaData?.ip ?? null;
-  const credentials = useVmCredentials(vmName);
+  const credentials = useVmCredentials(vmUuid);
   const [showPassword, setShowPassword] = useState(false);
   const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
   const handleTogglePassword = async () => {
@@ -334,8 +333,8 @@ function OverviewTab({
   const [editResourcesOpen, setEditResourcesOpen] = useState(false);
   const [editCpus, setEditCpus] = useState(String(vm.cpus));
   const [editMemMb, setEditMemMb] = useState(String(vm.memoryMb));
-  const updateResources = useUpdateVmResources(vmName);
-  const setAutostart = useSetAutostart(vmName);
+  const updateResources = useUpdateVmResources(vmUuid);
+  const setAutostart = useSetAutostart(vmUuid);
 
   const handleSaveResources = async () => {
     const cpus = parseInt(editCpus, 10);
@@ -633,11 +632,11 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 // ─── Disks ────────────────────────────────────────────────────────────────────
 
 function DisksTab({
-  vmName,
+  vmUuid,
   disks,
   vmStatus,
 }: {
-  vmName: string;
+  vmUuid: string;
   disks: VmDisk[];
   vmStatus: import('@/types').VmStatus;
 }) {
@@ -647,13 +646,13 @@ function DisksTab({
   const [isoFilename, setIsoFilename] = useState('');
   const [resizingDisk, setResizingDisk] = useState<VmDisk | null>(null);
   const [resizeAddGb, setResizeAddGb] = useState('10');
-  const addDisk = useAddDisk(vmName);
-  const detachDisk = useDetachDisk(vmName);
-  const attachCdrom = useAttachCdrom(vmName);
-  const detachCdrom = useDetachCdrom(vmName);
-  const resizeDisk = useResizeDisk(vmName);
-  const setBootOrder = useSetBootOrder(vmName);
-  const bootOnce = useBootOnce(vmName);
+  const addDisk = useAddDisk(vmUuid);
+  const detachDisk = useDetachDisk(vmUuid);
+  const attachCdrom = useAttachCdrom(vmUuid);
+  const detachCdrom = useDetachCdrom(vmUuid);
+  const resizeDisk = useResizeDisk(vmUuid);
+  const setBootOrder = useSetBootOrder(vmUuid);
+  const bootOnce = useBootOnce(vmUuid);
   const { data: isos = [] } = useIsos();
 
   // Exclude the cloud-init seed ISO — it's a system detail, not user-managed
@@ -1076,7 +1075,7 @@ function snapshotStateLabel(vmState: string): string {
   }
 }
 
-function SnapshotsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }) {
+function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [revertTarget, setRevertTarget] = useState<string | null>(null);
   const [toTemplateTarget, setToTemplateTarget] = useState<string | null>(null);
@@ -1088,19 +1087,19 @@ function SnapshotsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus
     pendingRevert: allPendingReverts, setPendingRevert: storePendingRevert,
     pendingConvert: allPendingConverts, setPendingConvert: storePendingConvert,
   } = useVmOpsStore();
-  const pendingSnapshot = allPendingSnapshots[vmName] ?? null;
-  const pendingRevert = allPendingReverts[vmName] ?? null;
-  const pendingConvert = allPendingConverts[vmName] ?? null;
-  const setPendingSnapshot = (name: string | null) => storePendingSnapshot(vmName, name);
-  const setPendingRevert = (name: string | null) => storePendingRevert(vmName, name);
-  const setPendingConvert = (name: string | null) => storePendingConvert(vmName, name);
+  const pendingSnapshot = allPendingSnapshots[vmUuid] ?? null;
+  const pendingRevert = allPendingReverts[vmUuid] ?? null;
+  const pendingConvert = allPendingConverts[vmUuid] ?? null;
+  const setPendingSnapshot = (name: string | null) => storePendingSnapshot(vmUuid, name);
+  const setPendingRevert = (name: string | null) => storePendingRevert(vmUuid, name);
+  const setPendingConvert = (name: string | null) => storePendingConvert(vmUuid, name);
 
-  const { data: snapshots = [], isLoading } = useSnapshots(vmName);
+  const { data: snapshots = [], isLoading } = useSnapshots(vmUuid);
   const { templates: templateLogos, setTemplateLogo } = useLogoStore();
-  const createSnapshot = useCreateSnapshot(vmName);
-  const deleteSnapshot = useDeleteSnapshot(vmName);
-  const revertSnapshot = useRevertSnapshot(vmName);
-  const snapshotToTemplate = useSnapshotToTemplate(vmName);
+  const createSnapshot = useCreateSnapshot(vmUuid);
+  const deleteSnapshot = useDeleteSnapshot(vmUuid);
+  const revertSnapshot = useRevertSnapshot(vmUuid);
+  const snapshotToTemplate = useSnapshotToTemplate(vmUuid);
 
   const handleCreate = async () => {
     const name = snapshotName.trim();
@@ -1404,18 +1403,18 @@ interface AddPortForwardForm {
 const defaultPfForm: AddPortForwardForm = { protocol: 'tcp', hostPort: '', vmPort: '', description: '' };
 
 function PortForwardsSection({
-  vmName,
+  vmUuid,
   networkId,
   mac,
 }: {
-  vmName: string;
+  vmUuid: string;
   networkId: string;
   mac: string;
 }) {
-  const { data: allForwards = [] } = useVmPortForwards(vmName);
+  const { data: allForwards = [] } = useVmPortForwards(vmUuid);
   const forwards = allForwards.filter((f) => f.networkId === networkId && f.mac === mac);
   const createForward = useCreatePortForward(networkId);
-  const deleteForward = useDeletePortForward(networkId, vmName);
+  const deleteForward = useDeletePortForward(networkId, vmUuid);
 
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState<AddPortForwardForm>(defaultPfForm);
@@ -1427,7 +1426,7 @@ function PortForwardsSection({
   const handleAdd = async () => {
     try {
       await createForward.mutateAsync({
-        vmName,
+        vmUuid,
         mac,
         protocol: form.protocol,
         hostPort: Number(form.hostPort),
@@ -1583,7 +1582,7 @@ function IpCell({
   meta,
   networkType,
   networkId,
-  vmName,
+  vmUuid,
 }: {
   nic: VmNic;
   ifAddrs: Record<string, string>;
@@ -1591,7 +1590,7 @@ function IpCell({
   meta: VmMeta | null;
   networkType?: string;
   networkId?: string;
-  vmName: string;
+  vmUuid: string;
 }) {
   const reservation = reservations.find((r) => r.mac === nic.mac);
   const liveIp = ifAddrs[nic.mac];
@@ -1603,7 +1602,7 @@ function IpCell({
   const isReserved = !!reservation;
   const canReserve = networkType === 'nat' && !!networkId && !!liveIp && !isReserved;
 
-  const reserveIp = useReserveIp(networkId ?? '', vmName);
+  const reserveIp = useReserveIp(networkId ?? '', vmUuid);
 
   const handleReserve = async () => {
     try {
@@ -1685,7 +1684,7 @@ function kbpsFromMbpsInput(input: string): number {
   return Math.floor(n * 1024);
 }
 
-function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; meta: VmMeta | null }) {
+function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; meta: VmMeta | null }) {
   const [addOpen, setAddOpen] = useState(false);
   const [selectedNetworkId, setSelectedNetworkId] = useState('');
   const [selectedStaticIp, setSelectedStaticIp] = useState('');
@@ -1696,11 +1695,11 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
   const [bwInbound, setBwInbound] = useState('');
   const [bwOutbound, setBwOutbound] = useState('');
   const { data: networks } = useNetworks();
-  const { data: ifAddrs = {} } = useVmIfAddrs(vmName);
-  const { data: reservations = [] } = useVmReservations(vmName);
-  const addNic = useAddNic(vmName);
-  const detachNic = useDetachNic(vmName);
-  const setBandwidth = useSetNicBandwidth(vmName);
+  const { data: ifAddrs = {} } = useVmIfAddrs(vmUuid);
+  const { data: reservations = [] } = useVmReservations(vmUuid);
+  const addNic = useAddNic(vmUuid);
+  const detachNic = useDetachNic(vmUuid);
+  const setBandwidth = useSetNicBandwidth(vmUuid);
 
   const attachedBridges = new Set(nics.map((n) => n.source));
   const availableNetworks = (networks ?? []).filter((n) => !attachedBridges.has(n.bridge));
@@ -1849,7 +1848,7 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
                           meta={meta}
                           networkType={network?.type}
                           networkId={network?.id}
-                          vmName={vmName}
+                          vmUuid={vmUuid}
                         />
                       </td>
                       <td className="px-5 py-3.5 text-xs text-muted-foreground">{nic.model}</td>
@@ -1913,7 +1912,7 @@ function NetworkTab({ vmName, nics, meta }: { vmName: string; nics: VmNic[]; met
                 {' '}on{' '}
                 <span className="font-medium text-foreground">{network.name}</span>
               </p>
-              <PortForwardsSection vmName={vmName} networkId={network.id} mac={nic.mac} />
+              <PortForwardsSection vmUuid={vmUuid} networkId={network.id} mac={nic.mac} />
             </div>
           );
         })}
@@ -2243,13 +2242,13 @@ function FirewallRulesTable({
   );
 }
 
-function FirewallTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }) {
+function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }) {
   const [addDirection, setAddDirection] = useState<'inbound' | 'outbound' | null>(null);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleForm>(defaultRuleForm);
-  const { data: cfg, isLoading } = useVmFirewall(vmName);
-  const saveFirewall = useSaveFirewall(vmName);
-  const applyFirewall = useApplyFirewall(vmName);
+  const { data: cfg, isLoading } = useVmFirewall(vmUuid);
+  const saveFirewall = useSaveFirewall(vmUuid);
+  const applyFirewall = useApplyFirewall(vmUuid);
 
   const current = cfg ?? emptyFirewallConfig;
   const portlessProtocol = form.protocol === 'icmp' || form.protocol === 'all';
@@ -2729,17 +2728,17 @@ function DeviceRow({
   );
 }
 
-function DevicesTab({ vmName }: { vmName: string }) {
+function DevicesTab({ vmUuid }: { vmUuid: string }) {
   const { data: allDevices = [], isLoading } = useHostDevices();
-  const attach = useAttachDevice(vmName);
-  const detach = useDetachDevice(vmName);
+  const attach = useAttachDevice(vmUuid);
+  const detach = useDetachDevice(vmUuid);
   const [typeFilter, setTypeFilter] = useState<'all' | 'pci' | 'usb'>('all');
 
   const filterFn = (d: HostDevice) => typeFilter === 'all' || d.type === typeFilter;
 
-  const attached = allDevices.filter((d) => d.assignedTo === vmName && filterFn(d));
+  const attached = allDevices.filter((d) => d.assignedTo === vmUuid && filterFn(d));
   const available = allDevices.filter((d) => !d.assignedTo && filterFn(d));
-  const inUse = allDevices.filter((d) => d.assignedTo && d.assignedTo !== vmName && filterFn(d));
+  const inUse = allDevices.filter((d) => d.assignedTo && d.assignedTo !== vmUuid && filterFn(d));
 
   const handleAttach = async (deviceId: string) => {
     try {
@@ -2957,14 +2956,14 @@ function formatChartTime(ts: number, range: ChartRange): string {
   return `${hh}:${mm}`;
 }
 
-function MetricsTab({ vmName, vmStatus }: { vmName: string; vmStatus: VmStatus }) {
+function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }) {
   const isRunning = vmStatus === 'running';
-  const { data: stats, isError } = useVmStats(vmName, isRunning);
+  const { data: stats, isError } = useVmStats(vmUuid, isRunning);
 
   const [range, setRange] = useState<ChartRange>('1h');
   const historyEnabled = range !== 'live';
   const { data: metrics } = useVmMetricsHistory(
-    vmName,
+    vmUuid,
     range === 'live' ? '1h' : range,
     historyEnabled,
   );

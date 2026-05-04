@@ -1491,8 +1491,9 @@ export function VmCreatePage() {
 
   const handleCreate = async () => {
     try {
+      let createdUuid: string;
       if (isIsoInstall) {
-        await createVm.mutateAsync({
+        const result = await createVm.mutateAsync({
           name: form.name,
           cpus: parseInt(form.cpus, 10),
           memoryMb: parseInt(form.memoryMb, 10),
@@ -1509,8 +1510,9 @@ export function VmCreatePage() {
             isPrimary: s.isPrimary,
           })),
         });
+        createdUuid = result.uuid;
       } else {
-        await createVm.mutateAsync({
+        const result = await createVm.mutateAsync({
           name: form.name,
           cpus: parseInt(form.cpus, 10),
           memoryMb: parseInt(form.memoryMb, 10),
@@ -1535,6 +1537,7 @@ export function VmCreatePage() {
               .filter(Boolean),
           },
         });
+        createdUuid = result.uuid;
       }
       const inheritedSlug = isIsoInstall
         ? isoLogos[form.isoFilename]
@@ -1542,7 +1545,7 @@ export function VmCreatePage() {
       if (inheritedSlug) setVmLogo(form.name, inheritedSlug);
       if (startAfterCreate) {
         try {
-          await api.post(`/api/vms/${form.name}/start`);
+          await api.post(`/api/vms/${createdUuid}/start`);
           toast.success(`VM "${form.name}" created and started`);
         } catch {
           toast.success(`VM "${form.name}" created`);

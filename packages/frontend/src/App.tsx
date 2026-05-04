@@ -44,7 +44,7 @@ export default function App() {
         }
       />
       <Route
-        path="/vms/:name"
+        path="/vms/:uuid"
         element={
           <ProtectedRoute>
             <VmDetailPage />
@@ -52,7 +52,7 @@ export default function App() {
         }
       />
       <Route
-        path="/vms/:name/console"
+        path="/vms/:uuid/console"
         element={
           <ProtectedRoute>
             <VmConsolePage />
@@ -124,7 +124,7 @@ export default function App() {
         }
       />
       <Route
-        path="/backups/:vmName"
+        path="/backups/:vmUuid"
         element={
           <ProtectedRoute>
             <BackupsPage />

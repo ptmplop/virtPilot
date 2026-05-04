@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import * as vmMetaService from './services/vmMetaService.js';
 import { ensureHostSshKeypair } from './services/cloudInitService.js';
 import { virsh } from './services/safeExec.js';
-import { validateVmName } from './lib/validate.js';
+import { validateVmUuid } from './lib/validate.js';
 
 function pickProtocol(protocols: Set<string>): string | false {
   for (const p of protocols) {
@@ -13,9 +13,9 @@ function pickProtocol(protocols: Set<string>): string | false {
   return false;
 }
 
-async function resolveVmIp(vmName: string): Promise<string | null> {
+async function resolveVmIp(vmUuid: string): Promise<string | null> {
   try {
-    const meta = await vmMetaService.getVmMeta(vmName);
+    const meta = await vmMetaService.getVmMeta(vmUuid);
     if (meta?.networks) {
       const primary = meta.networks.find((n) => n.isPrimary);
       if (primary?.ip) return primary.ip;
@@ -23,7 +23,7 @@ async function resolveVmIp(vmName: string): Promise<string | null> {
   } catch { /* ignore */ }
 
   try {
-    const out = await virsh(['domifaddr', vmName, '--source', 'arp']);
+    const out = await virsh(['domifaddr', vmUuid, '--source', 'arp']);
     const match = out.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
     if (match) return match[1];
   } catch { /* VM not running or no ARP entry yet */ }
@@ -50,9 +50,9 @@ export function createSshWss(): WebSocketServer {
   wss.on('connection', async (ws, req) => {
     const url = new URL(req.url ?? '', 'http://localhost');
     const rawVm = url.searchParams.get('vm');
-    let vmName: string;
+    let vmUuid: string;
     try {
-      vmName = validateVmName(rawVm);
+      vmUuid = validateVmUuid(rawVm);
     } catch {
       ws.close(1008, 'Invalid vm parameter');
       return;
@@ -62,17 +62,19 @@ export function createSshWss(): WebSocketServer {
       if (ws.readyState === WebSocket.OPEN) ws.send(msg);
     };
 
-    send(`\r\n\x1b[2mResolving IP for ${vmName}…\x1b[0m\r\n`);
+    const meta = await vmMetaService.getVmMeta(vmUuid).catch(() => null);
+    const displayName = meta?.name ?? vmUuid;
 
-    const ip = await resolveVmIp(vmName);
+    send(`\r\n\x1b[2mResolving IP for ${displayName}…\x1b[0m\r\n`);
+
+    const ip = await resolveVmIp(vmUuid);
     if (!ip) {
-      send(`\r\n\x1b[31mCould not determine an IP address for "${vmName}".\x1b[0m\r\n`);
+      send(`\r\n\x1b[31mCould not determine an IP address for "${displayName}".\x1b[0m\r\n`);
       send(`\x1b[2mEnsure the VM is running and has been assigned an IP.\x1b[0m\r\n`);
       ws.close(1011, 'No IP');
       return;
     }
 
-    const meta = await vmMetaService.getVmMeta(vmName).catch(() => null);
     const username = meta?.username ?? 'root';
 
     const privateKey = await findHostPrivateKey();

@@ -6,7 +6,7 @@ import { config } from '../config.js';
 import { getNetwork, parseCidr, enumerateUsableIps } from './networkService.js';
 import { run, runSafe, virsh } from './safeExec.js';
 import {
-  validateVmName,
+  validateVmUuid,
   validateMac,
   validateIpv4,
   validatePort,
@@ -16,7 +16,7 @@ import {
 export interface PortForward {
   id: string;
   networkId: string;
-  vmName: string;
+  vmUuid: string;
   mac: string;
   vmIp: string;
   protocol: 'tcp' | 'udp';
@@ -31,7 +31,7 @@ export interface DhcpReservation {
   libvirtName: string;
   mac: string;
   ip: string;
-  vmName: string;
+  vmUuid: string;
   createdAt: string;
 }
 
@@ -67,9 +67,9 @@ function ipToNum(ip: string): number {
   return ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0;
 }
 
-async function resolveCurrentVmIp(vmName: string, mac: string): Promise<string | null> {
+async function resolveCurrentVmIp(vmUuid: string, mac: string): Promise<string | null> {
   try {
-    const stdout = await virsh(['domifaddr', validateVmName(vmName), '--source', 'arp']);
+    const stdout = await virsh(['domifaddr', validateVmUuid(vmUuid), '--source', 'arp']);
     for (const line of stdout.split('\n')) {
       if (line.toLowerCase().includes(mac.toLowerCase())) {
         const m = line.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
@@ -97,7 +97,7 @@ async function virshNetUpdate(libvirtName: string, op: 'add' | 'delete', xml: st
   }
 }
 
-async function ensureReservation(networkId: string, vmName: string, macRaw: string): Promise<string> {
+async function ensureReservation(networkId: string, vmUuid: string, macRaw: string): Promise<string> {
   const mac = validateMac(macRaw);
   const reservations = await readReservations();
   const existing = reservations.find((r) => r.networkId === networkId && r.mac === mac);
@@ -117,7 +117,7 @@ async function ensureReservation(networkId: string, vmName: string, macRaw: stri
     ...reservations.filter((r) => r.networkId === networkId).map((r) => r.ip),
   ]);
 
-  const currentIp = await resolveCurrentVmIp(vmName, mac);
+  const currentIp = await resolveCurrentVmIp(vmUuid, mac);
   const available = (currentIp && !takenIps.has(currentIp))
     ? currentIp
     : (() => {
@@ -139,7 +139,7 @@ async function ensureReservation(networkId: string, vmName: string, macRaw: stri
     libvirtName: network.libvirtName,
     mac,
     ip: available,
-    vmName,
+    vmUuid,
     createdAt: new Date().toISOString(),
   };
   await writeReservations([...reservations, reservation]);
@@ -161,6 +161,15 @@ async function releaseReservationIfUnused(networkId: string, mac: string): Promi
   await writeReservations(
     reservations.filter((r) => !(r.networkId === networkId && r.mac === mac))
   );
+}
+
+// Looks up the friendly VM name for a given UUID. Used solely for human-readable
+// error messages — never as an authentication or routing key.
+async function lookupVmName(vmUuid: string): Promise<string> {
+  // Lazy import to avoid a circular dependency between portForwardService and
+  // vmMetaService at module load time.
+  const meta = await (await import('./vmMetaService.js')).getVmMeta(vmUuid);
+  return meta?.name ?? vmUuid;
 }
 
 function natRuleArgs(fwd: PortForward, op: '-A' | '-D' | '-C'): string[] {
@@ -219,21 +228,21 @@ export async function listPortForwards(networkId?: string): Promise<PortForward[
   return networkId ? forwards.filter((f) => f.networkId === networkId) : forwards;
 }
 
-export async function getPortForwardsForVm(vmName: string): Promise<PortForward[]> {
+export async function getPortForwardsForVm(vmUuid: string): Promise<PortForward[]> {
   const forwards = await readForwards();
-  return forwards.filter((f) => f.vmName === vmName);
+  return forwards.filter((f) => f.vmUuid === vmUuid);
 }
 
 export async function createPortForward(opts: {
   networkId: string;
-  vmName: string;
+  vmUuid: string;
   mac: string;
   protocol: 'tcp' | 'udp';
   hostPort: number;
   vmPort: number;
   description?: string;
 }): Promise<PortForward> {
-  const vmName = validateVmName(opts.vmName);
+  const vmUuid = validateVmUuid(opts.vmUuid);
   const mac = validateMac(opts.mac);
   const protocol = validateProtocol(opts.protocol);
   if (protocol !== 'tcp' && protocol !== 'udp') throw new Error('Only tcp/udp supported');
@@ -243,15 +252,16 @@ export async function createPortForward(opts: {
   const forwards = await readForwards();
   const conflict = forwards.find((f) => f.hostPort === hostPort && f.protocol === protocol);
   if (conflict) {
-    throw new Error(`Host port ${hostPort}/${protocol} is already forwarded to VM "${conflict.vmName}"`);
+    const conflictName = await lookupVmName(conflict.vmUuid);
+    throw new Error(`Host port ${hostPort}/${protocol} is already forwarded to VM "${conflictName}"`);
   }
 
-  const vmIp = await ensureReservation(opts.networkId, vmName, mac);
+  const vmIp = await ensureReservation(opts.networkId, vmUuid, mac);
 
   const forward: PortForward = {
     id: randomUUID(),
     networkId: opts.networkId,
-    vmName,
+    vmUuid,
     mac,
     vmIp,
     protocol,
@@ -276,33 +286,26 @@ export async function deletePortForward(id: string): Promise<void> {
   await releaseReservationIfUnused(forward.networkId, forward.mac);
 }
 
-export async function deletePortForwardsForVm(vmName: string): Promise<void> {
+export async function deletePortForwardsForVm(vmUuid: string): Promise<void> {
   const forwards = await readForwards();
-  const mine = forwards.filter((f) => f.vmName === vmName);
+  const mine = forwards.filter((f) => f.vmUuid === vmUuid);
   for (const fwd of mine) {
     await removeIptablesRules(fwd);
   }
-  const remaining = forwards.filter((f) => f.vmName !== vmName);
+  const remaining = forwards.filter((f) => f.vmUuid !== vmUuid);
   await writeForwards(remaining);
   for (const fwd of mine) {
     await releaseReservationIfUnused(fwd.networkId, fwd.mac);
   }
 }
 
-export async function reserveVmIp(networkId: string, vmName: string, mac: string): Promise<string> {
-  return ensureReservation(networkId, vmName, mac);
+export async function reserveVmIp(networkId: string, vmUuid: string, mac: string): Promise<string> {
+  return ensureReservation(networkId, vmUuid, mac);
 }
 
-export async function getReservationsForVm(vmName: string): Promise<DhcpReservation[]> {
+export async function getReservationsForVm(vmUuid: string): Promise<DhcpReservation[]> {
   const reservations = await readReservations();
-  return reservations.filter((r) => r.vmName === vmName);
-}
-
-export async function renameVmReferences(oldName: string, newName: string): Promise<void> {
-  const [forwards, reservations] = await Promise.all([readForwards(), readReservations()]);
-  const updatedForwards = forwards.map((f) => f.vmName === oldName ? { ...f, vmName: newName } : f);
-  const updatedReservations = reservations.map((r) => r.vmName === oldName ? { ...r, vmName: newName } : r);
-  await Promise.all([writeForwards(updatedForwards), writeReservations(updatedReservations)]);
+  return reservations.filter((r) => r.vmUuid === vmUuid);
 }
 
 export async function applyAllRules(): Promise<void> {

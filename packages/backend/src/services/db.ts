@@ -34,7 +34,7 @@ const migrations: Migration[] = [
     up: (db) => {
       db.exec(`
         CREATE TABLE vm_metrics (
-          vm_name        TEXT    NOT NULL,
+          vm_uuid        TEXT    NOT NULL,
           ts             INTEGER NOT NULL,
           cpu_percent    REAL    NOT NULL,
           mem_used_mb    INTEGER NOT NULL,
@@ -43,7 +43,7 @@ const migrations: Migration[] = [
           disk_write_bps REAL    NOT NULL,
           net_rx_bps     REAL    NOT NULL,
           net_tx_bps     REAL    NOT NULL,
-          PRIMARY KEY (vm_name, ts)
+          PRIMARY KEY (vm_uuid, ts)
         );
         CREATE INDEX idx_vm_metrics_ts ON vm_metrics (ts);
       `);
