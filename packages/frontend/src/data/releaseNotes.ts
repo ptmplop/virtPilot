@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.0.5',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: 'Snapshot revert and snapshot-export-to-template still failed after v2.0.4, this time on the *write* side. `qemu-img create -b sealed overlay` couldn\'t create the revert overlay inside `vms/<uuid>/` (the dir was 0755 owned virtpilot:virtpilot — group can read+traverse but not write), and `qemu-img convert ... templates/<dest>.qcow2` couldn\'t write into the templates dir for the same reason. v2.0.5 bumps the storage subdirs to mode 0770 in `ensureDirs()` (templates, isos, vms, cloud-init, backups) so libvirt-qemu — a member of the virtpilot group via v1.21.6\'s group plumbing — can write into them. Per-VM dirs are also chmodded to 0770 in `createVmDisk` / `createBlankPrimaryDisk` / `createBlankDisk`. The parent `/var/lib/virtpilot` stays at 0750 from install.sh — the group can still traverse to find subdirs but can\'t see siblings.' },
+    ],
+  },
+  {
     version: '2.0.4',
     date: '2026-05-04',
     changes: [

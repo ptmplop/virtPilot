@@ -6,8 +6,15 @@ import { type TraceEntry, execTraced } from './traceService.js';
 import { validateVmUuid, validateFilename, validatePositiveInt } from '../lib/validate.js';
 
 export async function ensureDirs(): Promise<void> {
+  // 0770 lets libvirt-qemu (a member of the virtpilot group via v1.21.6's
+  // group plumbing) write into these dirs. Required because qemu-img
+  // operations against snapshot overlays, revert overlays, and exported
+  // templates run as libvirt-qemu via sudo and need write access to the
+  // destination directory. The parent /var/lib/virtpilot stays 0750 (set by
+  // install.sh) so the group can still traverse but can't see siblings.
   for (const dir of [config.templatesDir, config.isosDir, config.vmsDir, config.cloudInitDir, config.backupRoot]) {
     await fs.mkdir(dir, { recursive: true });
+    await fs.chmod(dir, 0o770).catch(() => { /* unprivileged user can't chmod parent — install.sh sets it up */ });
   }
 }
 
@@ -102,6 +109,9 @@ export async function createVmDisk(vmUuidRaw: string, templateFilenameRaw: strin
   const templatePath = path.join(config.templatesDir, templateFilename);
   const vmDir = path.join(config.vmsDir, vmUuid);
   await fs.mkdir(vmDir, { recursive: true });
+  // 0770 so libvirt-qemu (in virtpilot group) can write snapshot overlays,
+  // revert overlays, and similar mid-life qemu-img output here.
+  await fs.chmod(vmDir, 0o770).catch(() => {});
   const diskPath = path.join(vmDir, 'disk.qcow2');
   await execTraced(
     'qemu-img',
@@ -116,6 +126,7 @@ export async function createBlankPrimaryDisk(vmUuidRaw: string, sizeGbRaw: numbe
   const sizeGb = validatePositiveInt(sizeGbRaw, 65536);
   const vmDir = path.join(config.vmsDir, vmUuid);
   await fs.mkdir(vmDir, { recursive: true });
+  await fs.chmod(vmDir, 0o770).catch(() => {});
   const diskPath = path.join(vmDir, 'disk.qcow2');
   await execTraced('qemu-img', ['create', '-f', 'qcow2', diskPath, `${sizeGb}G`], trace ?? []);
   return diskPath;
@@ -127,6 +138,7 @@ export async function createBlankDisk(vmUuidRaw: string, diskIndexRaw: number, s
   const sizeGb = validatePositiveInt(sizeGbRaw, 65536);
   const vmDir = path.join(config.vmsDir, vmUuid);
   await fs.mkdir(vmDir, { recursive: true });
+  await fs.chmod(vmDir, 0o770).catch(() => {});
   const diskPath = path.join(vmDir, `extra-disk-${diskIndex}.qcow2`);
   await execTraced('qemu-img', ['create', '-f', 'qcow2', diskPath, `${sizeGb}G`], trace ?? []);
   return diskPath;
