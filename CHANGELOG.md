@@ -19,7 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`name.txt` marker inside each `${vmsDir}/${uuid}/`** records the VM's current friendly name for operators sshing into the host. `ls $vmsDir` shows UUIDs; `cat $uuid/name.txt` maps each one back to its label without going through libvirt or the dashboard.
 - **`subjectUuid` field on log entries** lets the Logs page group VM-scoped events across renames. The `subject` field continues to be the friendly name at write time, so the log line stays human-readable; `subjectUuid` carries the immutable identity.
 
-
+## [1.22.0] — 2026-05-04
 
 ### Changed
 
