@@ -154,9 +154,22 @@ log "Build complete"
 # upgrade actually works. daemon-reload picks up the change before the
 # restart below.
 UNIT_FILE="/etc/systemd/system/virtpilot.service"
+UNIT_CHANGED=false
 if [[ -f "${UNIT_FILE}" ]] && grep -q '^NoNewPrivileges=' "${UNIT_FILE}"; then
   info "Removing NoNewPrivileges= from ${UNIT_FILE} (broke sudo-based upgrade flow)"
   sed -i '/^NoNewPrivileges=/d' "${UNIT_FILE}"
+  UNIT_CHANGED=true
+fi
+# Pre-v1.21.10 installs pinned CapabilityBoundingSet to {CAP_NET_ADMIN,
+# CAP_NET_RAW}. That bounding set strips CAP_SETUID/CAP_SETGID/CAP_AUDIT_WRITE
+# from setuid sudo when it execs, so every sudo invocation (including the new
+# libvirt-qemu path used by backups) fails with "unable to change to root gid".
+if [[ -f "${UNIT_FILE}" ]] && grep -q '^CapabilityBoundingSet=' "${UNIT_FILE}"; then
+  info "Removing CapabilityBoundingSet= from ${UNIT_FILE} (broke sudo)"
+  sed -i '/^CapabilityBoundingSet=/d' "${UNIT_FILE}"
+  UNIT_CHANGED=true
+fi
+if [[ "${UNIT_CHANGED}" == true ]]; then
   systemctl daemon-reload
   log "Unit file healed"
 fi

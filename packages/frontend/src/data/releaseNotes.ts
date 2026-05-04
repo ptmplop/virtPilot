@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.21.10',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: 'The v1.21.9 backup fix died inside sudo with `unable to change to root gid: Operation not permitted` and `error initializing audit plugin sudoers_audit`. v1.21.0 pinned `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW` on `virtpilot.service`. The bounding set persists across `execve`, so when the setuid-root sudo binary takes over it lacks `CAP_SETUID`, `CAP_SETGID` and `CAP_AUDIT_WRITE` — sudo\'s first `setgid(0)` and the audit plugin\'s `auditctl` calls both `EPERM` out, and the entire invocation aborts before it ever reaches `qemu-img`. Same root cause would silently break `sudo systemd-run` (in-app self-upgrade) and `sudo apt-get` (apt upgrade flow); v1.21.8 only removed `NoNewPrivileges`, not the bounding set, so those paths were one user-test away from the same wall. The bounding set now drops back to the systemd default — `ProtectSystem=strict` + `ProtectKernel*` + `ReadWritePaths` are still in force for the real isolation, and the blast-radius argument for pinning the bounding set is illusory anyway since the service already has sudo rights to apt-get/systemctl per `/etc/sudoers.d/virtpilot`. `update.sh` strips `CapabilityBoundingSet=` from any pre-existing live unit and runs `daemon-reload` before restart, so a one-time `sudo bash /usr/local/virtpilot/update.sh` heals an already-stuck install.' },
+    ],
+  },
+  {
     version: '1.21.9',
     date: '2026-05-04',
     changes: [
