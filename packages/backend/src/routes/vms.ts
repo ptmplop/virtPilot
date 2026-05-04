@@ -488,6 +488,22 @@ vmsRouter.delete('/:uuid', requireUuidParam, async (req, res) => {
     // Default `deleteStorage=true`: a VM the user just deleted shouldn't leave
     // multi-GB qcow2 disks lying around. Pass `?deleteStorage=false` to keep them.
     const deleteStorage = req.query.deleteStorage !== 'false';
+
+    // Capture the VM's primary IP BEFORE undefine so we can target the
+    // FORWARD jump rules precisely. Falls back to the meta record's static
+    // allocation if the live ARP entry has expired.
+    let primaryIp: string | null = null;
+    try {
+      const meta = await vmMetaService.getVmMeta(uuid);
+      const primary = meta?.networks?.find((n) => n.isPrimary);
+      primaryIp = primary?.ip ?? null;
+      if (!primaryIp) {
+        const stdout = await virsh(['domifaddr', validateVmUuid(uuid), '--source', 'arp']);
+        const match = stdout.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
+        if (match) primaryIp = match[1];
+      }
+    } catch { /* VM may already be unreachable */ }
+
     const output = await vmService.deleteVm(uuid, deleteStorage);
     if (deleteStorage) {
       await storageService.deleteVmDir(uuid);
@@ -498,6 +514,10 @@ vmsRouter.delete('/:uuid', requireUuidParam, async (req, res) => {
     await networkService.deallocateVmIps(uuid);
     await portForwardService.deletePortForwardsForVm(uuid);
     await vmMetaService.deleteVmMeta(uuid);
+    // Drop iptables chains and (if we have the IP) the FORWARD jump rules.
+    // Without this, leftover rules would still match if the same IP later
+    // gets allocated to a different VM.
+    await firewallService.removeVmFirewall(uuid, primaryIp);
     await firewallService.deleteFirewallConfig(uuid);
     vmMetricsService.deleteVmMetrics(uuid);
     void logService.appendLog({ type: 'vm.delete', ...log, status: 'success', output, durationMs: Date.now() - start });

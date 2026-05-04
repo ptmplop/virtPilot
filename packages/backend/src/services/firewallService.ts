@@ -161,12 +161,20 @@ export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: F
   await run('iptables', ['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
 }
 
-export async function removeVmFirewall(vmUuid: string, vmIpRaw: string): Promise<void> {
-  const vmIp = validateIpv4(vmIpRaw);
+export async function removeVmFirewall(vmUuid: string, vmIpRaw?: string | null): Promise<void> {
   const inC = inChain(vmUuid);
   const outC = outChain(vmUuid);
-  await runSafe('iptables', ['-D', 'FORWARD', '-d', vmIp, '-j', inC]);
-  await runSafe('iptables', ['-D', 'FORWARD', '-s', vmIp, '-j', outC]);
+  // If we know the VM's IP, drop the FORWARD jump rules that pivot on it.
+  // Without it we can't target the rules precisely — leave them; flushing
+  // the chains below makes them no-ops, and the next `applyFirewallRules`
+  // run rebuilds correctly.
+  if (vmIpRaw) {
+    try {
+      const vmIp = validateIpv4(vmIpRaw);
+      await runSafe('iptables', ['-D', 'FORWARD', '-d', vmIp, '-j', inC]);
+      await runSafe('iptables', ['-D', 'FORWARD', '-s', vmIp, '-j', outC]);
+    } catch { /* invalid IP — chain flush below still cleans up */ }
+  }
   for (const chain of [inC, outC]) {
     await runSafe('iptables', ['-F', chain]);
     await runSafe('iptables', ['-X', chain]);

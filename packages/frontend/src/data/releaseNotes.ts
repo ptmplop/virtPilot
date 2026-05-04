@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.0.2',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: 'VM delete now tears down its iptables firewall chains and FORWARD jump rules. Previously, `firewallService.deleteFirewallConfig` only unlinked the per-VM `*-firewall.json` config; the `VP-IN-${uuid8}` / `VP-OUT-${uuid8}` chains and the FORWARD jump rules pivoting on the VM\'s IP persisted. If the same IP later got allocated to a different VM, the orphaned rules would still match traffic to/from that IP. The delete handler now snapshots the VM\'s primary IP before undefine (from `vmMeta.networks[].ip` or live ARP) and calls `removeVmFirewall(uuid, ip)` to flush + drop the chains and remove the FORWARD jumps. Pre-existing in v1.x — unrelated to the v2.0.0 UUID refactor — but easy to fix while we were here.' },
+    ],
+  },
+  {
     version: '2.0.1',
     date: '2026-05-04',
     changes: [
