@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.0.1',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: 'Rename failed with `domain \'X\' is already defined with uuid Y`. The v2.0.0 rename flow assumed `virsh define` on an existing `<uuid>` would update the domain\'s `<name>` element in place. It does not — libvirt rejects the redefine because the existing entry has a different name. Restored the v1-era `undefine --keep-nvram --snapshots-metadata` + `define` cycle: NVRAM (UUID-keyed) survives the cycle untouched, snapshot metadata is preserved, and the domain comes back under the new name with the same UUID. BIOS-firmware VMs that reject `--keep-nvram` fall back to a plain `undefine --snapshots-metadata`.' },
+    ],
+  },
+  {
     version: '2.0.0',
     date: '2026-05-04',
     changes: [

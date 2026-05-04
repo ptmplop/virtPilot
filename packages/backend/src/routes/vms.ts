@@ -445,6 +445,7 @@ vmsRouter.put('/:uuid/rename', requireUuidParam, async (req, res) => {
 
     const safeUuid = validateVmUuid(uuid);
     const safeNewName = validateVmName(newName);
+    const safeOldName = validateVmName(vm.name);
     // Dump current XML, replace <name> element, write to tmpfile.
     const xml = await virsh(['dumpxml', safeUuid]);
     const updatedXml = xml.replace(/<name>[^<]*<\/name>/, `<name>${safeNewName}</name>`);
@@ -452,9 +453,17 @@ vmsRouter.put('/:uuid/rename', requireUuidParam, async (req, res) => {
     await fs.writeFile(tmpFile, updatedXml, 'utf8');
 
     try {
-      // `virsh define` on an XML with an existing <uuid> updates the
-      // libvirt domain in place — no undefine/redefine cycle needed, and
-      // NVRAM stays put because its path is UUID-keyed.
+      // libvirt enforces name uniqueness AND rejects `define` on an existing
+      // UUID with a different name — so we undefine the old name first, then
+      // define the new XML. `--keep-nvram` preserves the NVRAM file (which is
+      // UUID-keyed and survives the cycle untouched). `--snapshots-metadata`
+      // keeps any snapshot records attached.
+      try {
+        await virsh(['undefine', safeOldName, '--keep-nvram', '--snapshots-metadata']);
+      } catch {
+        // VMs without NVRAM (BIOS firmware) reject --keep-nvram with an error.
+        await virsh(['undefine', safeOldName, '--snapshots-metadata']);
+      }
       await virsh(['define', tmpFile]);
     } finally {
       await fs.unlink(tmpFile).catch(() => {});

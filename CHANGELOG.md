@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.1] — 2026-05-04
+
+### Fixed
+
+- **Rename failed with `domain 'X' is already defined with uuid Y`.** The v2.0.0 rename flow assumed `virsh define` on an existing `<uuid>` would update the domain's `<name>` element in place. It does not — libvirt rejects the redefine because the existing entry has a different name. Restored the v1-era `undefine --keep-nvram --snapshots-metadata` + `define` cycle: NVRAM (UUID-keyed) survives the cycle untouched, snapshot metadata is preserved, and the domain comes back under the new name with the same UUID. BIOS-firmware VMs that reject `--keep-nvram` fall back to a plain `undefine --snapshots-metadata`.
+
 ## [2.0.0] — 2026-05-04
 
 ### Changed
