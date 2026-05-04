@@ -258,6 +258,12 @@ async function _createBackupInner(
   const id = backupId();
   const bdir = backupDir(vmName, id);
   await fs.mkdir(bdir, { recursive: true });
+  // qemu-img convert runs as libvirt-qemu (see below) and writes the
+  // destination qcow2 here. libvirt-qemu is in the `virtpilot` group via
+  // install.sh, so g+w on bdir and its vmName parent gets the write through
+  // without widening anything to other.
+  await fs.chmod(path.dirname(bdir), 0o770);
+  await fs.chmod(bdir, 0o770);
 
   let consistent = false;
   let frozen = false;
@@ -297,10 +303,14 @@ async function _createBackupInner(
       const destPath = path.join(bdir, destFilename);
       // -U skips QEMU's exclusive write-lock so we can read a running VM's disk.
       // Safety is provided by guest-agent fsfreeze above (crash-consistent at minimum).
+      // Run qemu-img as libvirt-qemu via sudo: while a VM is (or has been)
+      // running, libvirt's dynamic_ownership leaves the source qcow2 owned by
+      // libvirt-qemu mode 0600, which the unprivileged service user cannot
+      // read. Sudoers grants exactly `(libvirt-qemu) /usr/bin/qemu-img`.
       const convertArgs = ['convert', '-U'];
       if (compress) convertArgs.push('-c');
       convertArgs.push('-f', 'qcow2', '-O', 'qcow2', disk.source, destPath);
-      await run('qemu-img', convertArgs, { timeout: 60 * 60_000 });
+      await run('sudo', ['-n', '-u', 'libvirt-qemu', '/usr/bin/qemu-img', ...convertArgs], { timeout: 60 * 60_000 });
       const stat = await fs.stat(destPath);
       diskEntries.push({
         target: disk.target,

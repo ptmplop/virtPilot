@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.21.9] — 2026-05-04
+
+### Fixed
+
+- **Backups failed with `qemu-img: Could not open … Permission denied` for any VM that had ever been started.** v1.21.0 moved the backend off root onto the unprivileged `virtpilot` system user. While a VM is running (or was running and libvirt has not yet restored the original ownership), libvirt's `dynamic_ownership=1` chowns the qcow2 to `libvirt-qemu` mode 0600 — so the backend's own `qemu-img convert` call ran straight into EACCES. The v1.21.6 fix made libvirt-qemu a member of the `virtpilot` group, which solved the *forward* direction (libvirt-qemu traversing into virtpilot's storage tree); the reverse — virtpilot reading a libvirt-qemu-owned file — is not solvable by group membership when the file is mode 0600. `backupService` now invokes `qemu-img convert` via `sudo -n -u libvirt-qemu /usr/bin/qemu-img …`, gated by a tightly-scoped sudoers rule (`virtpilot ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img`). The destination directory is bumped from 0755 to 0770 so libvirt-qemu (already in the `virtpilot` group) can write the converted qcow2 into the operator's backup tree without any further widening. `update.sh` adds the missing sudoers line on existing installs and `visudo`-validates the file before reload. No qemu.conf or libvirtd changes — every other path keeps running unprivileged.
+
 ## [1.21.8] — 2026-05-04
 
 ### Fixed

@@ -161,6 +161,19 @@ if [[ -f "${UNIT_FILE}" ]] && grep -q '^NoNewPrivileges=' "${UNIT_FILE}"; then
   log "Unit file healed"
 fi
 
+# ─── Heal sudoers rules (idempotent) ─────────────────────────────────────────
+# Pre-v1.21.9 sudoers had no rule for qemu-img, so backup of any VM that had
+# ever been running failed with EACCES (libvirt's dynamic_ownership had
+# chowned the disk to libvirt-qemu mode 0600). Add the missing rule if absent.
+SUDOERS_FILE="/etc/sudoers.d/virtpilot"
+if [[ -f "${SUDOERS_FILE}" ]] && ! grep -q 'libvirt-qemu.*qemu-img' "${SUDOERS_FILE}"; then
+  info "Adding qemu-img sudoers rule (backups of running VMs)"
+  echo "${SERVICE_USER} ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img" >> "${SUDOERS_FILE}"
+  chmod 0440 "${SUDOERS_FILE}"
+  visudo -cf "${SUDOERS_FILE}" >/dev/null
+  log "Sudoers rules healed"
+fi
+
 # ─── Restart service ──────────────────────────────────────────────────────────
 info "Restarting service..."
 systemctl restart virtpilot

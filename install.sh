@@ -438,6 +438,9 @@ fi
 #  - iptables / ip link (firewall + bridge management)
 #  - systemd-run / systemctl (self-upgrade orchestration)
 #  - bash update.sh (the upgrade itself)
+#  - qemu-img as libvirt-qemu (backup of running VMs — the disk file is chowned
+#    to libvirt-qemu by libvirt's dynamic_ownership and mode 0600, so the
+#    unprivileged service user cannot read it directly)
 # Everything else stays under the unprivileged account. NOPASSWD because the
 # service has no interactive session.
 SUDOERS_FILE="/etc/sudoers.d/virtpilot"
@@ -448,6 +451,7 @@ ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemd-run, /bin/systemctl, /usr/
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/journalctl
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/bash ${INSTALL_DIR}/update.sh
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get
+${SERVICE_USER} ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img
 EOF
 chmod 0440 "${SUDOERS_FILE}"
 visudo -cf "${SUDOERS_FILE}" >/dev/null
