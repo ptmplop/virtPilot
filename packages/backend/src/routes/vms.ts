@@ -133,7 +133,27 @@ vmsRouter.get('/:name/meta', async (req, res) => {
       } catch { /* VM not running or no lease yet */ }
     }
 
-    res.json({ meta, ip });
+    // Strip the guest password — it's fetched on demand via /credentials so it
+    // doesn't ride along in the routine meta poll, the React Query cache, or
+    // any incidental request log.
+    const safeMeta = meta ? (() => {
+      const { password: _omit, ...rest } = meta;
+      return rest;
+    })() : null;
+    res.json({ meta: safeMeta, ip });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+vmsRouter.get('/:name/credentials', async (req, res) => {
+  try {
+    const meta = await vmMetaService.getVmMeta(req.params.name);
+    if (!meta) {
+      res.status(404).json({ error: 'VM metadata not found' });
+      return;
+    }
+    res.json({ username: meta.username, password: meta.password });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

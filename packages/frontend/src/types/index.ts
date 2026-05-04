@@ -102,10 +102,16 @@ export interface VmNetworkAlloc {
 export interface VmMeta {
   vmName: string;
   username: string;
-  password: string;
+  // Password is fetched separately via /credentials so it doesn't ride along
+  // in the routine /meta poll, the React Query cache, or any incidental log.
   networks?: VmNetworkAlloc[];
   createdAt: string;
   sourceTemplateFilename?: string;
+}
+
+export interface VmCredentials {
+  username: string;
+  password: string;
 }
 
 export interface VmSnapshot {

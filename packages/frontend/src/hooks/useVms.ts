@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { DhcpReservation, FirewallConfig, Vm, VmMeta, VmMetricsRange, VmMetricsResponse, VmSnapshot, VmStatsResponse, VmSummary } from '@/types';
+import type { DhcpReservation, FirewallConfig, Vm, VmCredentials, VmMeta, VmMetricsRange, VmMetricsResponse, VmSnapshot, VmStatsResponse, VmSummary } from '@/types';
 
 const KEYS = {
   vms: ['vms'] as const,
@@ -26,6 +26,18 @@ export function useVmMeta(name: string) {
       return data;
     },
     refetchInterval: 10_000,
+  });
+}
+
+// On-demand fetch for the guest password. Kept off the routine meta poll so
+// the secret doesn't sit in the React Query cache or trail through request
+// logs unless the operator explicitly asked to see/copy it.
+export function useVmCredentials(name: string) {
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await api.get<VmCredentials>(`/api/vms/${name}/credentials`);
+      return data;
+    },
   });
 }
 

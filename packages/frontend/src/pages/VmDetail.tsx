@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
-  useVm, useVmMeta, useVmAction, useAddDisk, useDetachDisk,
+  useVm, useVmMeta, useVmCredentials, useVmAction, useAddDisk, useDetachDisk,
   useAttachCdrom, useDetachCdrom, useAddNic, useDetachNic, useSetNicBandwidth,
   useSetBootOrder, useBootOnce,
   useSnapshots, useCreateSnapshot, useDeleteSnapshot, useRevertSnapshot, useSnapshotToTemplate,
@@ -302,7 +302,35 @@ function OverviewTab({
   const { data: metaData } = useVmMeta(vmName);
   const meta = metaData?.meta ?? null;
   const ip = metaData?.ip ?? null;
+  const credentials = useVmCredentials(vmName);
   const [showPassword, setShowPassword] = useState(false);
+  const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
+  const handleTogglePassword = async () => {
+    if (showPassword) {
+      setShowPassword(false);
+      return;
+    }
+    if (revealedPassword === null) {
+      try {
+        const { password } = await credentials.mutateAsync();
+        setRevealedPassword(password);
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to fetch password');
+        return;
+      }
+    }
+    setShowPassword(true);
+  };
+  const handleCopyPassword = async () => {
+    try {
+      const password = revealedPassword ?? (await credentials.mutateAsync()).password;
+      if (revealedPassword === null) setRevealedPassword(password);
+      await navigator.clipboard.writeText(password);
+      toast.success('Password copied');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to copy password');
+    }
+  };
   const [editResourcesOpen, setEditResourcesOpen] = useState(false);
   const [editCpus, setEditCpus] = useState(String(vm.cpus));
   const [editMemMb, setEditMemMb] = useState(String(vm.memoryMb));
@@ -440,16 +468,26 @@ function OverviewTab({
               <InfoField label="Password">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm text-foreground">
-                    {showPassword ? meta.password : '••••••••'}
+                    {showPassword && revealedPassword !== null ? revealedPassword : '••••••••'}
                   </span>
                   <button
                     type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                    onClick={handleTogglePassword}
+                    disabled={credentials.isPending}
+                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                    aria-label={showPassword ? 'Hide password' : 'Reveal password'}
                   >
                     {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </button>
-                  <CopyButton text={meta.password} />
+                  <button
+                    type="button"
+                    onClick={handleCopyPassword}
+                    disabled={credentials.isPending}
+                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                    aria-label="Copy password"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </InfoField>
             </div>

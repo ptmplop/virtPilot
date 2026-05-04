@@ -396,9 +396,12 @@ export async function restoreBackup(vmName: string, id: string, newVmName?: stri
   const manifest = await getBackupManifest(vmName, id);
   if (!manifest) throw new Error('Backup manifest not found');
 
-  const targetVmName = newVmName ?? vmName;
+  // Validate before any path math: a payload like "../../etc/cron.d/x" would
+  // otherwise resolve outside config.vmsDir and let the disk-copy loop write
+  // qcow2 files to arbitrary directories the backend user can touch.
+  const targetVmName = validateVmName(newVmName ?? vmName);
 
-  // Fix 2: Refuse to restore over a running VM
+  // Refuse to restore over a running VM
   const vmInfo = await getVmInfo(targetVmName).catch(() => null);
   if (vmInfo?.status === 'running') {
     throw new Error(`VM "${targetVmName}" must be stopped before restoring`);

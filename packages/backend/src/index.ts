@@ -157,9 +157,9 @@ const vncWss = createVncWss();
 // so the token rides in HTTP headers rather than the URL — meaning it doesn't
 // hit nginx access logs, browser history, or the `journalctl` HTTP log.
 //
-// Backwards-compat: we still accept the legacy `?token=` query param for now
-// so the dashboard keeps working during the upgrade window. New connections
-// from updated clients use the header form.
+// The legacy `?token=` query-string fallback was removed: it leaked tokens
+// into proxy/CDN/journal logs and stuck around in browser history. Any
+// dashboard build before v1.21.7 needs to refresh to use the header form.
 function extractWsToken(req: http.IncomingMessage): string | null {
   const protoHeader = req.headers['sec-websocket-protocol'];
   if (typeof protoHeader === 'string') {
@@ -167,8 +167,7 @@ function extractWsToken(req: http.IncomingMessage): string | null {
       if (proto.startsWith('virtpilot.token.')) return proto.slice('virtpilot.token.'.length);
     }
   }
-  const url = new URL(req.url ?? '', 'http://localhost');
-  return url.searchParams.get('token');
+  return null;
 }
 
 server.on('upgrade', async (req, socket, head) => {

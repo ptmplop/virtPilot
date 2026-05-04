@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import {
   listAllVmBackupSummaries,
   listBackupsForVm,
@@ -16,6 +16,19 @@ import {
 } from '../services/backupService.js';
 
 export const backupsRouter = Router();
+
+// backupId() in backupService.ts produces e.g. "20260504T131415Z-abc123":
+// 8 digits date + T + 6 digits time + Z + dash + 6 hex chars. Anything else
+// is either malformed or an attempt to traverse — reject it before the path
+// it composes (`backupRoot/<vmName>/<id>`) reaches fs.* calls.
+const BACKUP_ID_RE = /^\d{8}T\d{6}Z-[0-9a-f]{6}$/;
+function validateBackupId(req: Request, res: Response, next: NextFunction): void {
+  if (!BACKUP_ID_RE.test(req.params.backupId ?? '')) {
+    res.status(400).json({ error: 'Invalid backup id' });
+    return;
+  }
+  next();
+}
 
 // ─── Summaries ────────────────────────────────────────────────────────────────
 
@@ -118,7 +131,7 @@ backupsRouter.post('/:vmName', async (req, res) => {
 
 // ─── Backup detail ────────────────────────────────────────────────────────────
 
-backupsRouter.get('/:vmName/:backupId', async (req, res) => {
+backupsRouter.get('/:vmName/:backupId', validateBackupId, async (req, res) => {
   try {
     const { vmName, backupId } = req.params;
     const manifest = await getBackupManifest(vmName, backupId);
@@ -131,7 +144,7 @@ backupsRouter.get('/:vmName/:backupId', async (req, res) => {
 
 // ─── Delete backup ────────────────────────────────────────────────────────────
 
-backupsRouter.delete('/:vmName/:backupId', async (req, res) => {
+backupsRouter.delete('/:vmName/:backupId', validateBackupId, async (req, res) => {
   try {
     const { vmName, backupId } = req.params;
     await deleteBackup(vmName, backupId);
@@ -143,7 +156,7 @@ backupsRouter.delete('/:vmName/:backupId', async (req, res) => {
 
 // ─── Restore backup ───────────────────────────────────────────────────────────
 
-backupsRouter.post('/:vmName/:backupId/restore', async (req, res) => {
+backupsRouter.post('/:vmName/:backupId/restore', validateBackupId, async (req, res) => {
   try {
     const { vmName, backupId } = req.params;
     const { newVmName } = req.body as { newVmName?: string };

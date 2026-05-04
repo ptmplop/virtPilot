@@ -13,6 +13,16 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.21.7',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: 'Plaintext guest password no longer ships with every `/api/vms/<name>/meta` poll. The Access card on the VM detail page used to receive the decrypted root password as part of the routine 10-second meta refresh, so the secret sat in the React Query cache, in nginx access logs that include response bodies, and in any browser devtools tab the operator had open. The password now lives behind a separate `/api/vms/<name>/credentials` endpoint that\'s only hit when the operator clicks the eye icon or the copy icon — the standing `/meta` payload no longer carries the secret at all. UI behaviour is unchanged for the operator.' },
+      { type: 'fixed', text: 'Backup restore can no longer write disks outside `STORAGE_ROOT/vms/`. `POST /api/backups/<vmName>/<backupId>/restore` accepted a `newVmName` body field that fed straight into `path.join(vmsDir, newVmName)`. A payload like `"../../etc/cron.d/x"` resolved outside `vmsDir` and the restore loop would happily copy the backup\'s qcow2 files into that arbitrary directory (whatever the `virtpilot` service user could touch). The restore handler now runs `validateVmName()` *before* any path math, so a traversal payload is rejected instead of being normalised by `path.join`.' },
+      { type: 'fixed', text: 'Backup routes reject malformed `:backupId` URL params. `GET`, `DELETE`, and `POST .../restore` all accepted any string as the backup id and passed it straight through `path.join(backupRoot, vmName, id)`. URL-encoded `..%2F` traversal worked because Express doesn\'t strip `..` from path params. All three endpoints now gate on the strict `^\\d{8}T\\d{6}Z-[0-9a-f]{6}$` shape that `backupId()` actually produces, so the `path.join` only ever sees a known-good leaf id.' },
+      { type: 'changed', text: 'WebSocket auth no longer accepts the legacy `?token=<jwt>` query param. v1.21.0 moved console/SSH/VNC tokens to `Sec-WebSocket-Protocol: virtpilot.token.<jwt>` to keep them out of nginx logs, journalctl, and browser history, but the server kept honouring the old query-string form during the upgrade window. The fallback is gone — the dashboard already uses the header form, so anyone on a build older than v1.21.0 just needs to refresh.' },
+    ],
+  },
+  {
     version: '1.21.6',
     date: '2026-05-04',
     changes: [
