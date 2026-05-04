@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '1.21.11',
+    date: '2026-05-04',
+    changes: [
+      { type: 'fixed', text: '`sudo: unable to change to root gid: Operation not permitted` survived both v1.21.8 and v1.21.10. v1.21.8 removed the explicit `NoNewPrivileges=true` from the unit; v1.21.10 dropped `CapabilityBoundingSet=`. Both fixes were aimed at the right symptom but missed the actual switch: per `systemd.exec(5)`, `RestrictSUIDSGID=true` *"implies `NoNewPrivileges=yes`, ignoring the value of [the explicit `NoNewPrivileges`] setting"*. So the kernel `no_new_privs` bit was still being set on every service start by the `RestrictSUIDSGID` line in the unit, the `setuid` bit on `/usr/bin/sudo` therefore did nothing, and sudo aborted in its init phase before it ever reached `qemu-img` — same error message regardless of which intermediate hardening line was removed. The v1.21.8 release shipped without ever exercising the in-app self-upgrade flow (which goes through `sudo systemd-run`); manual `sudo bash update.sh` from SSH masked the regression because that path is already root and never invokes setuid sudo. `RestrictSUIDSGID` is now omitted from the unit and stripped from any pre-existing live unit by `update.sh`. The protection it nominally offered was illusory in this service: it blocks *creating* setuid files, not *exec\'ing* them, and the backend has no reason to `chmod +s` anything. Real isolation continues to come from `ProtectSystem=strict` + `ProtectKernel*` + `ReadWritePaths=/var/lib/virtpilot`.' },
+    ],
+  },
+  {
     version: '1.21.10',
     date: '2026-05-04',
     changes: [

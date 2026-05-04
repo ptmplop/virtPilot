@@ -169,6 +169,18 @@ if [[ -f "${UNIT_FILE}" ]] && grep -q '^CapabilityBoundingSet=' "${UNIT_FILE}"; 
   sed -i '/^CapabilityBoundingSet=/d' "${UNIT_FILE}"
   UNIT_CHANGED=true
 fi
+# Pre-v1.21.11 installs had RestrictSUIDSGID=true. Per systemd.exec(5) that
+# directive "implies NoNewPrivileges=yes, ignoring the value of [the explicit
+# NoNewPrivileges] setting" — so the v1.21.8 fix that removed the explicit
+# NoNewPrivileges=true line was a no-op: the kernel no_new_privs bit was
+# still being set by RestrictSUIDSGID, which is why sudo continued to fail
+# with "unable to change to root gid" even after CapabilityBoundingSet was
+# also dropped in v1.21.10. Strip it.
+if [[ -f "${UNIT_FILE}" ]] && grep -q '^RestrictSUIDSGID=' "${UNIT_FILE}"; then
+  info "Removing RestrictSUIDSGID= from ${UNIT_FILE} (silently implied NoNewPrivileges)"
+  sed -i '/^RestrictSUIDSGID=/d' "${UNIT_FILE}"
+  UNIT_CHANGED=true
+fi
 if [[ "${UNIT_CHANGED}" == true ]]; then
   systemctl daemon-reload
   log "Unit file healed"

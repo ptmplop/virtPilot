@@ -505,7 +505,15 @@ PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictSUIDSGID=true
+# RestrictSUIDSGID is deliberately omitted. Per systemd.exec(5) it "implies
+# NoNewPrivileges=yes, ignoring the value of [the explicit NoNewPrivileges]
+# setting" — so leaving it on silently re-enables the kernel no_new_privs bit
+# even with NoNewPrivileges= absent, which makes setuid sudo refuse to elevate
+# (sudo: unable to change to root gid + audit plugin init failure). The
+# self-upgrade flow, apt upgrade flow, and (libvirt-qemu) qemu-img backup path
+# all go through sudo, so we cannot keep this on. The protection it offered
+# was nominal anyway: it only blocks *creating* setuid files, not *exec'ing*
+# them, and the service has no reason to chmod +s anything.
 LockPersonality=true
 RestrictRealtime=true
 RestrictNamespaces=true
