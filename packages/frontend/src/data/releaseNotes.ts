@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.3.4',
+    date: '2026-05-05',
+    changes: [
+      { type: 'fixed', text: 'In-dashboard self-upgrade failed with "You are not currently on a branch." bootstrap.sh pins fresh installs to the latest release tag (git checkout v<release>), which leaves HEAD detached. The previous update.sh then ran git pull --ff-only, which has no upstream on a detached HEAD and aborted the entire update. The pull step is now a fetch + checkout -B main origin/main + reset --hard, so the working tree is forced back onto main regardless of prior state — detached HEAD, package-lock.json drift, a stale local main that diverged from origin. Operator state (STORAGE_ROOT, .env, generated .ssh/ host keypair, node_modules) lives outside git and is untouched. Hosts already stuck in detached HEAD on 2.3.2 need a one-time manual recovery (three git commands) to land on the new code; the dashboard self-upgrade then works going forward.' },
+    ],
+  },
+  {
     version: '2.3.3',
     date: '2026-05-05',
     changes: [

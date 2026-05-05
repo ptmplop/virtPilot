@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.4] — 2026-05-05
+
+### Fixed
+
+- **In-dashboard self-upgrade failed with "You are not currently on a branch."** `bootstrap.sh` pins fresh installs to the latest release tag (`git checkout v<release>`), which leaves HEAD detached. The previous `update.sh` then ran `git pull --ff-only`, which has no upstream to merge with on a detached HEAD and aborted the entire update. The pull step is now `git fetch --tags --prune origin` followed by `git checkout -B main origin/main` and `git reset --hard origin/main`, so the working tree is forced back onto `main` regardless of the prior state — detached HEAD, package-lock.json drift from a previous `npm install`, a stale local `main` that diverged from origin, anything. Operator state (STORAGE_ROOT, .env, the generated `.ssh/` host keypair, node_modules) lives outside git and is untouched. **One-time recovery on hosts already stuck in detached HEAD on v2.3.2:** run the three git commands from inside `/usr/local/virtpilot` to land on the new code, then re-trigger the update from the dashboard.
+
 ## [2.3.3] — 2026-05-05
 
 ### Fixed

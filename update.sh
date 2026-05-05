@@ -41,13 +41,33 @@ cd "$INSTALL_DIR"
 GIT_SAFE=(git -c "safe.directory=$INSTALL_DIR")
 git config --system --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
 
-# `npm install` below rewrites package-lock.json on the install host (e.g. adds
-# linux-x64 binary entries that aren't in the macOS-generated lockfile). Discard
-# that drift so the next `git pull --ff-only` doesn't abort on a dirty tree.
-"${GIT_SAFE[@]}" checkout -- package-lock.json 2>/dev/null || true
+# Force the working tree onto origin/main, regardless of how the host got into
+# its current state. The previous `git pull --ff-only` flow assumed the repo
+# was on a tracking branch — but bootstrap.sh pins fresh installs to the
+# latest release tag (`git checkout v<release>` → detached HEAD), and
+# `npm install` below rewrites package-lock.json on every run. Either alone
+# blocks `pull --ff-only`. A hard reset to origin/main recovers from:
+#   • detached HEAD from the bootstrap pin
+#   • tracked-file drift (package-lock.json, anything edited in place)
+#   • a stale local `main` branch that diverged from origin
+# Operator state lives outside git (STORAGE_ROOT, .env, .ssh/, node_modules)
+# and is therefore untouched. Per CLAUDE.md this is not a dev checkout, so
+# discarding tracked-file edits is the right behaviour.
+"${GIT_SAFE[@]}" fetch --tags --prune origin
+
+if ! "${GIT_SAFE[@]}" show-ref --verify --quiet refs/remotes/origin/main; then
+  die "origin/main not found — remote unreachable or repository misconfigured"
+fi
 
 BEFORE=$("${GIT_SAFE[@]}" rev-parse HEAD)
-"${GIT_SAFE[@]}" pull --ff-only
+
+CURRENT=$("${GIT_SAFE[@]}" symbolic-ref --short --quiet HEAD || echo "(detached)")
+if [[ "$CURRENT" != "main" ]]; then
+  warn "On '$CURRENT' (expected 'main') — switching back to main"
+fi
+"${GIT_SAFE[@]}" checkout -B main origin/main >/dev/null 2>&1
+"${GIT_SAFE[@]}" reset --hard origin/main >/dev/null
+
 AFTER=$("${GIT_SAFE[@]}" rev-parse HEAD)
 
 if [[ "$BEFORE" == "$AFTER" ]]; then
