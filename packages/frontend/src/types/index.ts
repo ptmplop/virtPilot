@@ -7,6 +7,9 @@ export interface VmDisk {
   bus: string;
   sizeGb?: number;
   bootOrder?: number;
+  fileMissing?: boolean;
+  storageDirId?: string;
+  storageDirName?: string;
 }
 
 export interface VmNic {
@@ -83,6 +86,8 @@ export interface Template {
   path: string;
   sizeGb: number;
   createdAt: string;
+  storageDirId: string;
+  storageDirName: string;
 }
 
 export interface Iso {
@@ -90,6 +95,33 @@ export interface Iso {
   filename: string;
   path: string;
   sizeGb: number;
+  storageDirId: string;
+  storageDirName: string;
+}
+
+export type StorageDirPurpose = 'templates' | 'isos' | 'vmDisks';
+
+export interface StorageDirUsage {
+  totalBytes: number;
+  freeBytes: number;
+  usedByVirtpilotBytes: number;
+  healthy: boolean;
+  error?: string;
+}
+
+export interface StorageDir {
+  id: string;
+  name: string;
+  path: string;
+  purposes: StorageDirPurpose[];
+  isDefaultTemplates: boolean;
+  isDefaultIsos: boolean;
+  isDefaultVmDisks: boolean;
+  createdAt: string;
+}
+
+export interface StorageDirWithUsage extends StorageDir {
+  usage: StorageDirUsage;
 }
 
 export interface VmNetworkAlloc {
@@ -286,6 +318,8 @@ export interface VmDiskFile {
   sizeGb: number;
   vmExists: boolean;
   vmStatus: VmStatus | null;
+  storageDirId: string;
+  storageDirName: string;
 }
 
 export interface PciAddress {

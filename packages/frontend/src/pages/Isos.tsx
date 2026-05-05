@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Database, Disc, Download, Pencil, Trash2, Upload, X } from 'lucide-react';
+import { Database, Disc, Download, Pencil, Trash2, Upload, X, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
@@ -7,11 +7,14 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
+import { StorageDirSelect } from '@/components/StorageDirSelect';
 import { api } from '@/lib/api';
 import {
   useIsos, useDeleteIso, useUploadIso, useRenameIso,
-  useDownloadIsoFromUrl, useCancelIsoDownload, type DownloadJob,
+  useDownloadIsoFromUrl, useCancelIsoDownload, useMoveIso, type DownloadJob,
 } from '@/hooks/useIsos';
+import { MoveDialog } from '@/components/MoveDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { useQueryClient } from '@tanstack/react-query';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
@@ -118,7 +121,9 @@ function InlineName({
 export function IsosPage() {
   const { data: isos, isLoading } = useIsos();
   const deleteIso = useDeleteIso();
+  const moveIso = useMoveIso();
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [moveTarget, setMoveTarget] = useState<{ filename: string; storageDirId: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { isos: isoLogos, setIsoLogo } = useLogoStore();
@@ -139,6 +144,7 @@ export function IsosPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadDisplayName, setUploadDisplayName] = useState('');
   const [uploadLogoSlug, setUploadLogoSlug] = useState<string | null>(null);
+  const [uploadStorageDirId, setUploadStorageDirId] = useState('');
   const uploadIso = useUploadIso((pct) => setUploadPct(pct));
 
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -162,7 +168,7 @@ export function IsosPage() {
     setUploadPct(0);
     setUploadAbort(ac.abort.bind(ac));
     try {
-      await uploadIso.mutateAsync({ file, displayName, signal: ac.signal });
+      await uploadIso.mutateAsync({ file, displayName, storageDirId: uploadStorageDirId || undefined, signal: ac.signal });
       if (logoSlug) setIsoLogo(file.name, logoSlug);
       toast.success(`${displayName || file.name} uploaded`);
     } catch {
@@ -183,6 +189,7 @@ export function IsosPage() {
   const [downloadFilename, setDownloadFilename] = useState('');
   const [downloadDisplayName, setDownloadDisplayName] = useState('');
   const [downloadLogoSlug, setDownloadLogoSlug] = useState<string | null>(null);
+  const [downloadStorageDirId, setDownloadStorageDirId] = useState('');
   const downloadFromUrl = useDownloadIsoFromUrl();
   const cancelDownload = useCancelIsoDownload();
   const qc = useQueryClient();
@@ -193,6 +200,7 @@ export function IsosPage() {
     setDownloadFilename('');
     setDownloadDisplayName('');
     setDownloadLogoSlug(null);
+    setDownloadStorageDirId('');
   };
 
   const handleUrlDownload = async () => {
@@ -201,6 +209,7 @@ export function IsosPage() {
         url: downloadUrl,
         filename: downloadFilename || undefined,
         name: downloadDisplayName || undefined,
+        storageDirId: downloadStorageDirId || undefined,
       });
       if (downloadLogoSlug) setIsoLogo(result.filename, downloadLogoSlug);
       resetUrlDialog();
@@ -343,7 +352,7 @@ export function IsosPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {['Name', 'File', 'Size', ''].map((h) => (
+                {['Name', 'File', 'Location', 'Size', ''].map((h) => (
                   <th
                     key={h}
                     className={`px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground ${h === '' ? 'text-right' : 'text-left'}`}
@@ -363,15 +372,27 @@ export function IsosPage() {
                     </div>
                   </td>
                   <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{iso.filename}</td>
+                  <td className="px-5 py-3.5 text-xs text-muted-foreground">{iso.storageDirName}</td>
                   <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{iso.sizeGb} GB</td>
                   <td className="px-5 py-3.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setDeleteTarget(iso.filename)}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <div className="inline-flex items-center gap-1">
+                      <Tooltip label="Move to another storage directory">
+                        <button
+                          type="button"
+                          onClick={() => setMoveTarget({ filename: iso.filename, storageDirId: iso.storageDirId })}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                        >
+                          <FolderInput size={13} />
+                        </button>
+                      </Tooltip>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(iso.filename)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -404,6 +425,7 @@ export function IsosPage() {
             onChange={(e) => setUploadDisplayName(e.target.value)}
             placeholder="e.g. Debian 12 Network Install"
           />
+          <StorageDirSelect purpose="isos" value={uploadStorageDirId} onChange={setUploadStorageDirId} />
           <p className="text-xs text-muted-foreground">
             File: <span className="font-mono">{pendingFile?.name}</span>
           </p>
@@ -461,9 +483,29 @@ export function IsosPage() {
             onChange={(e) => setDownloadFilename(e.target.value)}
             placeholder="Leave blank to use filename from URL"
           />
+          <StorageDirSelect purpose="isos" value={downloadStorageDirId} onChange={setDownloadStorageDirId} />
           <OsLogoPicker value={downloadLogoSlug} onChange={setDownloadLogoSlug} />
         </div>
       </Dialog>
+
+      <MoveDialog
+        open={moveTarget !== null}
+        onClose={() => setMoveTarget(null)}
+        itemLabel={moveTarget?.filename ?? ''}
+        purpose="isos"
+        currentStorageDirId={moveTarget?.storageDirId ?? ''}
+        notes={
+          <>
+            ISOs attached as a CDROM to any VM will block the move — the VM's domain XML has the absolute path baked in.
+            Detach the ISO from those VMs first, or leave it where it is.
+          </>
+        }
+        busy={moveIso.isPending}
+        onMove={async (storageDirId) => {
+          if (!moveTarget) return;
+          await moveIso.mutateAsync({ filename: moveTarget.filename, storageDirId });
+        }}
+      />
 
       {/* Delete confirm dialog */}
       <Dialog

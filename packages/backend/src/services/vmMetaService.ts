@@ -55,6 +55,10 @@ export async function getVmMeta(uuid: string): Promise<VmMeta | null> {
   return all.find((m) => m.uuid === uuid) ?? null;
 }
 
+export async function listVmMetas(): Promise<VmMeta[]> {
+  return readAll();
+}
+
 export async function deleteVmMeta(uuid: string): Promise<void> {
   const all = await readAll();
   await writeAll(all.filter((m) => m.uuid !== uuid));

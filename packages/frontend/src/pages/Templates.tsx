@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Database, Download, HardDrive, PackageOpen, Pencil, Trash2, Upload, X } from 'lucide-react';
+import { Database, Download, HardDrive, PackageOpen, Pencil, Trash2, Upload, X, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
@@ -8,11 +8,14 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
+import { StorageDirSelect } from '@/components/StorageDirSelect';
 import { api } from '@/lib/api';
 import {
   useTemplates, useDeleteTemplate, useUploadTemplate, useRenameTemplate,
-  useDownloadTemplateFromUrl, useCancelTemplateDownload, type DownloadJob,
+  useDownloadTemplateFromUrl, useCancelTemplateDownload, useMoveTemplate, type DownloadJob,
 } from '@/hooks/useTemplates';
+import { MoveDialog } from '@/components/MoveDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { useSettings, useDismissTemplateSet } from '@/hooks/useSettings';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
@@ -258,7 +261,9 @@ function TemplateSetCard({
 export function TemplatesPage() {
   const { data: templates, isLoading } = useTemplates();
   const deleteTemplate = useDeleteTemplate();
+  const moveTemplate = useMoveTemplate();
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [moveTarget, setMoveTarget] = useState<{ filename: string; storageDirId: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { templates: templateLogos, setTemplateLogo } = useLogoStore();
@@ -280,6 +285,7 @@ export function TemplatesPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadDisplayName, setUploadDisplayName] = useState('');
   const [uploadLogoSlug, setUploadLogoSlug] = useState<string | null>(null);
+  const [uploadStorageDirId, setUploadStorageDirId] = useState('');
   const uploadTemplate = useUploadTemplate((pct) => setUploadPct(pct));
 
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -303,7 +309,7 @@ export function TemplatesPage() {
     setUploadPct(0);
     setUploadAbort(ac.abort.bind(ac));
     try {
-      await uploadTemplate.mutateAsync({ file, displayName, signal: ac.signal });
+      await uploadTemplate.mutateAsync({ file, displayName, storageDirId: uploadStorageDirId || undefined, signal: ac.signal });
       if (logoSlug) setTemplateLogo(file.name, logoSlug);
       toast.success(`${displayName || file.name} uploaded`);
     } catch {
@@ -324,6 +330,7 @@ export function TemplatesPage() {
   const [downloadFilename, setDownloadFilename] = useState('');
   const [downloadDisplayName, setDownloadDisplayName] = useState('');
   const [downloadLogoSlug, setDownloadLogoSlug] = useState<string | null>(null);
+  const [downloadStorageDirId, setDownloadStorageDirId] = useState('');
   const downloadFromUrl = useDownloadTemplateFromUrl();
   const cancelDownload = useCancelTemplateDownload();
   const qc = useQueryClient();
@@ -334,6 +341,7 @@ export function TemplatesPage() {
     setDownloadFilename('');
     setDownloadDisplayName('');
     setDownloadLogoSlug(null);
+    setDownloadStorageDirId('');
   };
 
   const handleUrlDownload = async () => {
@@ -342,6 +350,7 @@ export function TemplatesPage() {
         url: downloadUrl,
         filename: downloadFilename || undefined,
         name: downloadDisplayName || undefined,
+        storageDirId: downloadStorageDirId || undefined,
       });
       if (downloadLogoSlug) setTemplateLogo(result.filename, downloadLogoSlug);
       resetUrlDialog();
@@ -530,7 +539,7 @@ export function TemplatesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {['Name', 'File', 'Size', 'Added', ''].map((h) => (
+                {['Name', 'File', 'Location', 'Size', 'Added', ''].map((h) => (
                   <th
                     key={h}
                     className={`px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground ${h === '' ? 'text-right' : 'text-left'}`}
@@ -560,18 +569,30 @@ export function TemplatesPage() {
                     </div>
                   </td>
                   <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{t.filename}</td>
+                  <td className="px-5 py-3.5 text-xs text-muted-foreground">{t.storageDirName}</td>
                   <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{t.sizeGb} GB</td>
                   <td className="px-5 py-3.5 text-xs text-muted-foreground">
                     {new Date(t.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-5 py-3.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setDeleteTarget(t.filename)}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <div className="inline-flex items-center gap-1">
+                      <Tooltip label="Move to another storage directory">
+                        <button
+                          type="button"
+                          onClick={() => setMoveTarget({ filename: t.filename, storageDirId: t.storageDirId })}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                        >
+                          <FolderInput size={13} />
+                        </button>
+                      </Tooltip>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(t.filename)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -604,6 +625,7 @@ export function TemplatesPage() {
             onChange={(e) => setUploadDisplayName(e.target.value)}
             placeholder="e.g. Debian 13 Generic"
           />
+          <StorageDirSelect purpose="templates" value={uploadStorageDirId} onChange={setUploadStorageDirId} />
           <p className="text-xs text-muted-foreground">
             File: <span className="font-mono">{pendingFile?.name}</span>
           </p>
@@ -656,6 +678,7 @@ export function TemplatesPage() {
             onChange={(e) => setDownloadFilename(e.target.value)}
             placeholder="ubuntu-24.04.qcow2"
           />
+          <StorageDirSelect purpose="templates" value={downloadStorageDirId} onChange={setDownloadStorageDirId} />
           <OsLogoPicker value={downloadLogoSlug} onChange={setDownloadLogoSlug} />
         </div>
       </Dialog>
@@ -678,6 +701,25 @@ export function TemplatesPage() {
           }}
         />
       </Dialog>
+
+      <MoveDialog
+        open={moveTarget !== null}
+        onClose={() => setMoveTarget(null)}
+        itemLabel={moveTarget?.filename ?? ''}
+        purpose="templates"
+        currentStorageDirId={moveTarget?.storageDirId ?? ''}
+        notes={
+          <>
+            Templates are referenced by absolute path in every VM's qcow2 backing chain. Moving a template
+            that's already used as a backing image will be refused; delete those VMs first or leave the template in place.
+          </>
+        }
+        busy={moveTemplate.isPending}
+        onMove={async (storageDirId) => {
+          if (!moveTarget) return;
+          await moveTemplate.mutateAsync({ filename: moveTarget.filename, storageDirId });
+        }}
+      />
 
       {/* Delete confirm dialog */}
       <Dialog

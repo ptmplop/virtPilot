@@ -465,12 +465,20 @@ SyslogIdentifier=virtpilot
 # the kernel's no_new_privs bit makes sudo refuse to elevate even with the
 # NOPASSWD rules in /etc/sudoers.d/virtpilot. The other hardening below all
 # stays in force.
-ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
+# ProtectSystem=strict + ReadWritePaths is deliberately NOT set. v2.2 added
+# operator-registered storage directories (mounted iSCSI/NFS at arbitrary
+# paths). ReadWritePaths is a static allowlist — it can't grow at runtime
+# from inside the service — and a stale ReadWritePaths silently breaks every
+# move/upload/create that targets a freshly registered storage dir. The other
+# hardening below (ProtectKernel*, ProtectControlGroups, RestrictNamespaces,
+# RestrictRealtime, LockPersonality) still constrains exec-time behaviour;
+# the realistic blast-radius difference is small given the service already
+# has sudo NOPASSWD on apt-get/systemctl per /etc/sudoers.d/virtpilot.
 # RestrictSUIDSGID is deliberately omitted. Per systemd.exec(5) it "implies
 # NoNewPrivileges=yes, ignoring the value of [the explicit NoNewPrivileges]
 # setting" — so leaving it on silently re-enables the kernel no_new_privs bit
@@ -484,9 +492,6 @@ LockPersonality=true
 RestrictRealtime=true
 RestrictNamespaces=true
 SystemCallArchitectures=native
-# The service legitimately needs to read /var/lib/virtpilot and the install
-# dir, and to write update logs. Everything else is read-only.
-ReadWritePaths=/var/lib/virtpilot ${INSTALL_DIR}
 
 [Install]
 WantedBy=multi-user.target

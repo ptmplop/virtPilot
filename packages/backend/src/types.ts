@@ -7,6 +7,9 @@ export interface VmDisk {
   bus: string;
   sizeGb?: number;
   bootOrder?: number;
+  fileMissing?: boolean;   // true when source path no longer exists on disk
+  storageDirId?: string;   // populated for tracked VM-disk files
+  storageDirName?: string;
 }
 
 export interface VmNic {
@@ -65,6 +68,8 @@ export interface Template {
   path: string;
   sizeGb: number;
   createdAt: string;
+  storageDirId: string;
+  storageDirName: string;
 }
 
 export interface Iso {
@@ -72,6 +77,8 @@ export interface Iso {
   filename: string;
   path: string;
   sizeGb: number;
+  storageDirId: string;
+  storageDirName: string;
 }
 
 export interface Settings {

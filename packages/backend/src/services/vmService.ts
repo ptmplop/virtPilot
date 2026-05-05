@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { config } from '../config.js';
+import * as storageDirService from './storageDirService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
 import { run, virsh as safeVirsh, qemuImg } from './safeExec.js';
@@ -174,6 +174,43 @@ export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
       }),
     );
 
+    // Annotate each disk with file-existence and (where known) storage dir.
+    // Missing-file detection lets the UI flag VMs whose ISO/disk has been
+    // moved, deleted, or is on a mount that's gone away — much louder than
+    // "this VM won't start" coming back at next boot.
+    let uuid = '';
+    try {
+      const dom = await virsh(['domuuid', name]);
+      uuid = dom.trim().toLowerCase();
+    } catch { /* unable to resolve uuid — fall back to no storage-dir labelling */ }
+    const diskLocByFilename = new Map<string, { storageDirId: string }>();
+    if (uuid) {
+      try {
+        const locs = await storageDirService.listDiskLocationsForVm(uuid);
+        for (const l of locs) diskLocByFilename.set(l.diskFilename, { storageDirId: l.storageDirId });
+      } catch { /* ignore — DB may be unavailable */ }
+    }
+    await Promise.all(
+      disks.map(async (disk) => {
+        if (!disk.source) return;
+        try {
+          await fs.access(disk.source);
+          disk.fileMissing = false;
+        } catch {
+          disk.fileMissing = true;
+        }
+        const filename = path.basename(disk.source);
+        const loc = diskLocByFilename.get(filename);
+        if (loc) {
+          disk.storageDirId = loc.storageDirId;
+          try {
+            const dir = await storageDirService.getDir(loc.storageDirId);
+            if (dir) disk.storageDirName = dir.name;
+          } catch { /* ignore */ }
+        }
+      }),
+    );
+
     return disks;
   } catch {
     return [];
@@ -341,6 +378,72 @@ export async function detachDisk(nameOrId: string, targetDev: string): Promise<s
   const trace: TraceEntry[] = [];
   await virsh(['detach-disk', name, target, '--persistent'], trace);
   return formatTrace(trace);
+}
+
+// Build a regex matching a `<source ... file='oldPath' ...>` element. We match
+// the whole opening tag (any attribute order) and capture the prefix up to
+// `file=`, the opening quote, and the closing quote — the replacement swaps
+// only the file value while preserving siblings like `index='2'`.
+function sourceFileRegex(oldPath: string): RegExp {
+  return new RegExp(
+    `(<source\\b[^>]*?\\bfile=)(['"])${escapeRegex(oldPath)}(['"])`,
+    'g',
+  );
+}
+
+// Function-form replacement avoids `$&`/`$1`/`$$`/etc. interpolation that
+// String.prototype.replace performs on a literal replacement string. Operator-
+// supplied storage dir paths can legitimately contain `$` (e.g. `/mnt/My$Vol`)
+// and a literal "$1" inside newPath would corrupt the rewrite.
+function replaceFileAttr(newPath: string) {
+  return (_match: string, before: string, openQuote: string, closeQuote: string): string =>
+    `${before}${openQuote}${newPath}${closeQuote}`;
+}
+
+// Dry-run flavour for the move-disk flow's pre-flight check: returns the
+// rewritten XML without applying it, so the caller can validate that the
+// rewrite would succeed before touching the file on disk.
+export async function buildReplacedDiskSourceXml(
+  nameOrId: string,
+  oldPath: string,
+  newPath: string,
+): Promise<string> {
+  const name = validateVmName(nameOrId);
+  const xml = await virsh(['dumpxml', name, '--inactive']);
+  const re = sourceFileRegex(oldPath);
+  if (!re.test(xml)) {
+    throw new Error(`Disk source ${oldPath} not found in domain XML for ${name}`);
+  }
+  re.lastIndex = 0;
+  return xml.replace(re, replaceFileAttr(newPath));
+}
+
+// Apply a pre-built domain XML via `virsh define`. Companion to
+// buildReplacedDiskSourceXml so the route layer can validate the rewrite
+// before touching the file, then commit afterwards.
+export async function defineFromXml(xmlContent: string, nameForFilename = 'vm'): Promise<string> {
+  const trace: TraceEntry[] = [];
+  const tmp = path.join(os.tmpdir(), `virtpilot-define-${nameForFilename}-${Date.now()}.xml`);
+  await fs.writeFile(tmp, xmlContent, 'utf8');
+  try {
+    await virsh(['define', tmp], trace);
+  } finally {
+    await fs.unlink(tmp).catch(() => {});
+  }
+  return formatTrace(trace);
+}
+
+// Rewrite a disk's `<source file='…'/>` in the persistent domain XML to point
+// at a new absolute path. Used by the move-disk flow after the file has been
+// physically relocated. VM must be stopped — libvirt rejects redefine of a
+// running domain's storage path.
+export async function replaceDiskSource(
+  nameOrId: string,
+  oldPath: string,
+  newPath: string,
+): Promise<string> {
+  const updated = await buildReplacedDiskSourceXml(nameOrId, oldPath, newPath);
+  return defineFromXml(updated, validateVmName(nameOrId));
 }
 
 export async function attachCdrom(nameOrId: string, isoPath: string, targetDev = 'sdb'): Promise<string> {
@@ -841,17 +944,16 @@ export async function revertSnapshot(nameOrId: string, snapshotName: string): Pr
   return formatTrace(trace);
 }
 
-export async function exportSnapshotAsTemplate(vmName: string, snapshotName: string, templateFilename: string): Promise<string> {
+export async function exportSnapshotAsTemplate(vmName: string, snapshotName: string, destPath: string): Promise<string> {
   const name = validateVmName(vmName);
   const snap = validateSnapshotName(snapshotName);
-  // templateFilename comes from the route layer, which already runs it
-  // through validateFilename — but we re-basename here as defence-in-depth.
-  const safeFilename = path.basename(templateFilename);
+  // destPath comes from the route layer (resolved via storageDirService); we
+  // re-validate the filename portion as defence-in-depth.
+  const safeFilename = path.basename(destPath);
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(qcow2|img|raw)$/i.test(safeFilename)) {
     throw new Error('Invalid template filename');
   }
   const trace: TraceEntry[] = [];
-  const destPath = path.join(config.templatesDir, safeFilename);
   const snapshotXml = await getSnapshotXml(name, snap);
 
   if (isExternalSnapshotXml(snapshotXml)) {

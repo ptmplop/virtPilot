@@ -11,15 +11,51 @@ import * as tar from 'tar';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import * as storageService from '../services/storageService.js';
+import * as storageDirService from '../services/storageDirService.js';
+import type { StorageDir } from '../services/storageDirService.js';
+import * as vmService from '../services/vmService.js';
 import { assertSafeDownloadUrl } from '../lib/safeUrl.js';
 import { validateFilename } from '../lib/validate.js';
 
 export const isosRouter = Router();
 
+// Same scratch-then-move pattern as templates: stream to a local scratch dir
+// and move into the operator-picked storage dir after the body is parsed.
+const SCRATCH_DIR = path.join(config.storageRoot, '.uploads');
+
 const upload = multer({
-  dest: config.isosDir,
+  dest: SCRATCH_DIR,
   limits: { fileSize: 50 * 1024 * 1024 * 1024 },
 });
+
+async function resolveIsosUploadDir(storageDirIdRaw: unknown): Promise<StorageDir> {
+  const id = typeof storageDirIdRaw === 'string' ? storageDirIdRaw.trim() : '';
+  let dir: StorageDir | null;
+  if (id) {
+    dir = await storageDirService.getDir(id);
+    if (!dir) throw new Error(`Storage directory ${id} not found`);
+  } else {
+    dir = await storageDirService.getDefaultDirFor('isos');
+    if (!dir) throw new Error('No ISOs storage directory configured');
+  }
+  if (!dir.purposes.includes('isos')) {
+    throw new Error(`Storage directory "${dir.name}" is not flagged for ISOs`);
+  }
+  const subdir = storageDirService.getIsosSubdir(dir);
+  await fsp.mkdir(subdir, { recursive: true });
+  await fsp.chmod(subdir, 0o770).catch(() => {});
+  return dir;
+}
+
+async function moveCrossFs(src: string, dest: string): Promise<void> {
+  try {
+    await fsp.rename(src, dest);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    await fsp.copyFile(src, dest);
+    await fsp.unlink(src);
+  }
+}
 
 const GZIP_MAGIC = Buffer.from([0x1f, 0x8b]);
 
@@ -98,19 +134,21 @@ async function extractIsoFromTarGz(srcPath: string, destPath: string): Promise<v
   if (!extracted) throw new Error('No .iso file found in archive');
 }
 
-// Detect format and write to a `.iso` file in isosDir. Returns the final filename.
-// Removes the source temp file once finished. originalName is treated as
-// untrusted: we only ever use its leaf-name and re-validate the result.
-async function processUploadedFile(srcPath: string, originalNameRaw: string): Promise<string> {
+// Detect format and write to a `.iso` file inside the chosen storage dir's
+// isos subfolder. Returns the final filename. Removes the source temp file
+// once finished. originalName is treated as untrusted: we only ever use its
+// leaf-name and re-validate the result.
+async function processUploadedFile(srcPath: string, originalNameRaw: string, targetDir: StorageDir): Promise<string> {
   const originalName = path.basename(originalNameRaw);
   const lower = originalName.toLowerCase();
   const magic = await readMagic(srcPath);
   const looksGzipped = isGzip(magic);
   const isTarGzExt = lower.endsWith('.tar.gz') || lower.endsWith('.tgz');
+  const isosSubdir = storageDirService.getIsosSubdir(targetDir);
 
   if (looksGzipped && isTarGzExt) {
     const destName = deriveIsoFilename(originalName);
-    const destPath = path.join(config.isosDir, destName);
+    const destPath = path.join(isosSubdir, destName);
     try {
       await extractIsoFromTarGz(srcPath, destPath);
     } catch (err) {
@@ -124,7 +162,7 @@ async function processUploadedFile(srcPath: string, originalNameRaw: string): Pr
 
   if (looksGzipped) {
     const destName = deriveIsoFilename(originalName);
-    const destPath = path.join(config.isosDir, destName);
+    const destPath = path.join(isosSubdir, destName);
     try {
       await pipeline(
         fs.createReadStream(srcPath),
@@ -145,8 +183,8 @@ async function processUploadedFile(srcPath: string, originalNameRaw: string): Pr
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.iso$/i.test(destName)) {
     throw new Error('Invalid ISO filename');
   }
-  const destPath = path.join(config.isosDir, destName);
-  await fsp.rename(srcPath, destPath);
+  const destPath = path.join(isosSubdir, destName);
+  await moveCrossFs(srcPath, destPath);
   return destName;
 }
 
@@ -233,12 +271,14 @@ isosRouter.post('/upload', upload.single('file'), async (req, res) => {
   req.on('aborted', () => { if (tempPath) safeUnlink(tempPath); });
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const finalName = await processUploadedFile(req.file.path, req.file.originalname);
-    const displayName = (req.body as Record<string, string>).name?.trim();
+    const body = req.body as Record<string, string>;
+    const targetDir = await resolveIsosUploadDir(body.storageDirId);
+    const finalName = await processUploadedFile(req.file.path, req.file.originalname, targetDir);
+    const displayName = body.name?.trim();
     if (displayName) {
       await storageService.setIsoDisplayName(finalName, displayName);
     }
-    res.json({ filename: finalName });
+    res.json({ filename: finalName, storageDirId: targetDir.id });
   } catch (err: unknown) {
     if (tempPath) await safeUnlink(tempPath);
     res.status(500).json({ error: String(err) });
@@ -246,7 +286,7 @@ isosRouter.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 isosRouter.post('/download', async (req, res) => {
-  const { url, filename, name } = req.body as { url?: string; filename?: string; name?: string };
+  const { url, filename, name, storageDirId } = req.body as { url?: string; filename?: string; name?: string; storageDirId?: string };
   if (!url) return res.status(400).json({ error: 'url is required' });
 
   // Preserve archive extensions (.gz/.tar.gz/.tgz) on the raw download name so
@@ -260,10 +300,19 @@ isosRouter.post('/download', async (req, res) => {
   }
   const finalFilename = deriveIsoFilename(rawFilename);
 
+  let targetDir: StorageDir;
+  try {
+    targetDir = await resolveIsosUploadDir(storageDirId);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+
   const jobId = randomUUID();
-  // Hidden temp path so it's not picked up by the .iso listing filter.
-  const tempPath = path.join(config.isosDir, `.${jobId}.download`);
-  const destPath = path.join(config.isosDir, finalFilename);
+  // Hidden temp path inside the target dir so it's not picked up by the .iso
+  // listing filter and the final rename is intra-fs (atomic).
+  const isosSubdir = storageDirService.getIsosSubdir(targetDir);
+  const tempPath = path.join(isosSubdir, `.${jobId}.download`);
+  const destPath = path.join(isosSubdir, finalFilename);
   const job: DownloadJob = {
     filename: finalFilename,
     partPath: tempPath,
@@ -276,12 +325,12 @@ isosRouter.post('/download', async (req, res) => {
   };
   activeDownloads.set(jobId, job);
 
-  res.json({ jobId, filename: finalFilename });
+  res.json({ jobId, filename: finalFilename, storageDirId: targetDir.id });
 
   streamUrl(url, tempPath, job)
     .then(async () => {
       job.status = 'processing';
-      const written = await processUploadedFile(tempPath, rawFilename);
+      const written = await processUploadedFile(tempPath, rawFilename, targetDir);
       job.filename = written;
       job.status = 'done';
       if (job.displayName) {
@@ -317,6 +366,53 @@ isosRouter.delete('/download/:jobId', (req, res) => {
   if (!job) return res.status(404).json({ error: 'Job not found or already completed' });
   if (job.status === 'downloading') job.abort();
   res.json({ ok: true });
+});
+
+// Move an ISO to a different storage dir. Refuses the move if any VM has the
+// ISO attached as a CDROM — their domain XML has the old absolute path baked
+// in, and silently moving the file would break boot-from-ISO and live
+// CDROM mounts the next time the VM starts.
+isosRouter.post('/:filename/move', async (req, res) => {
+  try {
+    const filename = validateFilename(req.params.filename);
+    const { storageDirId } = req.body as { storageDirId?: string };
+    if (typeof storageDirId !== 'string' || !storageDirId) {
+      return res.status(400).json({ error: 'storageDirId is required' });
+    }
+
+    // Walk every defined VM and check whether the ISO is attached. We compare
+    // by basename so this catches the ISO regardless of which storage dir it
+    // currently lives in.
+    const attached: string[] = [];
+    try {
+      const vms = await vmService.listVmsRaw();
+      for (const v of vms) {
+        try {
+          const disks = await vmService.getVmDisks(v.id);
+          if (disks.some((d) => d.type === 'cdrom' && d.source && path.basename(d.source) === filename)) {
+            attached.push(v.name);
+          }
+        } catch { /* per-VM probe failure shouldn't block the move check */ }
+      }
+    } catch { /* libvirt unavailable — proceed without the guard */ }
+    if (attached.length > 0) {
+      return res.status(409).json({
+        error:
+          `Cannot move "${filename}": attached as CDROM on ${attached.length} VM(s) ` +
+          `(${attached.join(', ')}). Detach the ISO from those VMs first.`,
+      });
+    }
+
+    const result = await storageService.moveIso(filename, storageDirId);
+    res.json({
+      ok: true,
+      filename,
+      from: { id: result.fromDir.id, name: result.fromDir.name },
+      to: { id: result.toDir.id, name: result.toDir.name },
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 isosRouter.patch('/:filename', async (req, res) => {

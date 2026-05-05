@@ -3,6 +3,22 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.0] — 2026-05-05
+
+### Added
+
+- **Move templates, ISOs, and VM disks between storage directories.** Each row in the Templates list, ISOs list, and the Storage page's VM Disks table gets a "Move to another storage directory" button alongside Delete. The destination picker filters to directories flagged for that purpose. Moves are physical file moves on disk (cross-filesystem aware — falls back to copy + unlink when source and destination are on different mounts). VM disks additionally get their domain XML rewritten so libvirt knows the new path; the VM must be stopped before its disk can be moved (moving a live qcow2 underneath QEMU corrupts it). Templates with VMs created from them are blocked from moving — the qcow2 backing chain encodes the absolute template path at create time, so moving would silently break those VMs at next start; the operator gets a clear error listing the affected VMs. ISOs currently attached as a CDROM to any VM are blocked for the same reason: their domain XML has the absolute path baked in.
+
+- **Missing-file detection for VM disks.** The VM detail page now surfaces an "missing" badge on any disk whose source path no longer exists on the host (mount disappeared, file deleted out from under VirtPilot, manual `mv` outside the dashboard). The source path text turns amber and a tooltip explains the VM will fail to start until the file is restored or the path corrected. Each disk row also shows which storage directory holds the file. Detection runs on every VM info refresh — no stale-cache surprises.
+
+## [2.2.0] — 2026-05-05
+
+### Added
+
+- **Multiple storage directories.** Templates, ISOs, and VM disks no longer have to live under `/var/lib/virtpilot`. Mount any local disk, NFS share, or iSCSI volume to a folder, register it on the redesigned Storage page, and pick it when uploading a template, downloading an ISO, creating a VM, or adding an extra disk. Each registered directory is purpose-tagged (templates / ISOs / VM disks — any combination), shows free/used space with a health indicator, and one directory per purpose can be flagged as the default for new uploads. The original `/var/lib/virtpilot` layout is auto-seeded on first boot as the "Local" directory with all three purposes set as default, so existing flows keep working untouched. Per-VM control state (NVRAM, name.txt, cloud-init seed) stays on the system root so libvirt can still start a VM if a non-default mount drops; only the qcow2 disk files migrate to the chosen directory.
+
+  Under the hood: new `storage_dirs` and `vm_disk_locations` SQLite tables (migration 3), `/api/storage/dirs` CRUD endpoints, `storageDirId` field threaded through every upload, download, and disk-create call, and a new `<StorageDirSelect>` picker reused across the Templates / ISOs / VM Create / Add Disk dialogs. Cross-filesystem uploads use a scratch dir under `STORAGE_ROOT/.uploads` and copy+unlink instead of rename when the destination is on a different mount.
+
 ## [2.1.0] — 2026-05-04
 
 ### Added

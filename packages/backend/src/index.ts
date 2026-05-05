@@ -12,6 +12,7 @@ import { vmsRouter } from './routes/vms.js';
 import { networksRouter } from './routes/networks.js';
 import { templatesRouter } from './routes/templates.js';
 import { isosRouter } from './routes/isos.js';
+import { storageRouter } from './routes/storage.js';
 import { settingsRouter } from './routes/settings.js';
 import { systemRouter } from './routes/system.js';
 import { logsRouter } from './routes/logs.js';
@@ -26,6 +27,7 @@ import { createConsoleWss } from './console.js';
 import { createSshWss } from './ssh.js';
 import { createVncWss } from './vnc.js';
 import { ensureDirs } from './services/storageService.js';
+import { seedDefault as seedDefaultStorageDir } from './services/storageDirService.js';
 import { applyAllRules } from './services/portForwardService.js';
 import { startSampling } from './services/statsService.js';
 import { startVmMetricsSampling } from './services/vmMetricsService.js';
@@ -108,6 +110,7 @@ app.use('/api/vms', requireAuth, vmsRouter);
 app.use('/api/networks', requireAuth, networksRouter);
 app.use('/api/templates', requireAuth, templatesRouter);
 app.use('/api/isos', requireAuth, isosRouter);
+app.use('/api/storage', requireAuth, storageRouter);
 app.use('/api/settings', requireAuth, settingsRouter);
 app.use('/api/system', requireAuth, systemRouter);
 app.use('/api/logs', requireAuth, logsRouter);
@@ -212,6 +215,13 @@ async function main() {
     getDb();
   } catch (err) {
     console.warn('Could not initialise SQLite database:', err);
+  }
+  // Seed the default storage directory row pointing at config.storageRoot.
+  // No-op once any rows exist (and after the first boot of v2.2+).
+  try {
+    await seedDefaultStorageDir();
+  } catch (err) {
+    console.warn('Could not seed default storage directory:', err);
   }
   startSampling();
   startVmMetricsSampling();

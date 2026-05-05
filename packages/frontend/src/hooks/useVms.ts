@@ -112,10 +112,13 @@ export function useVmAction(uuid: string) {
 export function useAddDisk(uuid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { sizeGb: number; target?: string }) => {
+    mutationFn: async (payload: { sizeGb: number; target?: string; storageDirId?: string }) => {
       await api.post(`/api/vms/${uuid}/disks`, payload);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.vm(uuid) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.vm(uuid) });
+      qc.invalidateQueries({ queryKey: ['storage-dirs'] });
+    },
   });
 }
 

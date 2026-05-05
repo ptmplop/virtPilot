@@ -13,6 +13,21 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.3.0',
+    date: '2026-05-05',
+    changes: [
+      { type: 'added', text: 'Move templates, ISOs, and VM disks between storage directories. Each row in the Templates list, ISOs list, and the Storage page\'s VM Disks table gets a "Move to another storage directory" button alongside Delete. Moves are physical file moves on disk (cross-filesystem aware — falls back to copy + unlink when source and destination are on different mounts). VM disks additionally get their domain XML rewritten so libvirt knows the new path; the VM must be stopped before its disk can be moved. Templates with VMs created from them are blocked from moving (the qcow2 backing chain encodes the absolute path at create time, so moving would silently break those VMs at next start). ISOs currently attached as a CDROM to any VM are blocked for the same reason.' },
+      { type: 'added', text: 'Missing-file detection for VM disks. The VM detail page surfaces an amber "missing" badge on any disk whose source path no longer exists on the host (mount disappeared, file deleted out from under VirtPilot, manual mv outside the dashboard). Each disk row also shows which storage directory holds the file. Detection runs on every VM info refresh.' },
+    ],
+  },
+  {
+    version: '2.2.0',
+    date: '2026-05-05',
+    changes: [
+      { type: 'added', text: 'Multiple storage directories. Templates, ISOs, and VM disks no longer have to live under /var/lib/virtpilot. Mount any local disk, NFS share, or iSCSI volume to a folder, register it on the redesigned Storage page, and pick it when uploading a template, downloading an ISO, creating a VM, or adding an extra disk. Each registered directory is purpose-tagged (templates / ISOs / VM disks — any combination), shows free/used space with a health indicator, and one directory per purpose can be flagged as the default for new uploads. The original /var/lib/virtpilot layout is auto-seeded on first boot as the "Local" directory with all three purposes set as default, so existing flows keep working untouched. Per-VM control state (NVRAM, name.txt, cloud-init seed) stays on the system root so libvirt can still start a VM if a non-default mount drops; only the qcow2 disk files migrate to the chosen directory.' },
+    ],
+  },
+  {
     version: '2.1.0',
     date: '2026-05-04',
     changes: [

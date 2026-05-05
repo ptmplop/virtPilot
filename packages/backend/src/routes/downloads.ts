@@ -9,6 +9,7 @@ import { isIpAllowed } from '../middleware/auth.js';
 import { getUserSettings } from '../services/userSettingsService.js';
 import * as vmService from '../services/vmService.js';
 import * as vmMetaService from '../services/vmMetaService.js';
+import * as storageDirService from '../services/storageDirService.js';
 import { appendLog } from '../services/logService.js';
 
 export const downloadsRouter = Router();
@@ -61,7 +62,20 @@ downloadsRouter.get('/disk', async (req, res) => {
     return;
   }
 
-  const filePath = path.join(config.vmsDir, vmUuid, filename);
+  // Look the disk up via vm_disk_locations — it may live on any registered
+  // storage dir, not necessarily the system-root vmsDir.
+  const diskLocations = await storageDirService.listDiskLocationsForVm(vmUuid);
+  const match = diskLocations.find((d) => d.diskFilename === filename);
+  if (!match) {
+    res.status(404).json({ error: 'Disk file not found' });
+    return;
+  }
+  const dir = await storageDirService.getDir(match.storageDirId);
+  if (!dir) {
+    res.status(404).json({ error: 'Disk storage dir missing' });
+    return;
+  }
+  const filePath = path.join(storageDirService.getVmDisksSubdir(dir), vmUuid, filename);
   let stat;
   try {
     stat = await fsp.stat(filePath);

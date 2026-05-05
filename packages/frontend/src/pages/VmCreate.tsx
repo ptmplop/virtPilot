@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';
+import { StorageDirSelect } from '@/components/StorageDirSelect';
 import { useCreateVm } from '@/hooks/useVms';
 import { useSshKeys } from '@/hooks/useSshKeys';
 import { api } from '@/lib/api';
@@ -51,6 +52,7 @@ interface FormData {
   cpus: string;
   memoryMb: string;
   diskGb: string;
+  storageDirId: string;
   sourceType: SourceType;
   templateFilename: string;
   isoFilename: string;
@@ -71,6 +73,7 @@ const defaults: FormData = {
   cpus: '2',
   memoryMb: '2048',
   diskGb: '20',
+  storageDirId: '',
   sourceType: 'template',
   templateFilename: '',
   isoFilename: '',
@@ -568,6 +571,13 @@ function ResourcesStep({
             />
           </div>
         )}
+        <div className="max-w-sm">
+          <StorageDirSelect
+            purpose="vmDisks"
+            value={form.storageDirId}
+            onChange={(id) => setForm((f) => ({ ...f, storageDirId: id }))}
+          />
+        </div>
       </div>
 
       {/* CPU Mode */}
@@ -1498,6 +1508,7 @@ export function VmCreatePage() {
           cpus: parseInt(form.cpus, 10),
           memoryMb: parseInt(form.memoryMb, 10),
           diskGb: parseInt(form.diskGb, 10),
+          storageDirId: form.storageDirId || undefined,
           isoFilename: form.isoFilename,
           cpuMode: form.cpuMode,
           nicModel: form.nicModel,
@@ -1517,6 +1528,7 @@ export function VmCreatePage() {
           cpus: parseInt(form.cpus, 10),
           memoryMb: parseInt(form.memoryMb, 10),
           diskGb: parseInt(form.diskGb, 10),
+          storageDirId: form.storageDirId || undefined,
           templateFilename: form.templateFilename,
           cpuMode: form.cpuMode,
           nicModel: form.nicModel,

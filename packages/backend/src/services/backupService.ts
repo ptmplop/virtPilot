@@ -9,6 +9,7 @@ import { getVmMeta } from './vmMetaService.js';
 import { appendLog } from './logService.js';
 import { virsh, qemuImg } from './safeExec.js';
 import { validateVmUuid } from '../lib/validate.js';
+import * as storageDirService from './storageDirService.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -443,8 +444,14 @@ export async function restoreBackup(sourceVmUuid: string, id: string, targetVmUu
     throw new Error(`VM "${targetVmUuid}" must be stopped before restoring`);
   }
 
-  const targetVmDir = path.join(config.vmsDir, targetVmUuid);
-  await fs.mkdir(targetVmDir, { recursive: true });
+  // Resolve the target storage dir per disk. v2.2 introduced multiple storage
+  // dirs — restoring blindly into config.vmsDir would orphan the file from
+  // both vm_disk_locations and the libvirt domain XML for any VM whose disks
+  // live elsewhere. Look each disk up in vm_disk_locations; fall back to the
+  // default vmDisks dir for a brand-new restore where no rows exist yet.
+  const existingLocs = await storageDirService.listDiskLocationsForVm(targetVmUuid);
+  const locByFilename = new Map(existingLocs.map((l) => [l.diskFilename, l.storageDirId]));
+  const fallbackDir = await storageDirService.getDefaultDirFor('vmDisks');
 
   // Disk filenames (disk.qcow2, extra-disk-N.qcow2) are not VM-name-prefixed.
   // Defend against a manifest crafted with `disk.filename = "../../etc/cron.d/x"`:
@@ -454,6 +461,18 @@ export async function restoreBackup(sourceVmUuid: string, id: string, targetVmUu
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.qcow2$/i.test(safeFilename)) {
       throw new Error(`Refusing to restore: invalid disk filename in manifest (${disk.filename})`);
     }
+
+    const targetDirId = locByFilename.get(safeFilename);
+    let targetDir = targetDirId ? await storageDirService.getDir(targetDirId) : null;
+    if (!targetDir) targetDir = fallbackDir;
+    if (!targetDir) {
+      throw new Error('No vmDisks storage directory available — register one before restoring backups');
+    }
+
+    const targetVmDir = path.join(storageDirService.getVmDisksSubdir(targetDir), targetVmUuid);
+    await fs.mkdir(targetVmDir, { recursive: true });
+    await fs.chmod(targetVmDir, 0o770).catch(() => {});
+
     const src = path.join(bdir, safeFilename);
     const dest = path.join(targetVmDir, safeFilename);
     const tmp = dest + '.restoring';
@@ -464,6 +483,11 @@ export async function restoreBackup(sourceVmUuid: string, id: string, targetVmUu
       await fs.unlink(tmp).catch(() => {});
       throw err;
     }
+
+    // Make sure vm_disk_locations reflects where the file is now. For an
+    // overwriting restore this is a no-op (row already exists); for restore
+    // into a brand-new VM uuid the row is freshly inserted.
+    await storageDirService.recordDiskLocation(targetVmUuid, safeFilename, targetDir.id);
   }
 
   await appendLog({

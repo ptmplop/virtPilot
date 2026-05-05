@@ -66,6 +66,37 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    // Storage directories: operator-registered folders that hold templates,
+    // ISOs, and/or VM disks. The default /var/lib/virtpilot dir gets seeded as
+    // the first row at boot (see storageDirService.seedDefault).
+    //
+    // vm_disk_locations indexes every disk file across every storage dir so
+    // the dashboard can enumerate VM disks without walking N filesystems on
+    // every page load.
+    version: 3,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE storage_dirs (
+          id                    TEXT    PRIMARY KEY,
+          name                  TEXT    NOT NULL UNIQUE,
+          path                  TEXT    NOT NULL UNIQUE,
+          purposes              TEXT    NOT NULL,
+          is_default_templates  INTEGER NOT NULL DEFAULT 0,
+          is_default_isos       INTEGER NOT NULL DEFAULT 0,
+          is_default_vm_disks   INTEGER NOT NULL DEFAULT 0,
+          created_at            INTEGER NOT NULL
+        );
+        CREATE TABLE vm_disk_locations (
+          vm_uuid          TEXT NOT NULL,
+          disk_filename    TEXT NOT NULL,
+          storage_dir_id   TEXT NOT NULL REFERENCES storage_dirs(id),
+          PRIMARY KEY (vm_uuid, disk_filename)
+        );
+        CREATE INDEX idx_vm_disk_locations_storage_dir ON vm_disk_locations (storage_dir_id);
+      `);
+    },
+  },
 ];
 
 function runMigrations(db: Db): void {

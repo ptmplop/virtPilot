@@ -40,10 +40,11 @@ export function useRenameTemplate() {
 export function useUploadTemplate(onProgress?: (pct: number) => void) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, displayName, signal }: { file: File; displayName?: string; signal?: AbortSignal }) => {
+    mutationFn: async ({ file, displayName, storageDirId, signal }: { file: File; displayName?: string; storageDirId?: string; signal?: AbortSignal }) => {
       const form = new FormData();
       form.append('file', file);
       if (displayName?.trim()) form.append('name', displayName.trim());
+      if (storageDirId) form.append('storageDirId', storageDirId);
       await api.post('/api/templates/upload', form, {
         timeout: 0,
         signal,
@@ -52,7 +53,10 @@ export function useUploadTemplate(onProgress?: (pct: number) => void) {
         },
       });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['templates'] });
+      qc.invalidateQueries({ queryKey: ['storage-dirs'] });
+    },
   });
 }
 
@@ -66,8 +70,8 @@ export interface DownloadJob {
 
 export function useDownloadTemplateFromUrl() {
   return useMutation({
-    mutationFn: async ({ url, filename, name }: { url: string; filename?: string; name?: string }) => {
-      const { data } = await api.post<{ jobId: string; filename: string }>('/api/templates/download', { url, filename, name });
+    mutationFn: async ({ url, filename, name, storageDirId }: { url: string; filename?: string; name?: string; storageDirId?: string }) => {
+      const { data } = await api.post<{ jobId: string; filename: string }>('/api/templates/download', { url, filename, name, storageDirId });
       return data;
     },
   });
@@ -77,6 +81,19 @@ export function useCancelTemplateDownload() {
   return useMutation({
     mutationFn: async (jobId: string) => {
       await api.delete(`/api/templates/download/${jobId}`);
+    },
+  });
+}
+
+export function useMoveTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ filename, storageDirId }: { filename: string; storageDirId: string }) => {
+      await api.post(`/api/templates/${encodeURIComponent(filename)}/move`, { storageDirId });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['templates'] });
+      qc.invalidateQueries({ queryKey: ['storage-dirs'] });
     },
   });
 }

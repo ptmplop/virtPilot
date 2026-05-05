@@ -10,6 +10,7 @@ import { validateVmName, validateVmUuid, validateFilename } from '../lib/validat
 import * as vmService from '../services/vmService.js';
 import * as deviceService from '../services/deviceService.js';
 import * as storageService from '../services/storageService.js';
+import * as storageDirService from '../services/storageDirService.js';
 import * as networkService from '../services/networkService.js';
 import * as vmMetaService from '../services/vmMetaService.js';
 import * as vmMetricsService from '../services/vmMetricsService.js';
@@ -75,30 +76,22 @@ vmsRouter.get('/disks', async (_req, res) => {
       }
     } catch { /* libvirt unavailable */ }
 
-    let entries: string[] = [];
-    try {
-      entries = await fs.readdir(config.vmsDir);
-    } catch { /* vms dir not created yet */ }
+    const locations = await storageDirService.listAllDiskLocations();
+    const dirsById = new Map<string, Awaited<ReturnType<typeof storageDirService.getDir>>>();
+    for (const loc of locations) {
+      if (!dirsById.has(loc.storageDirId)) {
+        dirsById.set(loc.storageDirId, await storageDirService.getDir(loc.storageDirId));
+      }
+    }
 
-    const disks: Array<{ vmUuid: string; vmName: string; filename: string; sizeGb: number; vmExists: boolean; vmStatus: string | null }> = [];
-
-    for (const entry of entries) {
-      const vmDir = path.join(config.vmsDir, entry);
-      try {
-        const s = await fs.stat(vmDir);
-        if (!s.isDirectory()) continue;
-      } catch { continue; }
-
-      // Reject anything that doesn't look like a UUID — leftover cruft from
-      // manual operator action shouldn't be surfaced as if it were a VM.
-      let vmUuid: string;
-      try { vmUuid = validateVmUuid(entry); } catch { continue; }
-
-      // Resolve a friendly name: live VM > name.txt marker > vmMeta. Falls
-      // back to the UUID if everything else fails.
+    // Cache friendly-name lookups across iterations of the same VM uuid.
+    const nameByUuid = new Map<string, string>();
+    const resolveDisplayName = async (vmUuid: string): Promise<string> => {
+      const cached = nameByUuid.get(vmUuid);
+      if (cached) return cached;
       let displayName = vmUuid;
       try {
-        const txt = await fs.readFile(path.join(vmDir, 'name.txt'), 'utf8');
+        const txt = await fs.readFile(path.join(storageService.getSystemVmDir(vmUuid), 'name.txt'), 'utf8');
         const trimmed = txt.trim();
         if (trimmed) displayName = trimmed;
       } catch { /* no marker — try meta */ }
@@ -108,23 +101,37 @@ vmsRouter.get('/disks', async (_req, res) => {
           if (meta?.name) displayName = meta.name;
         } catch { /* fall through */ }
       }
+      nameByUuid.set(vmUuid, displayName);
+      return displayName;
+    };
 
-      let files: string[] = [];
-      try { files = await fs.readdir(vmDir); } catch { continue; }
+    const disks: Array<{
+      vmUuid: string; vmName: string; filename: string; sizeGb: number;
+      vmExists: boolean; vmStatus: string | null;
+      storageDirId: string; storageDirName: string;
+    }> = [];
 
-      for (const file of files.filter((f) => f.endsWith('.qcow2'))) {
-        try {
-          const fileStat = await fs.stat(path.join(vmDir, file));
-          disks.push({
-            vmUuid,
-            vmName: displayName,
-            filename: file,
-            sizeGb: Math.round((fileStat.size / 1_073_741_824) * 100) / 100,
-            vmExists: definedUuids.has(vmUuid),
-            vmStatus: statusByUuid.get(vmUuid) ?? null,
-          });
-        } catch { continue; }
+    for (const loc of locations) {
+      const dir = dirsById.get(loc.storageDirId);
+      if (!dir) continue;
+      const filePath = path.join(storageDirService.getVmDisksSubdir(dir), loc.vmUuid, loc.diskFilename);
+      let fileStat;
+      try {
+        fileStat = await fs.stat(filePath);
+      } catch {
+        continue;
       }
+      const displayName = await resolveDisplayName(loc.vmUuid);
+      disks.push({
+        vmUuid: loc.vmUuid,
+        vmName: displayName,
+        filename: loc.diskFilename,
+        sizeGb: Math.round((fileStat.size / 1_073_741_824) * 100) / 100,
+        vmExists: definedUuids.has(loc.vmUuid),
+        vmStatus: statusByUuid.get(loc.vmUuid) ?? null,
+        storageDirId: dir.id,
+        storageDirName: dir.name,
+      });
     }
 
     res.json({ disks });
@@ -252,7 +259,7 @@ vmsRouter.post('/', async (req, res) => {
   try {
     const {
       name, cpus, memoryMb, diskGb,
-      templateFilename, isoFilename,
+      templateFilename, isoFilename, storageDirId,
       networks, cloudInit, cpuMode, nicModel, firmware, secureBoot, vtpm,
     } = req.body as {
       name: string;
@@ -261,6 +268,7 @@ vmsRouter.post('/', async (req, res) => {
       diskGb: number;
       templateFilename?: string;
       isoFilename?: string;
+      storageDirId?: string;
       networks?: NetworkRequest[];
       cloudInit?: { hostname: string; username: string; password: string; sshKeys?: string[] };
       cpuMode?: CpuMode;
@@ -296,14 +304,14 @@ vmsRouter.post('/', async (req, res) => {
 
     if (templateFilename) {
       try {
-        await fs.access(path.join(config.templatesDir, templateFilename));
+        await storageService.resolveTemplatePath(templateFilename);
       } catch {
         return res.status(400).json({ error: `Template "${templateFilename}" not found` });
       }
     }
     if (isoFilename) {
       try {
-        await fs.access(path.join(config.isosDir, isoFilename));
+        await storageService.resolveIsoPath(isoFilename);
       } catch {
         return res.status(400).json({ error: `ISO "${isoFilename}" not found` });
       }
@@ -361,6 +369,9 @@ vmsRouter.post('/', async (req, res) => {
     }
 
     await storageService.ensureDirs();
+    // NVRAM and name.txt live on the system root; ensure that per-VM folder
+    // exists before qemu-img writes into it.
+    await storageService.ensureSystemVmDir(uuid);
 
     // Collect command traces across all creation steps
     const trace: TraceEntry[] = [];
@@ -368,15 +379,15 @@ vmsRouter.post('/', async (req, res) => {
     let diskPath: string;
     let domainXml: string;
 
-    const nvramPath = path.join(config.vmsDir, uuid, `${uuid}-nvram.fd`);
+    const nvramPath = path.join(storageService.getSystemVmDir(uuid), `${uuid}-nvram.fd`);
     const firmwareOpts = { firmware, secureBoot, nvramPath, vtpm };
 
     if (isIsoInstall) {
-      diskPath = await storageService.createBlankPrimaryDisk(uuid, diskGb, trace);
-      const installIsoPath = path.join(config.isosDir, isoFilename!);
+      diskPath = await storageService.createBlankPrimaryDisk(uuid, diskGb, storageDirId, trace);
+      const installIsoPath = await storageService.resolveIsoPath(isoFilename!);
       domainXml = buildDomainXml({ uuid, name, cpus, memoryMb, diskPath, installIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
     } else {
-      diskPath = await storageService.createVmDisk(uuid, templateFilename!, diskGb, trace);
+      diskPath = await storageService.createVmDisk(uuid, templateFilename!, diskGb, storageDirId, trace);
       const hostPubKey = await getHostSshPublicKey();
       const sshKeys = [...(cloudInit!.sshKeys ?? [])];
       if (hostPubKey && !sshKeys.includes(hostPubKey)) sshKeys.push(hostPubKey);
@@ -594,11 +605,11 @@ vmsRouter.post('/:uuid/disks', requireUuidParam, async (req, res) => {
   const { uuid } = req.params;
   const log = await logSubject(uuid);
   try {
-    const { sizeGb, target } = req.body;
+    const { sizeGb, target, storageDirId } = req.body as { sizeGb?: number; target?: string; storageDirId?: string };
     const vm = await vmService.getVmInfo(uuid);
     const existingExtras = vm.disks.filter((d) => d.target.startsWith('vd') && d.target !== 'vda').length;
     const storageTrace: TraceEntry[] = [];
-    const diskPath = await storageService.createBlankDisk(uuid, existingExtras + 1, sizeGb ?? 20, storageTrace);
+    const diskPath = await storageService.createBlankDisk(uuid, existingExtras + 1, sizeGb ?? 20, storageDirId, storageTrace);
     const assignedTarget = target ?? `vd${String.fromCharCode(98 + existingExtras)}`;
     const virshOutput = await vmService.attachDisk(uuid, diskPath, assignedTarget);
     const output = [formatTrace(storageTrace), virshOutput].filter(Boolean).join('\n\n');
@@ -631,7 +642,7 @@ vmsRouter.post('/:uuid/cdrom', requireUuidParam, async (req, res) => {
   const log = await logSubject(uuid);
   try {
     const { isoFilename, target } = req.body;
-    const isoPath = path.join(config.isosDir, isoFilename);
+    const isoPath = await storageService.resolveIsoPath(isoFilename);
     const output = await vmService.attachCdrom(uuid, isoPath, target ?? 'sdb');
     void logService.appendLog({ type: 'vm.cdrom.attach', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
@@ -860,10 +871,20 @@ vmsRouter.post('/:uuid/snapshots/:snapshot/to-template', requireUuidParam, async
   const { uuid, snapshot } = req.params;
   const log = await logSubject(uuid);
   try {
-    const { templateName } = req.body as { templateName?: string };
+    const { templateName, storageDirId } = req.body as { templateName?: string; storageDirId?: string };
     if (!templateName?.trim()) return res.status(400).json({ error: 'templateName is required' });
     const safeName = templateName.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
     const filename = `${safeName}.qcow2`;
+
+    // Resolve the templates dir to use: explicit choice or templates default.
+    const templatesDir = storageDirId
+      ? await storageDirService.getDir(storageDirId)
+      : await storageDirService.getDefaultDirFor('templates');
+    if (!templatesDir) return res.status(400).json({ error: 'No templates storage directory available' });
+    if (!templatesDir.purposes.includes('templates')) {
+      return res.status(400).json({ error: `Storage directory "${templatesDir.name}" is not flagged for templates` });
+    }
+    const destPath = path.join(storageDirService.getTemplatesSubdir(templatesDir), filename);
 
     // Source template recorded at VM-create time is the authoritative answer —
     // unlike walking the qcow2 backing chain, it stays correct when external
@@ -889,7 +910,7 @@ vmsRouter.post('/:uuid/snapshots/:snapshot/to-template', requireUuidParam, async
       }
     } catch { /* non-fatal — proceed without logo hint */ }
 
-    const output = await vmService.exportSnapshotAsTemplate(uuid, snapshot, filename);
+    const output = await vmService.exportSnapshotAsTemplate(uuid, snapshot, destPath);
     await storageService.setTemplateDisplayName(filename, templateName.trim());
     void logService.appendLog({ type: 'vm.snapshot.export', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true, filename, sourceTemplateFilename });
@@ -973,6 +994,118 @@ vmsRouter.put('/:uuid/autostart', requireUuidParam, async (req, res) => {
   }
 });
 
+// Move a single VM disk file (primary or extra) to a different storage dir.
+// VM must be stopped — libvirt rejects redefine of a running domain's storage
+// path, and moving a live qcow2 underneath qemu would corrupt the VM.
+//
+// Three-phase commit so a libvirt or filesystem hiccup mid-flight never
+// leaves the operator with split state:
+//   1. Plan + dry-run: compute oldPath/newPath, dry-run the domain XML
+//      rewrite. If the regex doesn't match, return 4xx — nothing has changed
+//      on disk or in the DB yet.
+//   2. Execute: physically move the file and update vm_disk_locations.
+//   3. Apply XML: define the rewritten XML. On failure, roll the move back
+//      so the file/DB/XML stay consistent and the operator can retry.
+vmsRouter.post('/:uuid/disk-files/:filename/move', requireUuidParam, async (req, res) => {
+  const start = Date.now();
+  const { uuid } = req.params;
+  const log = await logSubject(uuid);
+  try {
+    let safeFilename: string;
+    try {
+      safeFilename = validateFilename(req.params.filename);
+    } catch {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+    const { storageDirId } = req.body as { storageDirId?: string };
+    if (typeof storageDirId !== 'string' || !storageDirId) {
+      return res.status(400).json({ error: 'storageDirId is required' });
+    }
+
+    // VM may be undefined (orphan disk) — move is still allowed in that case.
+    let vmDefined = false;
+    let vmName: string | null = null;
+    try {
+      const info = await vmService.getVmInfo(uuid);
+      vmDefined = true;
+      vmName = info.name;
+      if (info.status !== 'stopped') {
+        return res.status(409).json({ error: 'VM must be stopped before moving its disk' });
+      }
+    } catch { /* undefined — fall through */ }
+
+    // Phase 1 — plan + pre-validate.
+    const plan = await storageService.planVmDiskMove(uuid, safeFilename, storageDirId);
+    let rewrittenXml: string | null = null;
+    if (vmDefined && vmName) {
+      try {
+        rewrittenXml = await vmService.buildReplacedDiskSourceXml(vmName, plan.oldPath, plan.newPath);
+      } catch (err) {
+        return res.status(409).json({
+          error: `Refusing to move: domain XML pre-validation failed (${err instanceof Error ? err.message : String(err)})`,
+        });
+      }
+    }
+
+    // Phase 2 — physically move the file + update DB row.
+    await storageService.executeVmDiskMove(plan);
+
+    // Phase 3 — apply the rewritten XML. Roll back the move if libvirt rejects
+    // the redefine.
+    if (rewrittenXml && vmName) {
+      try {
+        await vmService.defineFromXml(rewrittenXml, vmName);
+      } catch (err) {
+        await storageService.rollbackVmDiskMove(plan).catch((rbErr) => {
+          // Rollback can fail if the destination filesystem went read-only
+          // mid-flight. Surface the original libvirt error AND the rollback
+          // failure so the operator can investigate.
+          void logService.appendLog({
+            type: 'vm.disk.move',
+            ...log,
+            status: 'error',
+            output: `define failed: ${String(err)} — rollback also failed: ${String(rbErr)}`,
+            durationMs: Date.now() - start,
+          });
+        });
+        void logService.appendLog({
+          type: 'vm.disk.move',
+          ...log,
+          status: 'error',
+          output: `define failed and move was rolled back: ${String(err)}`,
+          durationMs: Date.now() - start,
+        });
+        return res.status(500).json({
+          error: `Domain XML define failed: ${String(err)}. The disk move was rolled back; nothing changed on disk.`,
+        });
+      }
+    }
+
+    void logService.appendLog({
+      type: 'vm.disk.move',
+      ...log,
+      status: 'success',
+      output: `${safeFilename}: ${plan.fromDir.name} → ${plan.toDir.name}`,
+      durationMs: Date.now() - start,
+    });
+    res.json({
+      ok: true,
+      filename: safeFilename,
+      from: { id: plan.fromDir.id, name: plan.fromDir.name },
+      to: { id: plan.toDir.id, name: plan.toDir.name },
+    });
+  } catch (err: unknown) {
+    void logService.appendLog({
+      type: 'vm.disk.move',
+      ...log,
+      status: 'error',
+      output: String(err),
+      durationMs: Date.now() - start,
+    });
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // Disk download — issues a short-lived ticket (60s) tied to a specific qcow2
 // file. The actual stream lives at GET /api/downloads/disk?t=<ticket> so the
 // browser can trigger a save without needing the Bearer token in the URL.
@@ -988,7 +1121,19 @@ vmsRouter.post('/:uuid/disk-files/:filename/download-ticket', requireUuidParam, 
     if (!/\.qcow2$/i.test(safeFilename)) {
       return res.status(400).json({ error: 'Only qcow2 disk files can be downloaded' });
     }
-    const filePath = path.join(config.vmsDir, uuid, safeFilename);
+    // Resolve the disk's storage dir from vm_disk_locations rather than
+    // assuming it lives under config.vmsDir — disks may live on any
+    // operator-registered storage dir.
+    const diskLocations = await storageDirService.listDiskLocationsForVm(uuid);
+    const match = diskLocations.find((d) => d.diskFilename === safeFilename);
+    if (!match) {
+      return res.status(404).json({ error: 'Disk file not found' });
+    }
+    const dir = await storageDirService.getDir(match.storageDirId);
+    if (!dir) {
+      return res.status(404).json({ error: 'Disk storage dir missing' });
+    }
+    const filePath = path.join(storageDirService.getVmDisksSubdir(dir), uuid, safeFilename);
     try {
       await fs.access(filePath);
     } catch {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
-  Copy, Cpu, Disc, Download, Eye, EyeOff, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
+  Copy, Cpu, Disc, Download, Eye, EyeOff, FolderInput, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
   Power, PowerOff, RotateCcw, Server, Shield, Terminal, Trash2, Usb, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -11,6 +11,9 @@ import { Button } from '@/components/ui/Button';
 import { StatusDot } from '@/components/ui/Badge';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
+import { StorageDirSelect } from '@/components/StorageDirSelect';
+import { MoveDialog } from '@/components/MoveDialog';
+import { useMoveVmDisk } from '@/hooks/useVmDisks';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
@@ -642,11 +645,14 @@ function DisksTab({
   vmStatus: import('@/types').VmStatus;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const [addStorageDirId, setAddStorageDirId] = useState('');
   const [cdromOpen, setCdromOpen] = useState(false);
   const [sizeGb, setSizeGb] = useState('20');
   const [isoFilename, setIsoFilename] = useState('');
   const [resizingDisk, setResizingDisk] = useState<VmDisk | null>(null);
   const [resizeAddGb, setResizeAddGb] = useState('10');
+  const [movingDisk, setMovingDisk] = useState<VmDisk | null>(null);
+  const moveVmDisk = useMoveVmDisk();
   const addDisk = useAddDisk(vmUuid);
   const detachDisk = useDetachDisk(vmUuid);
   const attachCdrom = useAttachCdrom(vmUuid);
@@ -715,7 +721,7 @@ function DisksTab({
 
   const handleAddDisk = async () => {
     try {
-      await addDisk.mutateAsync({ sizeGb: parseInt(sizeGb, 10) });
+      await addDisk.mutateAsync({ sizeGb: parseInt(sizeGb, 10), storageDirId: addStorageDirId || undefined });
       toast.success('Disk added');
       setAddOpen(false);
     } catch {
@@ -777,7 +783,18 @@ function DisksTab({
               <tbody className="divide-y divide-border">
                 {disks.filter((d) => !isSeedIso(d) && !(d.type === 'cdrom' && !d.source)).map((d) => (
                   <tr key={d.target} className="transition-colors hover:bg-muted/30">
-                    <td className="px-5 py-3.5 font-mono text-xs text-foreground">{d.target}</td>
+                    <td className="px-5 py-3.5 font-mono text-xs text-foreground">
+                      <div className="flex items-center gap-2">
+                        <span>{d.target}</span>
+                        {d.fileMissing && (
+                          <Tooltip label={`File missing on disk: ${d.source}. The VM will fail to start until the file is restored or the path is corrected.`}>
+                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                              <AlertTriangle size={9} /> missing
+                            </span>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-5 py-3.5 text-muted-foreground">
                       <Tooltip label={d.type === 'cdrom' ? 'CD-ROM' : 'Disk'}>
                         {d.type === 'cdrom'
@@ -790,13 +807,28 @@ function DisksTab({
                       {d.sizeGb != null && d.sizeGb > 0 ? formatDisk(d.sizeGb) : '—'}
                     </td>
                     <td
-                      className="max-w-xs truncate px-5 py-3.5 font-mono text-xs text-muted-foreground"
+                      className={cn('max-w-xs truncate px-5 py-3.5 font-mono text-xs', d.fileMissing ? 'text-amber-400' : 'text-muted-foreground')}
                       title={d.source}
                     >
                       {d.source || '—'}
+                      {d.storageDirName && (
+                        <span className="ml-2 text-[10px] text-muted-foreground/70">[{d.storageDirName}]</span>
+                      )}
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <div className="inline-flex items-center gap-1">
+                        {d.type === 'disk' && d.source && /\.qcow2$/i.test(d.source) && d.storageDirId && (
+                          <Tooltip label={vmStatus === 'stopped' ? 'Move to another storage directory' : 'Stop the VM before moving its disk'}>
+                            <button
+                              type="button"
+                              disabled={vmStatus !== 'stopped'}
+                              onClick={() => setMovingDisk(d)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                            >
+                              <FolderInput size={13} />
+                            </button>
+                          </Tooltip>
+                        )}
                         {d.type === 'disk' && d.source && /\.qcow2$/i.test(d.source) && (
                           <Tooltip label={vmStatus === 'stopped' ? 'Download disk image' : 'Stop the VM before downloading its disk'}>
                             <button
@@ -1016,6 +1048,26 @@ function DisksTab({
         </div>
       )}
 
+      <MoveDialog
+        open={movingDisk !== null}
+        onClose={() => setMovingDisk(null)}
+        itemLabel={movingDisk?.source ? movingDisk.source.split('/').pop()! : ''}
+        purpose="vmDisks"
+        currentStorageDirId={movingDisk?.storageDirId ?? ''}
+        notes={
+          <>
+            VM must be stopped — moving a live qcow2 underneath QEMU corrupts it.
+            The domain XML is rewritten to point at the new path on success.
+          </>
+        }
+        busy={moveVmDisk.isPending}
+        onMove={async (storageDirId) => {
+          if (!movingDisk?.source) return;
+          const filename = movingDisk.source.split('/').pop()!;
+          await moveVmDisk.mutateAsync({ vmUuid, filename, storageDirId });
+        }}
+      />
+
       <Dialog
         open={addOpen}
         onClose={() => setAddOpen(false)}
@@ -1031,13 +1083,16 @@ function DisksTab({
           </>
         }
       >
-        <Input
-          label="Size (GB)"
-          type="number"
-          min="1"
-          value={sizeGb}
-          onChange={(e) => setSizeGb(e.target.value)}
-        />
+        <div className="space-y-3">
+          <Input
+            label="Size (GB)"
+            type="number"
+            min="1"
+            value={sizeGb}
+            onChange={(e) => setSizeGb(e.target.value)}
+          />
+          <StorageDirSelect purpose="vmDisks" value={addStorageDirId} onChange={setAddStorageDirId} />
+        </div>
       </Dialog>
 
       <Dialog

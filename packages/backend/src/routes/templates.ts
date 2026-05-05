@@ -8,6 +8,9 @@ import multer from 'multer';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import * as storageService from '../services/storageService.js';
+import * as storageDirService from '../services/storageDirService.js';
+import type { StorageDir } from '../services/storageDirService.js';
+import * as vmMetaService from '../services/vmMetaService.js';
 import { saveUserSettings } from '../services/userSettingsService.js';
 import { assertSafeDownloadUrl } from '../lib/safeUrl.js';
 import { validateFilename } from '../lib/validate.js';
@@ -20,10 +23,49 @@ const USER_AGENT = 'VirtPilot/1.19.4 (+https://github.com/ptmplop/virtPilot)';
 
 export const templatesRouter = Router();
 
+// Uploads stream into a scratch dir on the local system root; the route
+// handler then moves the file into the storage dir the operator picked. This
+// avoids multer's form-field-ordering pitfall (the destination resolver
+// fires before req.body is fully populated, so reading storageDirId from
+// inside it isn't reliable).
+const SCRATCH_DIR = path.join(config.storageRoot, '.uploads');
+
 const upload = multer({
-  dest: config.templatesDir,
+  dest: SCRATCH_DIR,
   limits: { fileSize: 100 * 1024 * 1024 * 1024 },
 });
+
+async function resolveTemplatesUploadDir(storageDirIdRaw: unknown): Promise<StorageDir> {
+  const id = typeof storageDirIdRaw === 'string' ? storageDirIdRaw.trim() : '';
+  let dir: StorageDir | null;
+  if (id) {
+    dir = await storageDirService.getDir(id);
+    if (!dir) throw new Error(`Storage directory ${id} not found`);
+  } else {
+    dir = await storageDirService.getDefaultDirFor('templates');
+    if (!dir) throw new Error('No templates storage directory configured');
+  }
+  if (!dir.purposes.includes('templates')) {
+    throw new Error(`Storage directory "${dir.name}" is not flagged for templates`);
+  }
+  const subdir = storageDirService.getTemplatesSubdir(dir);
+  await fsp.mkdir(subdir, { recursive: true });
+  await fsp.chmod(subdir, 0o770).catch(() => {});
+  return dir;
+}
+
+// fs.rename throws EXDEV when source and destination are on different mounts
+// (the storage dir might be NFS/iSCSI on a separate filesystem from the
+// scratch dir). Fall back to a copy+unlink in that case.
+async function moveCrossFs(src: string, dest: string): Promise<void> {
+  try {
+    await fsp.rename(src, dest);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    await fsp.copyFile(src, dest);
+    await fsp.unlink(src);
+  }
+}
 
 interface DownloadJob {
   filename: string;
@@ -143,13 +185,15 @@ templatesRouter.post('/upload', upload.single('file'), async (req, res) => {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(qcow2|img|raw|iso)$/i.test(originalName)) {
       return res.status(400).json({ error: 'Invalid template filename' });
     }
-    const destPath = path.join(config.templatesDir, originalName);
-    await fsp.rename(req.file.path, destPath);
-    const displayName = (req.body as Record<string, string>).name?.trim();
+    const body = req.body as Record<string, string>;
+    const targetDir = await resolveTemplatesUploadDir(body.storageDirId);
+    const destPath = path.join(storageDirService.getTemplatesSubdir(targetDir), originalName);
+    await moveCrossFs(req.file.path, destPath);
+    const displayName = body.name?.trim();
     if (displayName) {
       await storageService.setTemplateDisplayName(originalName, displayName);
     }
-    res.json({ filename: originalName });
+    res.json({ filename: originalName, storageDirId: targetDir.id });
   } catch (err: unknown) {
     if (tempPath) await safeUnlink(tempPath);
     res.status(500).json({ error: String(err) });
@@ -157,7 +201,7 @@ templatesRouter.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 templatesRouter.post('/download', async (req, res) => {
-  const { url, filename, name } = req.body as { url?: string; filename?: string; name?: string };
+  const { url, filename, name, storageDirId } = req.body as { url?: string; filename?: string; name?: string; storageDirId?: string };
   if (!url) return res.status(400).json({ error: 'url is required' });
 
   let savedFilename: string;
@@ -177,8 +221,18 @@ templatesRouter.post('/download', async (req, res) => {
     return res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid URL' });
   }
 
+  let targetDir: StorageDir;
+  try {
+    targetDir = await resolveTemplatesUploadDir(storageDirId);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+
   const jobId = randomUUID();
-  const destPath = path.join(config.templatesDir, savedFilename);
+  const destPath = path.join(storageDirService.getTemplatesSubdir(targetDir), savedFilename);
+  // Stream into the storage dir's own subfolder; if the mount is healthy a
+  // `.part` rename is atomic on the same filesystem. If it isn't, the storage
+  // dir is unusable anyway and we want the failure surfaced early.
   const partPath = `${destPath}.part`;
   const job: DownloadJob = {
     filename: savedFilename,
@@ -192,7 +246,7 @@ templatesRouter.post('/download', async (req, res) => {
   };
   activeDownloads.set(jobId, job);
 
-  res.json({ jobId, filename: savedFilename });
+  res.json({ jobId, filename: savedFilename, storageDirId: targetDir.id });
 
   // Log to stderr so failures are visible via `journalctl -u virtpilot`. The
   // request itself doesn't go through any per-request middleware that records
@@ -243,6 +297,38 @@ templatesRouter.delete('/download/:jobId', (req, res) => {
   if (!job) return res.status(404).json({ error: 'Job not found or already completed' });
   if (job.status === 'downloading') job.abort();
   res.json({ ok: true });
+});
+
+// Move a template to a different storage dir. Refuses the move if any VM was
+// created from this template — the qcow2 backing-chain reference is encoded
+// at create time as the absolute template path, so moving the template would
+// silently break those VMs at next start.
+templatesRouter.post('/:filename/move', async (req, res) => {
+  try {
+    const filename = validateFilename(req.params.filename);
+    const { storageDirId } = req.body as { storageDirId?: string };
+    if (typeof storageDirId !== 'string' || !storageDirId) {
+      return res.status(400).json({ error: 'storageDirId is required' });
+    }
+    const metas = await vmMetaService.listVmMetas();
+    const referencing = metas.filter((m) => m.sourceTemplateFilename === filename);
+    if (referencing.length > 0) {
+      return res.status(409).json({
+        error:
+          `Cannot move "${filename}": it is the source template for ${referencing.length} VM(s) ` +
+          `(${referencing.map((m) => m.name).join(', ')}). Delete those VMs first.`,
+      });
+    }
+    const result = await storageService.moveTemplate(filename, storageDirId);
+    res.json({
+      ok: true,
+      filename,
+      from: { id: result.fromDir.id, name: result.fromDir.name },
+      to: { id: result.toDir.id, name: result.toDir.name },
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 templatesRouter.patch('/:filename', async (req, res) => {

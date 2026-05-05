@@ -43,3 +43,20 @@ export function useDownloadVmDisk() {
     },
   });
 }
+
+export function useMoveVmDisk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ vmUuid, filename, storageDirId }: { vmUuid: string; filename: string; storageDirId: string }) => {
+      await api.post(
+        `/api/vms/${encodeURIComponent(vmUuid)}/disk-files/${encodeURIComponent(filename)}/move`,
+        { storageDirId },
+      );
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['vm-disks'] });
+      qc.invalidateQueries({ queryKey: ['storage-dirs'] });
+      qc.invalidateQueries({ queryKey: ['vm', vars.vmUuid] });
+    },
+  });
+}
