@@ -3,6 +3,15 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.2] — 2026-05-05
+
+### Added
+
+- **Storage-directory ownership advisory.** When you register a directory whose group is not `virtpilot`, the dashboard now surfaces a warning toast at register time and an amber "warning" chip on the directory's row in the Storage page. The chip's tooltip prints the exact `chgrp + chmod` command to fix it. libvirt-qemu (a member of the `virtpilot` group) needs to traverse the registered dir to read VM disks; without this advisory, an operator who mounted iSCSI/NFS without setting the right group would only discover the problem when a VM failed to start with a cryptic "Permission denied" error from libvirt. The check re-runs on every Storage-page refresh, so re-mounts that change ownership are picked up live without re-registering.
+- **Explicit `chown` of created subdirs.** When creating `templates/` / `isos/` / `vms/` inside a registered storage dir, VirtPilot now `chown`s them to `virtpilot:virtpilot` after the `mkdir + chmod 0770`. No-op for fresh `mkdir` output (we're already the owner) but defends against parent dirs with the setgid bit set or unusual umasks that would otherwise force a different group on the new subdirs.
+
+VirtPilot still does not auto-`chown` the operator-supplied parent dir — operators have legitimate reasons their mount is owned a particular way (shared with other services). The advisory tells you what to fix; the `chgrp` runs as root via `sudo` so it's the operator's call to make.
+
 ## [2.3.1] — 2026-05-05
 
 ### Fixed

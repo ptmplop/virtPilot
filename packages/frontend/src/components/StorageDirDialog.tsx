@@ -70,7 +70,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
         });
         toast.success(`Updated ${trimmed}`);
       } else {
-        await create.mutateAsync({
+        const result = await create.mutateAsync({
           name: trimmed,
           path: path.trim(),
           purposes: [...purposes],
@@ -81,6 +81,11 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
           },
         });
         toast.success(`Added ${trimmed}`);
+        // Surface ownership advisories as warnings — they don't block
+        // registration but the operator should know before VM-create runs.
+        for (const w of result.warnings) {
+          toast.warning(w, { duration: 12_000 });
+        }
       }
       onClose();
     } catch (err: unknown) {

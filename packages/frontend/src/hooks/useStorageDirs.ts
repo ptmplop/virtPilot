@@ -22,8 +22,11 @@ export function useCreateStorageDir() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { name: string; path: string; purposes: StorageDirPurpose[]; setDefault?: SetDefault }) => {
-      const { data } = await api.post<{ dir: StorageDir }>('/api/storage/dirs', input);
-      return data.dir;
+      // Backend returns { dir, warnings } — warnings are non-fatal advisories
+      // (typically ownership mismatches) the dialog passes to the user as
+      // toasts so they can fix them before VM-create stumbles into EACCES.
+      const { data } = await api.post<{ dir: StorageDir; warnings: string[] }>('/api/storage/dirs', input);
+      return data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['storage-dirs'] });

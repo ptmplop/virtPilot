@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.3.2',
+    date: '2026-05-05',
+    changes: [
+      { type: 'added', text: 'Storage-directory ownership advisory. When you register a directory whose group is not virtpilot, the dashboard surfaces a warning toast at register time and an amber "warning" chip on the directory row. The chip\'s tooltip prints the exact chgrp/chmod command to fix it. libvirt-qemu (a member of the virtpilot group) needs to traverse the registered dir to read VM disks; without this advisory, mounting iSCSI/NFS without setting the right group fails with a cryptic "Permission denied" only when a VM tries to start. The check re-runs on every Storage-page refresh.' },
+      { type: 'added', text: 'Explicit chown of created subdirs. When creating templates/ / isos/ / vms/ inside a registered storage dir, VirtPilot now chowns them to virtpilot:virtpilot after the mkdir + chmod 0770. No-op for fresh mkdir output but defends against parent dirs with the setgid bit set or unusual umasks.' },
+    ],
+  },
+  {
     version: '2.3.1',
     date: '2026-05-05',
     changes: [

@@ -33,13 +33,13 @@ storageRouter.post('/dirs', async (req, res) => {
     if (typeof name !== 'string' || typeof pathArg !== 'string' || !Array.isArray(purposes)) {
       return res.status(400).json({ error: 'name, path, and purposes are required' });
     }
-    const dir = await storageDirService.createDir({
+    const result = await storageDirService.createDir({
       name,
       path: pathArg,
       purposes,
       setDefault,
     });
-    res.json({ dir });
+    res.json(result);
   } catch (err: unknown) {
     if (err instanceof ValidationError) {
       return res.status(400).json({ error: err.message });

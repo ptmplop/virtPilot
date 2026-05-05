@@ -34,6 +34,11 @@ export interface StorageDirUsage {
   usedByVirtpilotBytes: number;
   healthy: boolean;
   error?: string;
+  // Non-fatal advisories — typically ownership mismatches that won't block
+  // VirtPilot writes but may break libvirt-qemu reads. Surfaced as a chip in
+  // the dashboard so the operator sees them on every refresh, not just at
+  // register time.
+  warnings: string[];
 }
 
 interface StorageDirRow {
@@ -136,15 +141,60 @@ export function getVmDisksSubdir(dir: StorageDir): string {
   return path.join(dir.path, VM_DISKS_SUBDIR);
 }
 
+// We run as the virtpilot user (per the systemd unit's `User=virtpilot`),
+// so process.get{u,g}id are the virtpilot uid/gid. Returns -1 on platforms
+// where the calls are unavailable (Windows, certain workers); callers must
+// guard. In production this never returns -1 because the systemd unit pins
+// User= and the Linux APIs always exist.
+function getServiceUserIds(): { uid: number; gid: number } {
+  return {
+    uid: typeof process.getuid === 'function' ? process.getuid() : -1,
+    gid: typeof process.getgid === 'function' ? process.getgid() : -1,
+  };
+}
+
+// libvirt-qemu (a member of the virtpilot group) needs to traverse the
+// registered storage dir to read VM disks. The cleanest precondition: the
+// dir's group is virtpilot, with group-x set. fs.access(W_OK) earlier in
+// createDir already guarantees virtpilot can write — what's left to surface
+// is the group-traversal angle. Returns null when ownership is fine,
+// otherwise a one-line warning the dashboard renders verbatim.
+async function checkParentOwnership(dirPath: string): Promise<string | null> {
+  try {
+    const { gid: serviceGid } = getServiceUserIds();
+    if (serviceGid < 0) return null;
+    const stat = await fs.stat(dirPath);
+    if (stat.gid !== serviceGid) {
+      return (
+        `Directory's group is gid=${stat.gid}, not virtpilot (gid=${serviceGid}). ` +
+        `libvirt-qemu may not be able to traverse to read VM disks. ` +
+        `Fix: sudo chgrp -R virtpilot ${dirPath} && sudo chmod -R g+rx ${dirPath}`
+      );
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // 0770 + group ownership so libvirt-qemu (a member of the virtpilot group)
 // can traverse and write — same trick install.sh applies to /var/lib/virtpilot.
+// Explicit chown after mkdir defends against an unusual umask or a
+// parent-with-setgid that would otherwise force a different group.
 async function ensurePurposeSubdirs(dir: StorageDir): Promise<void> {
+  const { uid, gid } = getServiceUserIds();
   const subs: string[] = [];
   if (dir.purposes.includes('templates')) subs.push(getTemplatesSubdir(dir));
   if (dir.purposes.includes('isos')) subs.push(getIsosSubdir(dir));
   if (dir.purposes.includes('vmDisks')) subs.push(getVmDisksSubdir(dir));
   for (const sub of subs) {
     await fs.mkdir(sub, { recursive: true });
+    if (uid >= 0 && gid >= 0) {
+      // chown is allowed for the file's owner (us); it's a no-op for fresh
+      // mkdir output but corrects setgid-inherited groups on parents that
+      // had GID propagation set.
+      await fs.chown(sub, uid, gid).catch(() => { /* not owner — surfaces on first write */ });
+    }
     await fs.chmod(sub, 0o770).catch(() => { /* permissions issue — surfaces on first write */ });
   }
 }
@@ -198,7 +248,12 @@ interface CreateDirInput {
   setDefault?: { templates?: boolean; isos?: boolean; vmDisks?: boolean };
 }
 
-export async function createDir(input: CreateDirInput): Promise<StorageDir> {
+// Returns the new dir alongside any non-fatal warnings (typically ownership
+// advisories — the parent's group is something other than virtpilot, so
+// libvirt-qemu won't traverse it). The route surfaces these to the operator
+// so they can `chgrp` before the first VM-create stumbles into a quiet
+// EACCES at start time.
+export async function createDir(input: CreateDirInput): Promise<{ dir: StorageDir; warnings: string[] }> {
   const trimmedName = input.name.trim();
   if (!trimmedName) throw new ValidationError('name', input.name, 'required');
   if (trimmedName.length > 64) throw new ValidationError('name', input.name, 'max 64 chars');
@@ -275,7 +330,12 @@ export async function createDir(input: CreateDirInput): Promise<StorageDir> {
 
   const dir = (await getDir(id))!;
   await ensurePurposeSubdirs(dir);
-  return dir;
+
+  const warnings: string[] = [];
+  const ownership = await checkParentOwnership(absPath);
+  if (ownership) warnings.push(ownership);
+
+  return { dir, warnings };
 }
 
 interface UpdateDirInput {
@@ -395,6 +455,8 @@ export async function getDirUsage(dir: StorageDir): Promise<StorageDirUsage> {
   let freeBytes = 0;
   let usedByVirtpilotBytes = 0;
 
+  const warnings: string[] = [];
+
   try {
     const stats = await fs.statfs(dir.path);
     totalBytes = stats.blocks * stats.bsize;
@@ -402,8 +464,13 @@ export async function getDirUsage(dir: StorageDir): Promise<StorageDirUsage> {
   } catch (err) {
     healthy = false;
     error = err instanceof Error ? err.message : String(err);
-    return { totalBytes, freeBytes, usedByVirtpilotBytes, healthy, error };
+    return { totalBytes, freeBytes, usedByVirtpilotBytes, healthy, error, warnings };
   }
+
+  // Re-check ownership on every usage refresh — the operator might have
+  // mounted/unmounted storage or chowned the parent since registration.
+  const ownership = await checkParentOwnership(dir.path);
+  if (ownership) warnings.push(ownership);
 
   // Cheap usage tally: stat every file inside our managed subdirs. For a
   // single-digit number of templates/ISOs/VMs this is fine; if it ever gets
@@ -433,7 +500,7 @@ export async function getDirUsage(dir: StorageDir): Promise<StorageDirUsage> {
   if (dir.purposes.includes('isos')) await tally(getIsosSubdir(dir));
   if (dir.purposes.includes('vmDisks')) await tally(getVmDisksSubdir(dir));
 
-  return { totalBytes, freeBytes, usedByVirtpilotBytes, healthy, error };
+  return { totalBytes, freeBytes, usedByVirtpilotBytes, healthy, error, warnings };
 }
 
 // vm_disk_locations helpers ----------------------------------------------------

@@ -200,6 +200,13 @@ export function StoragePage() {
                     <div className="flex items-center gap-2">
                       <FolderOpen size={13} className="text-muted-foreground" />
                       <span className="text-sm font-medium text-foreground">{dir.name}</span>
+                      {dir.usage?.warnings?.length > 0 && (
+                        <Tooltip label={dir.usage.warnings.join(' • ')}>
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                            <AlertTriangle size={9} /> warning
+                          </span>
+                        </Tooltip>
+                      )}
                     </div>
                   </td>
                   <td className="px-5 py-3 align-top font-mono text-xs text-muted-foreground">{dir.path}</td>

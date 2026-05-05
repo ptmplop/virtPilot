@@ -107,6 +107,7 @@ export interface StorageDirUsage {
   usedByVirtpilotBytes: number;
   healthy: boolean;
   error?: string;
+  warnings: string[];
 }
 
 export interface StorageDir {
