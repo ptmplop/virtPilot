@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.3.5',
+    date: '2026-05-05',
+    changes: [
+      { type: 'fixed', text: 'Dashboard self-upgrade timed out when source had been hand-rolled forward. update.sh\'s "already up to date" early-exit was gated only on BEFORE == AFTER (no new commits fetched). When a previous git reset --hard had advanced source past the running build, the script saw "no commits to pull" and skipped the rebuild + restart, leaving the running service stuck on the old version. The dashboard then timed out polling for the new version. The build step now writes a dist/.version sentinel from the source package.json, and the early-exit additionally requires the built version to match source.' },
+    ],
+  },
+  {
     version: '2.3.4',
     date: '2026-05-05',
     changes: [

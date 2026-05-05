@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.5] — 2026-05-05
+
+### Fixed
+
+- **Dashboard self-upgrade timed out when source had been hand-rolled forward.** `update.sh`'s "already up to date" early-exit was gated only on `BEFORE == AFTER` (no new commits fetched). When a previous `git reset --hard` had advanced source past the running build — for instance because v2.3.4's update.sh was recovered onto disk manually before the in-dashboard update was retried — the script saw "no commits to pull" and skipped the rebuild + restart entirely, leaving the running service stuck on the old version. The dashboard's poll then waited 90s for the new version constant and timed out. The build step now writes a `dist/.version` sentinel from the source `package.json`, and the early-exit additionally requires the built version to match source. A mismatch logs `Source unchanged but built artefacts (X) lag source (Y) — rebuilding` and falls through to the normal build path.
+
 ## [2.3.4] — 2026-05-05
 
 ### Fixed

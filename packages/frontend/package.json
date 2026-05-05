@@ -1,11 +1,11 @@
 {
   "name": "@virtpilot/frontend",
-  "version": "2.3.4",
+  "version": "2.3.5",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node -e 'require(\"fs\").writeFileSync(\"dist/.version\", require(\"./package.json\").version)'",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },

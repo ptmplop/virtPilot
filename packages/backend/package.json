@@ -1,11 +1,11 @@
 {
   "name": "@virtpilot/backend",
-  "version": "2.3.4",
+  "version": "2.3.5",
   "private": true,
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e 'require(\"fs\").writeFileSync(\"dist/.version\", require(\"./package.json\").version)'",
     "start": "node dist/index.js"
   },
   "dependencies": {

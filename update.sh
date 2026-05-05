@@ -70,18 +70,31 @@ fi
 
 AFTER=$("${GIT_SAFE[@]}" rev-parse HEAD)
 
+# Compare what's on disk in source vs. what was last built. The build step
+# writes packages/{backend,frontend}/dist/.version on every successful build,
+# so a mismatch means dist/ is stale relative to source — even when no new
+# commits were fetched (e.g. an operator hand-rolled the source forward, or
+# a previous update.sh aborted between `git reset --hard` and `npm run build`
+# leaving a half-applied state). Without this check, the early-exit below
+# would silently skip the rebuild and the dashboard's "wait for backend"
+# poll would time out: source says v2.3.4, running service still on v2.3.2.
+SOURCE_VERSION=$(node -p "require('${INSTALL_DIR}/packages/backend/package.json').version" 2>/dev/null || echo unknown-source)
+BUILT_VERSION=$(tr -d '[:space:]' < "${INSTALL_DIR}/packages/backend/dist/.version" 2>/dev/null || echo unbuilt)
+
 if [[ "$BEFORE" == "$AFTER" ]]; then
   if [[ "$FORCE" == true ]]; then
     warn "Already up to date — rebuilding anyway (--force)"
-  else
-    log "Already up to date ($("${GIT_SAFE[@]}" rev-parse --short HEAD))"
+  elif [[ "$SOURCE_VERSION" == "$BUILT_VERSION" ]]; then
+    log "Already up to date ($("${GIT_SAFE[@]}" rev-parse --short HEAD), built v${BUILT_VERSION})"
     exit 0
+  else
+    warn "Source unchanged but built artefacts (${BUILT_VERSION}) lag source (v${SOURCE_VERSION}) — rebuilding"
   fi
+else
+  log "Updated $("${GIT_SAFE[@]}" rev-parse --short "$BEFORE") → $("${GIT_SAFE[@]}" rev-parse --short "$AFTER")"
+  "${GIT_SAFE[@]}" log --oneline "${BEFORE}..${AFTER}"
+  echo ""
 fi
-
-log "Updated $("${GIT_SAFE[@]}" rev-parse --short "$BEFORE") → $("${GIT_SAFE[@]}" rev-parse --short "$AFTER")"
-"${GIT_SAFE[@]}" log --oneline "${BEFORE}..${AFTER}"
-echo ""
 
 # ─── APT packages ─────────────────────────────────────────────────────────────
 info "Ensuring system packages are present..."
