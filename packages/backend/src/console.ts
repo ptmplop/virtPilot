@@ -36,6 +36,20 @@ export function createConsoleWss(): WebSocketServer {
 
     let ptyProcess: ReturnType<typeof pty.spawn> | null = null;
 
+    // node-pty's default `kill()` sends SIGHUP, which `virsh console` ignores
+    // when blocked in a libvirt RPC — leaving stale `virsh` children attached
+    // to the VM's serial PTY across browser refreshes. Send SIGTERM first,
+    // then escalate to SIGKILL after a short grace period if it's still alive.
+    const reapPty = (proc: ReturnType<typeof pty.spawn> | null): void => {
+      if (!proc) return;
+      const pid = proc.pid;
+      try { proc.kill('SIGTERM'); } catch { /* already gone */ }
+      setTimeout(() => {
+        try { process.kill(pid, 0); } catch { return; }
+        try { process.kill(pid, 'SIGKILL'); } catch { /* ignore */ }
+      }, 1500).unref();
+    };
+
     try {
       ptyProcess = pty.spawn('virsh', ['-c', config.libvirtUri, 'console', vmUuid, '--force'], {
         name: 'xterm-256color',
@@ -72,12 +86,12 @@ export function createConsoleWss(): WebSocketServer {
       });
 
       ws.on('close', () => {
-        ptyProcess?.kill();
+        reapPty(ptyProcess);
         ptyProcess = null;
       });
 
       ws.on('error', () => {
-        ptyProcess?.kill();
+        reapPty(ptyProcess);
         ptyProcess = null;
       });
     } catch (err) {

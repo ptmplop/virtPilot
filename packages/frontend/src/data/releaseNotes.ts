@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.3.3',
+    date: '2026-05-05',
+    changes: [
+      { type: 'fixed', text: 'Console / SSH / VNC tabs returned 403 once an IP whitelist was configured. The HTTP API used req.ip (which honours trust proxy and resolves to the real client from X-Forwarded-For), but the WebSocket upgrade handler was reading req.socket.remoteAddress directly — always 127.0.0.1 behind nginx — so any non-empty ipWhitelist rejected every console/SSH/VNC upgrade while the rest of the dashboard kept working. The upgrade handler now mirrors Express\'s trust-proxy walk over X-Forwarded-For. Regression since v1.6.0.' },
+      { type: 'fixed', text: 'Stale virsh console children outliving their WebSocket. node-pty\'s default kill() sends SIGHUP, which virsh console ignores while blocked in a libvirt RPC — leaving orphaned clients attached to a VM\'s serial PTY across browser refreshes. Cleanup now sends SIGTERM and escalates to SIGKILL after 1.5s.' },
+    ],
+  },
+  {
     version: '2.3.2',
     date: '2026-05-05',
     changes: [

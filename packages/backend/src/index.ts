@@ -177,6 +177,29 @@ function extractWsToken(req: http.IncomingMessage): string | null {
   return null;
 }
 
+// Mirror Express's `trust proxy` behaviour for raw http upgrade events. The
+// `app.set('trust proxy', N)` call only rewrites `req.ip` on Express requests
+// — the IncomingMessage handed to the upgrade handler still reports the
+// nginx loopback as `remoteAddress`. Without this, a non-empty ipWhitelist
+// 403s every console/SSH/VNC WebSocket because 127.0.0.1 never matches a
+// real client whitelist entry.
+function clientIpFromUpgrade(req: http.IncomingMessage): string | undefined {
+  const direct = req.socket.remoteAddress?.replace(/^::ffff:/, '');
+  const trust = process.env.TRUST_PROXY ? Number(process.env.TRUST_PROXY) : 1;
+  if (!Number.isFinite(trust) || trust < 1 || !direct) return direct;
+  const header = req.headers['x-forwarded-for'];
+  const chain = (typeof header === 'string' ? header : '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (chain.length === 0) return direct;
+  // With `trust proxy=N`, Express skips N hops from the right (hop 0 is the
+  // direct connection, hop k is chain[chain.length-k]) and reports the next
+  // address. Clamps to chain[0] when the chain is shorter than the trust count.
+  const idx = Math.max(0, chain.length - trust);
+  return chain[idx] ?? direct;
+}
+
 server.on('upgrade', async (req, socket, head) => {
   const url = new URL(req.url ?? '', 'http://localhost');
   const token = extractWsToken(req);
@@ -186,7 +209,7 @@ server.on('upgrade', async (req, socket, head) => {
     return;
   }
   const { ipWhitelist } = await getUserSettings();
-  if (!isIpAllowed(req.socket.remoteAddress, ipWhitelist)) {
+  if (!isIpAllowed(clientIpFromUpgrade(req), ipWhitelist)) {
     socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
     socket.destroy();
     return;

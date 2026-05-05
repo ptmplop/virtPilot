@@ -3,6 +3,13 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.3] — 2026-05-05
+
+### Fixed
+
+- **Console / SSH / VNC tabs returned 403 once an IP whitelist was configured.** The Express HTTP API uses `req.ip` (which honours `app.set('trust proxy', 1)` and resolves to the real client from `X-Forwarded-For`), but the raw `server.on('upgrade')` handler was checking `req.socket.remoteAddress` directly — which behind nginx is always `127.0.0.1`. Any non-empty `ipWhitelist` therefore rejected every WebSocket upgrade with HTTP 403, breaking all three terminal tabs while leaving the rest of the dashboard fully functional. The upgrade handler now mirrors Express's `trust proxy` walk over `X-Forwarded-For` before applying the whitelist. Regression since v1.6.0; only manifested for installs that had ipWhitelist set.
+- **Stale `virsh console` children outliving their WebSocket.** When a console tab disconnected, node-pty's default `kill()` sent SIGHUP — which `virsh console` ignores while blocked in a libvirt RPC, leaving an orphaned client attached to the VM's serial PTY across browser refreshes. Cleanup now sends SIGTERM and escalates to SIGKILL after a 1.5s grace period, so the next connection always starts from a clean slate.
+
 ## [2.3.2] — 2026-05-05
 
 ### Added
