@@ -178,11 +178,22 @@ export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
     // Missing-file detection lets the UI flag VMs whose ISO/disk has been
     // moved, deleted, or is on a mount that's gone away — much louder than
     // "this VM won't start" coming back at next boot.
+    //
+    // The function may have been called with either a libvirt name OR a UUID
+    // (every public API path that hits getVmInfo passes a UUID). `virsh
+    // domuuid` only accepts the *name*, so calling it with a UUID would fail
+    // silently and leave storageDir annotation empty. Detect a UUID-shaped
+    // input directly and skip the virsh round-trip.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     let uuid = '';
-    try {
-      const dom = await virsh(['domuuid', name]);
-      uuid = dom.trim().toLowerCase();
-    } catch { /* unable to resolve uuid — fall back to no storage-dir labelling */ }
+    if (UUID_RE.test(name)) {
+      uuid = name.toLowerCase();
+    } else {
+      try {
+        const dom = await virsh(['domuuid', name]);
+        uuid = dom.trim().toLowerCase();
+      } catch { /* unable to resolve uuid — fall back to no storage-dir labelling */ }
+    }
     const diskLocByFilename = new Map<string, { storageDirId: string }>();
     if (uuid) {
       try {

@@ -13,7 +13,7 @@ import type { StorageDir } from '../services/storageDirService.js';
 import * as vmMetaService from '../services/vmMetaService.js';
 import { saveUserSettings } from '../services/userSettingsService.js';
 import { assertSafeDownloadUrl } from '../lib/safeUrl.js';
-import { validateFilename } from '../lib/validate.js';
+import { validateFilename, ValidationError } from '../lib/validate.js';
 
 // Some mirrors (notably cloud.centos.org) reject requests with no User-Agent
 // header — Node's http.get sends none by default, which silently 403s every
@@ -327,7 +327,17 @@ templatesRouter.post('/:filename/move', async (req, res) => {
       to: { id: result.toDir.id, name: result.toDir.name },
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    // ValidationError + "not flagged for templates" + "already exists at
+    // destination" + "in use as backing file" are all client errors. Avoid
+    // 500-on-everything by mapping known shapes to 4xx.
+    if (err instanceof ValidationError) {
+      return res.status(400).json({ error: err.message });
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/not flagged for|already exists in|already in/.test(msg)) {
+      return res.status(409).json({ error: msg });
+    }
+    res.status(500).json({ error: msg });
   }
 });
 

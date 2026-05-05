@@ -3,6 +3,17 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.1] — 2026-05-05
+
+### Fixed
+
+- **Move button missing on the VmDetail Disks tab.** `getVmDisks` enriches each disk row with `storageDirId`/`storageDirName` so the UI knows where the file lives. The lookup ran `virsh domuuid <name>` to convert a libvirt name to UUID, but every public API path passes the UUID *directly* — and `virsh domuuid` errors out when fed a UUID. The catch swallowed the error, the disk-locations map ended up empty, and the Move button (gated on `d.storageDirId`) never appeared on the VM detail page. Detect a UUID-shaped input and skip the round-trip.
+- **Move-to-wrong-purpose returned HTTP 500 instead of 4xx.** Templates `/move` and ISOs `/move` had a single 500 catch-all. `ValidationError` is now mapped to 400, and "not flagged for {purpose}" / "already exists in" errors map to 409 (the storage-dirs CRUD route already did this; templates/isos were inconsistent).
+- **`/tmp` and `/var/tmp` were not in `assertPathSafe`'s forbidden list.** Operator could register them as storage dirs. `/tmp` is cleared on reboot, silently destroying VM disks on the next host boot — a sharp footgun. Added both to the forbidden list.
+- **Relative-path registration error message was misleading.** A relative input like `templates` got rejected with "cannot be inside the VirtPilot install directory" because `path.resolve` ran the input through the install dir's `process.cwd()`. Reject relatives up-front with a clear "must be absolute" message.
+
+These were all surfaced by the [QA.md](QA.md) full pass against a clean v2.3.0 install.
+
 ## [2.3.0] — 2026-05-05
 
 ### Added

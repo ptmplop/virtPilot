@@ -15,7 +15,7 @@ import * as storageDirService from '../services/storageDirService.js';
 import type { StorageDir } from '../services/storageDirService.js';
 import * as vmService from '../services/vmService.js';
 import { assertSafeDownloadUrl } from '../lib/safeUrl.js';
-import { validateFilename } from '../lib/validate.js';
+import { validateFilename, ValidationError } from '../lib/validate.js';
 
 export const isosRouter = Router();
 
@@ -411,7 +411,14 @@ isosRouter.post('/:filename/move', async (req, res) => {
       to: { id: result.toDir.id, name: result.toDir.name },
     });
   } catch (err: unknown) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    if (err instanceof ValidationError) {
+      return res.status(400).json({ error: err.message });
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/not flagged for|already exists in|already in/.test(msg)) {
+      return res.status(409).json({ error: msg });
+    }
+    res.status(500).json({ error: msg });
   }
 });
 

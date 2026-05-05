@@ -13,6 +13,16 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.3.1',
+    date: '2026-05-05',
+    changes: [
+      { type: 'fixed', text: 'Move button missing on the VmDetail Disks tab. getVmDisks enriches each disk with storageDirId/storageDirName so the UI knows where the file lives, but the underlying virsh lookup didn\'t accept a UUID input — and every public API path passes a UUID. Detect a UUID-shaped input and skip the round-trip.' },
+      { type: 'fixed', text: 'Move-to-wrong-purpose returned HTTP 500 instead of 4xx. Templates and ISOs move endpoints now map ValidationError to 400 and "not flagged for {purpose}" / "already exists" errors to 409.' },
+      { type: 'fixed', text: '/tmp and /var/tmp were not in the forbidden list when registering a storage directory. /tmp is cleared on reboot, silently destroying VM disks on next boot. Both now rejected up-front.' },
+      { type: 'fixed', text: 'Relative path registration ("templates" or similar) was rejected with "cannot be inside the VirtPilot install directory" because path.resolve runs the input through process.cwd(). Now rejected up-front with "must be absolute".' },
+    ],
+  },
+  {
     version: '2.3.0',
     date: '2026-05-05',
     changes: [

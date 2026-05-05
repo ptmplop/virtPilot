@@ -73,9 +73,14 @@ function rowToDir(row: StorageDirRow): StorageDir {
 
 // Refuse paths that point at host-system roots — chowning/chmoding these is
 // either dangerous or pointless, and a typo here lights up the host.
+// /tmp and /var/tmp are listed because they're operator-pickable footguns:
+// /tmp gets cleared on reboot (silently destroying VM disks), and both are
+// world-writable, breaking the security model that storage dirs are virtpilot-
+// group-owned.
 const FORBIDDEN_PARENTS = [
   '/', '/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64', '/boot',
   '/dev', '/proc', '/sys', '/run', '/root', '/home',
+  '/tmp', '/var/tmp',
 ];
 
 function assertPathSafe(absPath: string): void {
@@ -206,7 +211,15 @@ export async function createDir(input: CreateDirInput): Promise<StorageDir> {
     }
   }
 
-  const absPath = path.resolve(input.path.trim());
+  const trimmedPath = input.path.trim();
+  // Reject relative paths up-front. Without this, `path.resolve` rewrites them
+  // against `process.cwd()` (the install dir), and the operator gets a
+  // confusing "cannot be inside the VirtPilot install directory" error
+  // instead of "must be absolute".
+  if (!path.isAbsolute(trimmedPath)) {
+    throw new ValidationError('path', trimmedPath, 'must be absolute');
+  }
+  const absPath = path.resolve(trimmedPath);
   assertPathSafe(absPath);
 
   // Path must already exist as a directory and be writable. Mounting iSCSI
