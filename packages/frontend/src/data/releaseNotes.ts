@@ -13,6 +13,17 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.4.0',
+    date: '2026-05-13',
+    changes: [
+      { type: 'added', text: 'Terminal theme picker. A palette button in the VM Console header switches the xterm colour scheme between Tokyo Night (default), Dracula, Catppuccin Mocha, Gruvbox Dark, Nord, One Dark, and Solarized Dark. Themes apply to both Console and SSH tabs and to the page chrome background. The choice is per-device and is applied live without tearing down the active session.' },
+      { type: 'added', text: 'VM consoles can open in a popup window. A toggle on the VMs page (default ON) routes the Console buttons to a 960×600 borderless popup instead of in-tab navigation. A second click on the same VM\'s button focuses the existing popup rather than spawning duplicates. If the browser blocks the popup we fall back to in-tab navigation and toast a hint.' },
+      { type: 'changed', text: 'VM console + SSH terminal rendering and responsiveness overhaul. The in-dashboard terminal (both Console and SSH tabs) now uses the Canvas renderer (~5–10× faster paint than the DOM default). System monospace stack (Menlo / Consolas / DejaVu Sans Mono) replaces Geist Mono so unicode glyphs nano/vi paint in status bars don\'t trigger per-glyph font substitution at non-monospace widths. Cell-aligned width calculation bypasses FitAddon\'s hard-coded scrollbar reservation so nano/vi/htop render edge-to-edge with no right-side gap and no clipped bottom row. ResizeObserver with rAF coalescing replaces window.resize. Ctrl+Shift+F searches the scrollback; Ctrl+Shift+V/C handles clipboard paste/copy. Auto-reconnect with exponential backoff (250 → 500 → 1000 → 2000 → 5000 ms) keeps the session alive across network blips; 20 s keepalive ping prevents NAT timeouts; scrollback survives reconnects. Thin progress bar shows during (re)connect.' },
+      { type: 'fixed', text: 'SSH terminal pty booted at placeholder 220×50 instead of the client\'s actual geometry. The backend\'s WebSocket message handler was attached inside the ssh.shell callback, which fires only after the SSH handshake completes (50–300 ms). The client\'s first resize message (sent on WS open) landed at the backend before any listener existed, and Node\'s ws library silently dropped it. Apps like nano/vi/htop therefore painted their UI at 220 cols — visible as a chunky right-side gap because the terminal is actually rendered at ~150 cols. The message handler now attaches at WS upgrade time and the pty is opened at the latest client-reported cols/rows; keystrokes typed during the handshake are buffered and drained when the shell stream is ready.' },
+      { type: 'fixed', text: 'Pty I/O is now binary on the wire. Pty output goes out as binary WebSocket frames (no UTF-8 round-trip on either side) and keystrokes go in as binary, with text frames reserved for JSON control messages (resize, ping). Closes a JSON-paste hijack — a pasted {"type":"resize",…} no longer accidentally resizes the pty.' },
+    ],
+  },
+  {
     version: '2.3.5',
     date: '2026-05-05',
     changes: [

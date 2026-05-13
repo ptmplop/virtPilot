@@ -59,9 +59,11 @@ export function createConsoleWss(): WebSocketServer {
         env: process.env as Record<string, string>,
       });
 
+      // Send pty output as binary frames — skips UTF-8 round-trip on both
+      // sides; xterm.js writes the raw bytes via the Canvas renderer.
       ptyProcess.onData((data: string) => {
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(data);
+          ws.send(Buffer.from(data, 'utf8'), { binary: true });
         }
       });
 
@@ -71,18 +73,24 @@ export function createConsoleWss(): WebSocketServer {
         }
       });
 
-      ws.on('message', (data) => {
-        const str = data.toString();
-        try {
-          const msg = JSON.parse(str) as { type?: string; cols?: number; rows?: number };
-          if (msg.type === 'resize' && ptyProcess && msg.cols && msg.rows) {
-            ptyProcess.resize(msg.cols, msg.rows);
-            return;
-          }
-        } catch {
-          // not JSON — treat as terminal input
+      // Text frames carry JSON control messages (resize, ping); binary frames
+      // carry raw keystrokes. Distinguishing prevents a pasted JSON-looking
+      // string from accidentally triggering a pty resize.
+      ws.on('message', (data, isBinary) => {
+        if (!isBinary) {
+          const str = (data as Buffer).toString();
+          try {
+            const msg = JSON.parse(str) as { type?: string; cols?: number; rows?: number };
+            if (msg.type === 'resize' && ptyProcess && msg.cols && msg.rows) {
+              ptyProcess.resize(msg.cols, msg.rows);
+              return;
+            }
+            if (msg.type === 'ping') return;
+          } catch { /* fall through and treat as input */ }
+          ptyProcess?.write(str);
+          return;
         }
-        ptyProcess?.write(str);
+        ptyProcess?.write((data as Buffer).toString());
       });
 
       ws.on('close', () => {

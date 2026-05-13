@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Cpu,
   MemoryStick,
@@ -25,6 +25,8 @@ import { cn } from '@/lib/cn';
 import type { VmStatus, VmSummary } from '@/types';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
+import { useUserPrefsStore } from '@/store/userPrefsStore';
+import { openVmConsole } from '@/lib/consoleOpener';
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
@@ -104,9 +106,9 @@ export function VmsPage() {
         <StatCard icon={Cpu} label="vCPUs Allocated" value={isLoading ? '—' : String(totalCpus)} iconClass="bg-violet-500/10 text-violet-500" />
       </div>
 
-      {/* Search */}
-      <div className="mb-5">
-        <div className="relative max-w-sm">
+      {/* Search + console-popup pref */}
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div className="relative max-w-sm flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
           <input
             type="text"
@@ -116,6 +118,7 @@ export function VmsPage() {
             className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
+        {!isLoading && total > 0 && <ConsolePopupToggle />}
       </div>
 
       {/* Table */}
@@ -186,6 +189,39 @@ export function VmsPage() {
   );
 }
 
+// ─── Console popup toggle ─────────────────────────────────────────────────────
+
+function ConsolePopupToggle() {
+  const openConsoleInPopup = useUserPrefsStore((s) => s.openConsoleInPopup);
+  const setOpenConsoleInPopup = useUserPrefsStore((s) => s.setOpenConsoleInPopup);
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-border bg-card/50 px-3 py-2">
+      <Terminal size={13} className="shrink-0 text-muted-foreground" />
+      <span className="text-xs text-foreground">Open consoles in popup</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={openConsoleInPopup}
+        aria-label="Open VM consoles in a popup window"
+        onClick={() => setOpenConsoleInPopup(!openConsoleInPopup)}
+        className={cn(
+          'relative h-5 w-9 shrink-0 rounded-full ring-1 ring-inset transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+          openConsoleInPopup
+            ? 'bg-primary ring-primary/30'
+            : 'bg-input ring-input hover:bg-input/90',
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-all duration-200',
+            openConsoleInPopup ? 'left-[18px]' : 'left-0.5',
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: VmStatus }) {
@@ -218,6 +254,8 @@ function VmRow({ vm }: { vm: VmSummary }) {
   const deleteVm = useDeleteVm();
   const action = useVmAction(vm.id);
   const logoSlug = useLogoStore((s) => s.vms[vm.name]);
+  const openConsoleInPopup = useUserPrefsStore((s) => s.openConsoleInPopup);
+  const navigate = useNavigate();
 
   const triggerFlash = (type: 'success' | 'error') => {
     setFlash(type);
@@ -352,13 +390,22 @@ function VmRow({ vm }: { vm: VmSummary }) {
               </Tooltip>
             </>
           )}
-          <Tooltip label="Console">
-            <Link
-              to={`/vms/${vm.id}/console`}
+          <Tooltip label={openConsoleInPopup ? 'Open console (popup)' : 'Open console'}>
+            <a
+              href={`/vms/${vm.id}/console`}
+              aria-label="Open console"
+              // Keep <a href> so middle-click / cmd-click / ctrl-click still open
+              // in a new tab. Plain left-click is intercepted and routed
+              // through openVmConsole, which honours the popup pref.
+              onClick={(e) => {
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+                e.preventDefault();
+                openVmConsole(vm.id, openConsoleInPopup, navigate);
+              }}
               className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <Terminal className="h-3.5 w-3.5" />
-            </Link>
+            </a>
           </Tooltip>
           <Tooltip label="Delete VM">
             <ActionBtn

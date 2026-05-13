@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
   Copy, Cpu, Disc, Download, Eye, EyeOff, FolderInput, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
@@ -39,6 +39,8 @@ import { cn } from '@/lib/cn';
 import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
 import { useVmOpsStore } from '@/store/vmOpsStore';
+import { useUserPrefsStore } from '@/store/userPrefsStore';
+import { openVmConsole } from '@/lib/consoleOpener';
 
 type Tab = 'overview' | 'disks' | 'network' | 'snapshots' | 'firewall' | 'devices' | 'metrics';
 
@@ -62,11 +64,13 @@ const statusTextColour: Record<VmStatus, string> = {
 
 export function VmDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('overview');
   const { data: vm, isLoading } = useVm(uuid!);
   const { data: metaData } = useVmMeta(uuid!);
   const vmMeta = metaData?.meta ?? null;
   const action = useVmAction(uuid!);
+  const openConsoleInPopup = useUserPrefsStore((s) => s.openConsoleInPopup);
 
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -252,11 +256,14 @@ export function VmDetailPage() {
                   </Tooltip>
                 </>
               )}
-              <Link to={`/vms/${uuid}/console`}>
-                <Button size="sm" variant="secondary">
-                  <Terminal size={13} /> Console
-                </Button>
-              </Link>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => openVmConsole(uuid!, openConsoleInPopup, navigate)}
+                title={openConsoleInPopup ? 'Open console (popup)' : 'Open console'}
+              >
+                <Terminal size={13} /> Console
+              </Button>
             </div>
           </div>
 

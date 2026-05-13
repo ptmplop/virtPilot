@@ -219,3 +219,18 @@ html, body, #root { height: 100%; }
   height: 16px !important;
   margin-top: 1px !important;
 }
+
+/* VM console terminal: hide the xterm viewport scrollbar visually so it
+   doesn't reserve horizontal space (wheel/keys still scroll). */
+.vp-terminal-host .xterm-viewport { scrollbar-width: none; }
+.vp-terminal-host .xterm-viewport::-webkit-scrollbar { display: none; width: 0; }
+
+@keyframes vp-progress {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(150%); }
+  100% { transform: translateX(350%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vp-terminal-host .xterm-viewport { scrollbar-width: thin; }
+}
