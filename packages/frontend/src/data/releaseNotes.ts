@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.4.1',
+    date: '2026-05-13',
+    changes: [
+      { type: 'changed', text: 'VM console popup window enlarged from 960×600 to 1200×760. The header carries a lot now (tab switcher + connection state + VM action buttons + theme picker) and visibly crowded at 960. 1200 leaves the header airy and gives the terminal ~150 cols × 48 rows of usable area without losing the "popup, not a full browser window" feel.' },
+    ],
+  },
+  {
     version: '2.4.0',
     date: '2026-05-13',
     changes: [

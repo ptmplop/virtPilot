@@ -1,10 +1,11 @@
 import { toast } from 'sonner';
 
-// 960×600 lands at roughly 120 cols × 38 rows for the default xterm font, which
-// is generous-but-compact — close to a "real" terminal app feel without losing
-// nano/vi headroom. Tweak the constants together if you want a tighter window.
-const POPUP_WIDTH = 960;
-const POPUP_HEIGHT = 600;
+// 1200×760 lands at roughly 150 cols × 48 rows for the default xterm font. The
+// previous 960×600 squashed the header (tab switcher + connection state + VM
+// action buttons + theme picker fit but visibly cramped). 1200 leaves the
+// header airy without losing the "popup, not a full browser window" feel.
+const POPUP_WIDTH = 1200;
+const POPUP_HEIGHT = 760;
 
 // `popup=yes` is the only signal modern browsers actually look at; the legacy
 // flags are kept for older browsers and for clarity. With these, Chrome /
