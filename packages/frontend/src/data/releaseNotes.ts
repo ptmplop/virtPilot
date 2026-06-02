@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.5.2',
+    date: '2026-06-02',
+    changes: [
+      { type: 'fixed', text: 'Backups page styling now matches the rest of the app. In the VM list, the machine name rendered in a lighter sans-serif at the wrong size and sat top-aligned against its icon — it now uses the same mono semibold treatment as the VMs list and is vertically centred. Numeric columns (backup count, disk count) were a mix of mono and sans within the same tables and are now consistently mono.' },
+    ],
+  },
+  {
     version: '2.5.1',
     date: '2026-06-02',
     changes: [

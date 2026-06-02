@@ -328,16 +328,16 @@ function SummaryRow({
         <button
           type="button"
           onClick={() => onSelect(summary.vmUuid)}
-          className="flex items-start gap-3 text-left"
+          className="flex min-w-0 items-center gap-2.5 text-left"
         >
           <div className={cn(
-            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
             summary.backupCount > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
           )}>
             {busy ? <Spinner className="h-3.5 w-3.5" /> : <HardDrive size={14} />}
           </div>
           <div className="min-w-0">
-            <span className="font-medium text-foreground transition-colors hover:text-primary">
+            <span className="block truncate font-mono text-sm font-semibold text-foreground transition-colors hover:text-primary">
               {summary.vmName}
             </span>
             {busy && (
@@ -350,7 +350,7 @@ function SummaryRow({
 
         {/* Count */}
         <span className={cn(
-          'text-sm tabular-nums',
+          'font-mono text-sm',
           summary.backupCount > 0 ? 'font-semibold text-foreground' : 'text-muted-foreground'
         )}>
           {summary.backupCount > 0 ? summary.backupCount : '—'}
@@ -756,7 +756,7 @@ function BackupRow({
       <span className="font-mono text-sm text-muted-foreground">{formatBytes(backup.sizeBytes)}</span>
 
       {/* Disks */}
-      <span className="text-sm text-muted-foreground">
+      <span className="font-mono text-sm text-muted-foreground">
         {backup.disks.length}
       </span>
 

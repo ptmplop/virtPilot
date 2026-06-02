@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.2] — 2026-06-02
+
+### Fixed
+
+- **Backups page styling now matches the rest of the app.** In the VM list, the machine name rendered in a lighter sans-serif at the wrong size and sat top-aligned against its icon. It now uses the same `font-mono` semibold treatment as the VMs list and is vertically centred. Numeric columns (backup count, disk count) were a mix of mono and sans within the same tables — they are now consistently mono, matching the Size column and the VMs table.
+
 ## [2.5.1] — 2026-06-02
 
 ### Fixed
