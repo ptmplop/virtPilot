@@ -13,6 +13,18 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.5.0',
+    date: '2026-06-02',
+    changes: [
+      { type: 'added', text: 'Dashboard health summary band. A full-width strip at the top gives an at-a-glance verdict — All systems healthy or N warnings, derived from KVM availability plus CPU/memory/disk thresholds — alongside CPU, memory and disk vitals with micro-bars, the running/total VM count, and a VirtPilot version chip.' },
+      { type: 'added', text: 'VM roster on the Overview row. The old stat tiles are replaced with the actual machines, grouped by status: a per-OS logo derived from the source image, a live status dot, autostart and guest-agent flags, a recent-CPU sparkline for running VMs, and the vCPU/RAM allocation. Rows link straight to the VM.' },
+      { type: 'added', text: 'Live, animated metrics. Vitals and metric-card values count up on load and glide between polls (respecting reduced-motion); every chart line carries a glowing "live" endpoint marker; and the metrics range toggle shows a pulsing dot when Live is selected.' },
+      { type: 'changed', text: 'Host Metrics are now a responsive 2×2 grid (CPU / Memory / Disk / Network) instead of four full-width stacked charts — roughly a third less scrolling.' },
+      { type: 'changed', text: 'Host identity card reworked into one aligned spec sheet — Hostname / CPU / QEMU / Kernel / Libvirt / Load / Network now share a single label→value rhythm with one consistent value style.' },
+      { type: 'changed', text: 'The VM console route (and its noVNC dependency) is lazy-loaded, trimming the main bundle so the dashboard loads faster.' },
+    ],
+  },
+  {
     version: '2.4.1',
     date: '2026-05-13',
     changes: [

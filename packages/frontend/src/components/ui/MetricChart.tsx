@@ -70,6 +70,20 @@ export function MetricChart({
     return { line1: l1, fill1: f1, line2: l2, fill2: f2 };
   }, [data, data2, yMax]);
 
+  // Latest sample of each series, as a top-offset % within the plot area — used
+  // to render a glowing "live" marker pinned to the right edge of the chart.
+  const endpoints = useMemo(() => {
+    const safeMax = yMax > 0 ? yMax : 1;
+    const last = (arr: number[] | undefined, col: string | undefined) => {
+      if (!arr || arr.length === 0 || !col) return null;
+      const v = arr[arr.length - 1];
+      return { top: (1 - Math.min(v, safeMax) / safeMax) * 100, color: col };
+    };
+    return [last(data, color), last(data2, color2)].filter(
+      (e): e is { top: number; color: string } => e !== null,
+    );
+  }, [data, data2, color, color2, yMax]);
+
   // Y ticks rendered top→bottom: index 0 is the max value at top, last is 0 at bottom.
   const yTicks = Array.from(
     { length: Y_TICK_COUNT },
@@ -158,6 +172,7 @@ export function MetricChart({
               strokeLinecap="round"
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
+              style={{ filter: `drop-shadow(0 1px 3px ${color}55)` }}
             />
           )}
           {fill2 && color2 && <path d={fill2} fill={`url(#mg2-${id})`} />}
@@ -171,9 +186,28 @@ export function MetricChart({
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
               strokeDasharray="4 2"
+              style={{ filter: `drop-shadow(0 1px 3px ${color2}55)` }}
             />
           )}
         </svg>
+
+        {/* Glowing "live" endpoint marker(s), pinned to the right edge */}
+        {endpoints.map((e, i) => (
+          <span
+            key={i}
+            className="pointer-events-none absolute"
+            style={{ left: '100%', top: `${e.top}%`, transform: 'translate(-100%, -50%)' }}
+          >
+            <span
+              className="absolute left-1/2 top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full animate-glow-pulse"
+              style={{ background: e.color, opacity: 0.35, filter: 'blur(2px)' }}
+            />
+            <span
+              className="relative block h-[7px] w-[7px] rounded-full ring-2 ring-card"
+              style={{ background: e.color }}
+            />
+          </span>
+        ))}
       </div>
 
       {/* Empty cell beneath Y labels */}

@@ -2,6 +2,8 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import * as storageDirService from './storageDirService.js';
+import { listVmMetas } from './vmMetaService.js';
+import { getRecentVmCpu } from './vmMetricsService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
 import { run, virsh as safeVirsh, qemuImg } from './safeExec.js';
@@ -93,6 +95,21 @@ export async function listVmsRaw(): Promise<VmSummary[]> {
       if (vm.status === 'running') vm.guestAgent = agentMap.get(vm.name) ?? false;
     }
   }
+
+  // Enrich with the source image (for client-side OS-logo derivation) and
+  // recent CPU history (for roster sparklines). Best-effort: one metadata file
+  // read + one metrics query for the whole list, so it stays cheap.
+  try {
+    const metas = await listVmMetas();
+    const metaByUuid = new Map(metas.map((m) => [m.uuid, m]));
+    const cpuByUuid = getRecentVmCpu();
+    for (const vm of vms) {
+      const filename = metaByUuid.get(vm.id)?.sourceTemplateFilename;
+      if (filename) vm.sourceTemplateFilename = filename;
+      const spark = cpuByUuid.get(vm.id);
+      if (spark && spark.length) vm.cpuSpark = spark;
+    }
+  } catch { /* enrichment is best-effort — roster degrades gracefully */ }
 
   return vms;
 }

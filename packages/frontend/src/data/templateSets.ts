@@ -6,6 +6,8 @@
 // skips entries whose URL no longer responds with HTTP 200 at run time, so a
 // dead link removed from a mirror won't abort the rest of the set.
 
+import { OS_LOGOS } from '@/lib/osLogos';
+
 export interface TemplateSetItem {
   url: string;
   filename: string;
@@ -83,3 +85,29 @@ export const TEMPLATE_SET: TemplateSet = {
     },
   ],
 };
+
+// Best-effort OS-logo slug for a VM's source image filename. Tries the bundled
+// template set first (exact match), then a substring match against known OS
+// slugs, then a few codename aliases. Returns undefined when nothing matches,
+// so callers fall back to a generic icon.
+export function osSlugFromImage(filename?: string): string | undefined {
+  if (!filename) return undefined;
+  const f = filename.toLowerCase();
+
+  for (const item of TEMPLATE_SET.templates) {
+    if (item.filename.toLowerCase() === f) return item.logo;
+  }
+
+  // Longest slugs first so e.g. 'archlinux' wins over a hypothetical 'arch'.
+  const slugs = OS_LOGOS.map((l) => l.slug).sort((a, b) => b.length - a.length);
+  for (const slug of slugs) {
+    if (f.includes(slug)) return slug;
+  }
+
+  // Distro codenames / short names that differ from their logo slug.
+  if (/(noble|jammy|focal|ubuntu)/.test(f)) return 'ubuntu';
+  if (/(trixie|bookworm|bullseye|debian)/.test(f)) return 'debian';
+  if (/rocky/.test(f)) return 'rockylinux';
+  if (/alma/.test(f)) return 'almalinux';
+  return undefined;
+}

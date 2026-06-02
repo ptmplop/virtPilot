@@ -3,6 +3,21 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.0] — 2026-06-02
+
+### Added
+
+- **Dashboard health summary band.** A full-width strip pinned to the top of the dashboard gives an at-a-glance verdict — *All systems healthy* or *N warnings*, derived from KVM availability plus CPU/memory/disk thresholds — alongside CPU, memory and disk vitals (with micro-bars), the running/total VM count, and a VirtPilot version chip. The verdict icon carries a slow pulse and the version chip jumps to the update card.
+- **VM roster on the Overview row.** The old 2×2 stat tiles are replaced with the actual machines, grouped by status (running first). Each row shows a per-OS logo derived from the VM's source image, a live status dot, autostart and guest-agent flags, a recent-CPU sparkline for running VMs, and the vCPU/RAM allocation — and links straight to the VM. The VM list response now carries the source image filename and recent CPU history, so this needs no extra per-VM requests.
+- **Live, animated metrics.** Vital readouts and the metric-card values count up on load and glide between polls (honouring `prefers-reduced-motion`); every chart line carries a glowing "live" endpoint marker pinned to the latest sample; and the metrics range toggle shows a pulsing dot when *Live* is selected.
+
+### Changed
+
+- **Host Metrics are now a responsive 2×2 grid** (CPU / Memory / Disk / Network) instead of four full-width stacked charts — roughly a third less scrolling, falling back to a single column on narrow screens.
+- **Host identity card reworked into one aligned spec sheet** — Hostname / CPU / QEMU / Kernel / Libvirt / Load / Network now share a single label→value rhythm with one consistent value style, replacing the previous mix of fonts and weights.
+- **The Overview row stacks responsively** (below the `lg` breakpoint) so the host card no longer truncates on smaller screens.
+- **The VM console route (and its noVNC dependency) is lazy-loaded**, trimming the main bundle so the dashboard's initial load is faster; noVNC is also excluded from dev pre-bundling to fix a dev-server startup error.
+
 ## [2.4.1] — 2026-05-13
 
 ### Changed

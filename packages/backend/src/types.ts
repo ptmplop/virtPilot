@@ -43,6 +43,10 @@ export interface VmSummary {
   memoryMb: number;
   guestAgent?: boolean;
   autostart?: boolean;
+  /** Image the VM was created from — used to derive an OS logo on the client. */
+  sourceTemplateFilename?: string;
+  /** Recent CPU% samples (oldest→newest) for a roster sparkline. */
+  cpuSpark?: number[];
 }
 
 export interface VmStatsSample {

@@ -1,9 +1,12 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { DashboardPage } from '@/pages/Dashboard';
 import { VmsPage } from '@/pages/Vms';
 import { VmCreatePage } from '@/pages/VmCreate';
 import { VmDetailPage } from '@/pages/VmDetail';
-import { VmConsolePage } from '@/pages/VmConsole';
+// Lazy: pulls in noVNC (heavy + top-level await), so keep it out of the main
+// bundle/module graph until the console is actually opened.
+const VmConsolePage = lazy(() => import('@/pages/VmConsole').then((m) => ({ default: m.VmConsolePage })));
 import { NetworksPage } from '@/pages/Networks';
 import { TemplatesPage } from '@/pages/Templates';
 import { IsosPage } from '@/pages/Isos';
@@ -55,7 +58,9 @@ export default function App() {
         path="/vms/:uuid/console"
         element={
           <ProtectedRoute>
-            <VmConsolePage />
+            <Suspense fallback={null}>
+              <VmConsolePage />
+            </Suspense>
           </ProtectedRoute>
         }
       />

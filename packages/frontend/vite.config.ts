@@ -9,6 +9,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  // noVNC uses top-level await, which esbuild's dep pre-bundler can't handle.
+  // Exclude it so it's transformed on demand (only when the console opens) and
+  // bump the pre-bundle target to allow TLA elsewhere.
+  optimizeDeps: {
+    exclude: ['@novnc/novnc'],
+    esbuildOptions: { target: 'esnext' },
+  },
   server: {
     port: 5174,
     strictPort: true,

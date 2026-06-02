@@ -240,3 +240,30 @@ export function deleteVmMetrics(vmUuid: string): void {
     getDb().prepare('DELETE FROM vm_metrics WHERE vm_uuid = ?').run(vmUuid);
   } catch { /* best-effort */ }
 }
+
+/**
+ * Recent CPU% samples per VM for roster sparklines. One query for all VMs —
+ * pulls the last `windowMs` of samples and groups them in JS, keeping at most
+ * `maxPoints` (newest) per VM. Returns a uuid → ordered (oldest→newest) array.
+ */
+export function getRecentVmCpu(windowMs = 30 * 60 * 1000, maxPoints = 16): Map<string, number[]> {
+  const result = new Map<string, number[]>();
+  try {
+    const since = Date.now() - windowMs;
+    const rows = getDb().prepare(`
+      SELECT vm_uuid, cpu_percent
+      FROM vm_metrics
+      WHERE ts >= ?
+      ORDER BY ts ASC
+    `).all(since) as Array<{ vm_uuid: string; cpu_percent: number }>;
+    for (const r of rows) {
+      const arr = result.get(r.vm_uuid) ?? [];
+      arr.push(r.cpu_percent);
+      result.set(r.vm_uuid, arr);
+    }
+    for (const [uuid, arr] of result) {
+      if (arr.length > maxPoints) result.set(uuid, arr.slice(arr.length - maxPoints));
+    }
+  } catch { /* best-effort — sparklines just stay empty */ }
+  return result;
+}
