@@ -47,7 +47,7 @@ import { streamSse } from '@/lib/sseStream';
 function fmtPct(n: number) { return `${Math.round(n)}%`; }
 
 function fmtMb(mb: number): string {
-  if (mb < 1024) return `${mb} MB`;
+  if (mb < 1024) return `${Math.round(mb)} MB`;
   return `${(mb / 1024).toFixed(1)} GB`;
 }
 

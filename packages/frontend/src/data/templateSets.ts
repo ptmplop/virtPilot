@@ -40,6 +40,12 @@ export const TEMPLATE_SET: TemplateSet = {
       logo: 'almalinux',
     },
     {
+      url: 'https://cloud-images.ubuntu.com/releases/26.04/release/ubuntu-26.04-server-cloudimg-amd64.img',
+      filename: 'ubuntu-26.04.img',
+      name: 'Ubuntu 26.04 LTS Resolute',
+      logo: 'ubuntu',
+    },
+    {
       url: 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img',
       filename: 'ubuntu-24.04.img',
       name: 'Ubuntu 24.04 LTS Noble',
@@ -64,9 +70,9 @@ export const TEMPLATE_SET: TemplateSet = {
       // mirror moved to `fedora.osuosl.org`). The redirector is sticky per
       // client IP, so retries don't help. gemmei.ftp.acc.umu.se is a stable
       // long-running academic mirror at Umeå University.
-      url: 'https://gemmei.ftp.acc.umu.se/mirror/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2',
-      filename: 'fedora-41.qcow2',
-      name: 'Fedora 41 Cloud',
+      url: 'https://gemmei.ftp.acc.umu.se/mirror/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2',
+      filename: 'fedora-44.qcow2',
+      name: 'Fedora 44 Cloud',
       logo: 'fedora',
     },
     {

@@ -13,6 +13,15 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.5.1',
+    date: '2026-06-02',
+    changes: [
+      { type: 'fixed', text: 'Dashboard Memory readout no longer flashes long decimals on refresh — the animated count-up now rounds to whole MB, matching the CPU/Disk/Network readouts.' },
+      { type: 'fixed', text: 'Starter template set: the Fedora 41 Cloud image was returning HTTP 404 (its mirror had pruned the release), so the starter set now ships Fedora 44 Cloud — the current stable Generic Cloud image.' },
+      { type: 'added', text: 'Ubuntu 26.04 LTS Resolute added to the starter template set.' },
+    ],
+  },
+  {
     version: '2.5.0',
     date: '2026-06-02',
     changes: [

@@ -3,6 +3,17 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.1] — 2026-06-02
+
+### Fixed
+
+- **Dashboard Memory readout no longer flashes long decimals on refresh.** The animated count-up feeds floating-point intermediate values to the formatter; the sub-GB branch printed them raw (e.g. `412.38109283 MB`) until the value crossed into the GB range. It now rounds to whole MB, matching the CPU/Disk/Network readouts.
+- **Starter template set: refreshed dead image URL.** The Fedora 41 Cloud image was returning HTTP 404 — its mirror had pruned the release — so the starter set now ships **Fedora 44 Cloud** (the current stable Generic Cloud image).
+
+### Added
+
+- **Ubuntu 26.04 LTS Resolute** added to the starter template set.
+
 ## [2.5.0] — 2026-06-02
 
 ### Added
