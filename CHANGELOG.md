@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.3] — 2026-06-02
+
+### Fixed
+
+- **Action tooltips now appear on every VM action.** `Tooltip` injected its hover handlers into the wrapped child element, so it only worked when that child was a raw DOM element. The console action is a plain `<a>` and worked, but the power on / reboot / hard reset / shutdown / force off / delete actions use a button component that didn't forward the handlers, so their tooltips never fired. The hover (and now keyboard-focus) listeners sit on the tooltip's own wrapper instead, so tooltips work regardless of child type — fixing the same latent gap across the Templates, ISOs, Storage and VM detail pages too.
+
 ## [2.5.2] — 2026-06-02
 
 ### Fixed

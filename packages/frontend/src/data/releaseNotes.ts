@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.5.3',
+    date: '2026-06-02',
+    changes: [
+      { type: 'fixed', text: 'Action tooltips now appear on every VM action. The tooltip only worked when wrapping a raw DOM element, so the console action (a plain link) showed a tooltip but the power on / reboot / hard reset / shutdown / force off / delete actions did not. The hover (and now keyboard-focus) listeners sit on the tooltip wrapper itself, so tooltips work regardless of child type — fixing the same gap across the Templates, ISOs, Storage and VM detail pages too.' },
+    ],
+  },
+  {
     version: '2.5.2',
     date: '2026-06-02',
     changes: [

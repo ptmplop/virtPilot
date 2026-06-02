@@ -1,11 +1,11 @@
-import { useState, useRef, useEffect, type ReactElement, cloneElement } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/cn';
 
 interface TooltipProps {
   label: string;
   side?: 'top' | 'right' | 'bottom' | 'left';
-  children: ReactElement<{ onMouseEnter?: () => void; onMouseLeave?: () => void }>;
+  children: ReactNode;
 }
 
 export function Tooltip({ label, side = 'top', children }: TooltipProps) {
@@ -43,11 +43,15 @@ export function Tooltip({ label, side = 'top', children }: TooltipProps) {
   };
 
   return (
-    <span ref={anchorRef} className="relative inline-flex">
-      {cloneElement(children, {
-        onMouseEnter: () => setVisible(true),
-        onMouseLeave: () => setVisible(false),
-      })}
+    <span
+      ref={anchorRef}
+      className="relative inline-flex"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+      onFocusCapture={() => setVisible(true)}
+      onBlurCapture={() => setVisible(false)}
+    >
+      {children}
       {visible &&
         createPortal(
           <span
