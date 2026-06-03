@@ -1479,9 +1479,18 @@ function HealthBand() {
             )}>
               {healthy ? 'All systems healthy' : `${warnings.length} warning${warnings.length > 1 ? 's' : ''}`}
             </p>
-            <p className="truncate text-[11px] text-muted-foreground">
-              {healthy ? `${info?.hostname ?? 'host'} · ${running}/${total} VMs running` : warnings[0]}
-            </p>
+            {healthy ? (
+              <>
+                <p className="truncate text-[11px] font-medium text-muted-foreground" title={info?.hostname}>
+                  {info?.hostname ?? 'host'}
+                </p>
+                <p className="text-[11px] leading-tight text-muted-foreground/80">
+                  {running}/{total} VMs running
+                </p>
+              </>
+            ) : (
+              <p className="truncate text-[11px] text-muted-foreground">{warnings[0]}</p>
+            )}
           </div>
         </div>
 

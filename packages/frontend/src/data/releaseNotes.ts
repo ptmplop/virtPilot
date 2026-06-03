@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.5.4',
+    date: '2026-06-03',
+    changes: [
+      { type: 'changed', text: 'Dashboard health band no longer truncates long hostnames. The host status line used to cram the hostname and VM count onto one line, so longer hostnames were cut off — the hostname now sits on its own line with the VM count beneath it (full name on hover). The status block stays vertically centred against the vitals, so card alignment is unchanged.' },
+    ],
+  },
+  {
     version: '2.5.3',
     date: '2026-06-02',
     changes: [

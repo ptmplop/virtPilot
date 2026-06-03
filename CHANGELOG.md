@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.4] — 2026-06-03
+
+### Changed
+
+- **Dashboard health band no longer truncates long hostnames.** The host status line previously crammed the hostname and VM count onto one line (`slc-gateway.hostedai.dev · 1/1 VMs running`), so longer hostnames were cut off. The hostname now sits on its own line with the VM count beneath it; the full name is available on hover. The status block stays vertically centred against the vitals and version chip, so card alignment is unchanged.
+
 ## [2.5.3] — 2026-06-02
 
 ### Fixed
