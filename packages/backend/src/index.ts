@@ -38,15 +38,30 @@ import { getDb } from './services/db.js';
 
 const app = express();
 
-// Trust proxy hops ONLY when the operator opts in via TRUST_PROXY. Defaulting
-// to 1 meant any install listening on a public address without a reverse proxy
-// would take X-Forwarded-For from the client itself — defeating login/TOTP rate
-// limiting and the IP allowlist with a single header. A malformed value
-// (TRUST_PROXY=yes → NaN) or a negative count is treated as untrusted rather
-// than silently trusting a hop.
+// How many proxy hops to trust for X-Forwarded-For.
+//
+// Trusting one hop unconditionally was a real hole: an install listening on a
+// routable address with no reverse proxy would take X-Forwarded-For straight
+// from the client, defeating login/TOTP rate limiting and the IP allowlist with
+// one header. But refusing to trust anything unless TRUST_PROXY is set is just
+// as broken in the other direction — it locks operators out of nginx-fronted
+// installs, because every request then resolves to 127.0.0.1 and an IP
+// allowlist matches nobody.
+//
+// The bind address settles it without guessing. A backend bound to loopback is
+// unreachable from the network, so the only thing that can deliver a request —
+// and therefore the only thing that can set X-Forwarded-For — is a proxy on
+// this host. Trusting one hop there is safe. A routable bind might be exposed
+// directly, so it trusts nothing until the operator says otherwise.
+//
+// TRUST_PROXY always wins when set. A malformed value (TRUST_PROXY=yes → NaN)
+// or a negative count is treated as untrusted rather than silently trusting.
+function isLoopbackBind(addr: string): boolean {
+  return addr === 'localhost' || addr === '::1' || /^127\./.test(addr);
+}
 function trustedProxyHops(): number {
   const raw = process.env.TRUST_PROXY;
-  if (!raw) return 0;
+  if (raw === undefined || raw === '') return isLoopbackBind(config.bindAddress) ? 1 : 0;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.floor(n);
@@ -54,12 +69,6 @@ function trustedProxyHops(): number {
 const trustProxyHops = trustedProxyHops();
 app.set('trust proxy', trustProxyHops > 0 ? trustProxyHops : false);
 
-// A non-loopback bind almost always means nginx/Caddy is in front (install.sh
-// writes TRUST_PROXY=1 for those). Warn rather than guess: without it every
-// request looks like it came from the proxy's address.
-function isLoopbackBind(addr: string): boolean {
-  return addr === 'localhost' || addr === '::1' || /^127\./.test(addr);
-}
 if (!process.env.TRUST_PROXY && !isLoopbackBind(config.bindAddress)) {
   console.warn(
     `[startup] TRUST_PROXY is unset and BIND_ADDRESS=${config.bindAddress} — X-Forwarded-For is ignored, ` +

@@ -3,6 +3,18 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.1] — 2026-07-27
+
+### Fixed
+
+- **Upgrading to 2.6.0 locked operators out of nginx-fronted installs that had an IP allowlist configured.** 2.6.0 stopped trusting `X-Forwarded-For` unless `TRUST_PROXY` was set, which was the right call for a directly-exposed backend but wrong for the standard install: every request then resolved to `127.0.0.1`, matched no allowlist entry, and login returned `403 IP not allowed` while the service itself reported healthy.
+
+  The `TRUST_PROXY` migration shipped in 2.6.0's `update.sh` could never have prevented this. The in-dashboard self-upgrade executes the `update.sh` already on disk — the *previous* version's — so a migration only takes effect from the release *after* the one that needs it.
+
+  The bind address now settles it without an env var. A backend bound to loopback is unreachable from the network, so the only thing that can set `X-Forwarded-For` is a proxy on the same host, and one hop is trusted. A backend bound to a routable address may be directly exposed, so it keeps ignoring the header until `TRUST_PROXY` says otherwise. An explicit `TRUST_PROXY` still wins in both cases, so existing configurations are unaffected.
+
+  If you were locked out by 2.6.0, this release restores access on its own — no `.env` edit needed. Adding `TRUST_PROXY=1` by hand remains a valid fix and is left alone if present.
+
 ## [2.6.0] — 2026-07-27
 
 Security and robustness release from a full audit of the codebase. Two changes need operator attention — see **Upgrade notes** at the end.

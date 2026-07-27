@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.6.1',
+    date: '2026-07-27',
+    changes: [
+      { type: 'fixed', text: 'Upgrading to 2.6.0 locked operators out of nginx-fronted installs that had an IP allowlist configured. 2.6.0 stopped trusting X-Forwarded-For unless TRUST_PROXY was set — right for a directly-exposed backend, wrong for the standard install, where every request then resolved to 127.0.0.1, matched no allowlist entry, and login returned "403 IP not allowed" while the service still reported healthy. The TRUST_PROXY migration in 2.6.0’s update.sh could never have prevented it: the self-upgrade runs the update.sh already on disk — the previous version’s — so a migration only takes effect from the release after the one that needs it.' },
+      { type: 'changed', text: 'The bind address now decides whether proxy headers are trusted, with no env var required. A backend bound to loopback is unreachable from the network, so the only thing that can set X-Forwarded-For is a proxy on the same host and one hop is trusted; a backend bound to a routable address may be directly exposed, so it keeps ignoring the header until TRUST_PROXY says otherwise. An explicit TRUST_PROXY still wins either way, so existing configurations are unaffected. If 2.6.0 locked you out, this release restores access on its own — no .env edit needed.' },
+    ],
+  },
+  {
     version: '2.6.0',
     date: '2026-07-27',
     changes: [
