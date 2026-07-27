@@ -42,6 +42,17 @@ function extractBearer(req: Request): string | null {
   return null;
 }
 
+// Only tokens minted by /login and /verify-totp unlock the full API. Scoped
+// JWTs — notably the disk-download ticket, which rides in a URL query string
+// and so lands in nginx logs and browser history — must not double as session
+// tokens.
+//
+// The second arm grandfathers sessions issued before typ existed. Drop it a
+// release after this one, at which point everyone has re-logged in.
+function isSessionToken(payload: jwt.JwtPayload): boolean {
+  return payload.typ === 'session' || (!payload.typ && !payload.scope && !payload.pending2fa);
+}
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const token = extractBearer(req);
   if (!token) {
@@ -65,7 +76,23 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     res.status(401).json({ error: 'Two-factor verification required' });
     return;
   }
-  const { ipWhitelist } = await getUserSettings();
+  if (!isSessionToken(payload)) {
+    res.status(401).json({ error: 'Unauthorised' });
+    return;
+  }
+  let ipWhitelist: string[];
+  try {
+    ({ ipWhitelist } = await getUserSettings());
+  } catch (err) {
+    // Fail closed with a diagnosable status rather than letting the rejection
+    // escape: Express 4 routes nothing from an async middleware, so an
+    // unreadable settings file would hang every single API request instead of
+    // answering. 503 (not 500) tells the operator this is a transient,
+    // fixable server-side condition.
+    console.error('[auth] Could not read user settings:', err instanceof Error ? err.message : err);
+    res.status(503).json({ error: 'Server settings unavailable — check user-settings.json and the VirtPilot service log' });
+    return;
+  }
   if (!isIpAllowed(req.ip, ipWhitelist)) {
     res.status(403).json({ error: 'IP not allowed', clientIp: req.ip?.replace(/^::ffff:/, '') });
     return;
@@ -79,7 +106,7 @@ export function verifyWsToken(token: string | null): boolean {
   try {
     const payload = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload;
     if (payload.pending2fa) return false;
-    return true;
+    return isSessionToken(payload);
   } catch {
     return false;
   }

@@ -10,10 +10,15 @@ const SNAPSHOT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
 const BRIDGE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,15}$/;
 const NIC_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._@-]{0,15}$/;
 const DISK_TARGET_RE = /^(?:hd|sd|vd|xvd)[a-z](?:[a-z0-9]{0,2})?$/;
+// libvirt NIC model names are all lowercase (virtio, e1000e, rtl8139, ...).
+const NIC_MODEL_RE = /^[a-z0-9-]{1,32}$/;
 const MAC_RE = /^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$/;
 const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 const IPV4_CIDR_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/;
-const PORT_RANGE_RE = /^(\d{1,5})(?:[:\-]\d{1,5})?(?:,(\d{1,5})(?:[:\-]\d{1,5})?)*$/;
+// Shape only — each port's 1-65535 bound is enforced numerically in
+// validatePortRange. A regex that also pins the range is unreadable and easy to
+// get subtly wrong.
+const PORT_RANGE_RE = /^\d{1,5}(?:[:\-]\d{1,5})?(?:,\d{1,5}(?:[:\-]\d{1,5})?)*$/;
 const ICMP_TYPE_RE = /^(\d{1,3})(?:\/\d{1,3})?$/;
 const FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
 
@@ -41,6 +46,7 @@ export const validateSnapshotName = (v: unknown): string => check(SNAPSHOT_NAME_
 export const validateBridgeName = (v: unknown): string => check(BRIDGE_NAME_RE, 'bridgeName', v);
 export const validateNicName = (v: unknown): string => check(NIC_NAME_RE, 'nicName', v);
 export const validateDiskTarget = (v: unknown): string => check(DISK_TARGET_RE, 'diskTarget', v);
+export const validateNicModel = (v: unknown): string => check(NIC_MODEL_RE, 'nicModel', v);
 export const validateMac = (v: unknown): string => {
   const s = check(MAC_RE, 'mac', v);
   return s.toLowerCase();
@@ -77,7 +83,29 @@ export const validatePort = (v: unknown): number => {
   if (!Number.isInteger(n) || n < 1 || n > 65535) throw new ValidationError('port', v);
   return n;
 };
-export const validatePortRange = (v: unknown): string => check(PORT_RANGE_RE, 'portRange', v);
+// Accepts `80`, `80-90`, `80:90` and comma-separated combinations. Ports are
+// bounded to 1-65535 because iptables rejects 0 and anything above 65535 — and
+// an out-of-range value that only fails inside iptables would do so mid-apply,
+// after the live chains had already been touched.
+// Deliberately NOT capped on the number of entries: the kernel's multiport
+// match tops out at 15, but existing firewall.json files may already hold
+// longer lists and must still load. That cap lives at rule-build time, where it
+// can produce a clear error before anything is torn down.
+export const validatePortRange = (v: unknown): string => {
+  const s = check(PORT_RANGE_RE, 'portRange', v);
+  for (const part of s.split(',')) {
+    const bounds = part.split(/[:\-]/).map(Number);
+    for (const n of bounds) {
+      if (!Number.isInteger(n) || n < 1 || n > 65535) {
+        throw new ValidationError('portRange', v, 'port out of range (1-65535)');
+      }
+    }
+    if (bounds.length === 2 && bounds[0] > bounds[1]) {
+      throw new ValidationError('portRange', v, 'range start is above its end');
+    }
+  }
+  return s;
+};
 export const validateIcmpType = (v: unknown): string => check(ICMP_TYPE_RE, 'icmpType', v);
 export const validateProtocol = (v: unknown): 'tcp' | 'udp' | 'icmp' | 'all' => {
   if (v === 'tcp' || v === 'udp' || v === 'icmp' || v === 'all') return v;

@@ -13,6 +13,24 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.6.0',
+    date: '2026-07-27',
+    changes: [
+      { type: 'changed', text: 'Proxy headers are no longer trusted by default. The backend trusted one proxy hop unconditionally, so an install reachable directly (BIND_ADDRESS=0.0.0.0 with no reverse proxy) let an unauthenticated client spoof X-Forwarded-For and walk past login rate limiting, 2FA rate limiting and the IP allowlist. Client IPs now come off the socket unless TRUST_PROXY opts in — update.sh sets it automatically for nginx-fronted installs. If you front VirtPilot with something else, add TRUST_PROXY=1 to packages/backend/.env yourself.' },
+      { type: 'fixed', text: 'Three ways to kill the backend, one of them unauthenticated. A login attempt with a non-ASCII password crashed the process (the length check counted UTF-16 units while the comparison used UTF-8 bytes); an ISO download filename containing a space threw outside its error handler; and the WebSocket handlers registered their error listener only after several awaits, so a malformed frame in that window took the daemon down along with every live console, SSH and VNC session. Process-level guards now keep the service up rather than letting one bad request end it.' },
+      { type: 'fixed', text: 'A failed secret decryption no longer silently disables two-factor auth and the IP allowlist. Settings loading caught every error and returned defaults, so a rotated or mismatched ENCRYPTION_KEY turned 2FA off and emptied the allowlist without a word — and the next settings save made it permanent by overwriting the TOTP secret. Only a genuinely absent settings file now yields defaults.' },
+      { type: 'fixed', text: 'Deleting an "orphaned" disk during a libvirt outage no longer deletes live VM disks. The "is this VM still defined?" check failed open, so the Storage page marked every disk orphaned and the delete button removed real data. It now fails closed and reports an error.' },
+      { type: 'fixed', text: 'Uploads and snapshot exports no longer overwrite live disk images. Templates are backing files for every VM created from them, so writing over one corrupted running guests. Colliding writes now return a conflict, and cross-filesystem moves write to a temporary file and rename instead of rewriting an inode QEMU has open. Replacing a template or ISO means deleting the old file first.' },
+      { type: 'fixed', text: 'Console, SSH and VNC sessions no longer leak. A client that vanished without closing cleanly left a virsh console pty, an SSH channel into the guest, or a VNC socket to QEMU open forever — and the VNC leak blocked all future VNC sessions for that VM. All three now use a heartbeat.' },
+      { type: 'fixed', text: 'Firewall rules are no longer torn down before they are validated. The existing chains were flushed first, so a rule set that failed to apply left the VM with no filtering at all while the API reported success. Rules are now built and validated up front, applied strictly, and rolled back on failure.' },
+      { type: 'fixed', text: 'Port forwarding no longer hijacks other guests’ traffic. The NAT rule matched on destination port alone, so forwarding a host port to one VM silently redirected every other guest’s outbound traffic on that port. Rules now match on the inbound interface, and existing ones are reconciled at startup.' },
+      { type: 'changed', text: 'VM creation can no longer inject arbitrary libvirt device XML, and the download URL check now resolves hostnames rather than only inspecting literal addresses. Disk-download tickets are no longer accepted as full session tokens, revoked tokens survive a restart, and the service account can no longer rewrite the script that runs as root.' },
+      { type: 'fixed', text: 'Re-running install.sh no longer destroys an existing install. It regenerated JWT_SECRET and ENCRYPTION_KEY and rewrote .env wholesale, orphaning every encrypted value on disk and discarding operator edits. It now reuses existing secrets and preserves unrelated settings. uninstall.sh no longer deletes VM disks it did not create.' },
+      { type: 'fixed', text: 'Smaller fixes: cloud-init passwords containing a colon or backslash now work; VM names accepted at creation match what the rest of the app accepts; a backup schedule with an unrecognised frequency no longer loops every minute; the starter-template downloader can no longer run twice across tabs; the Backups page now shows backups belonging to deleted VMs; and a cleared disk-size field no longer silently provisions 20 GB.' },
+      { type: 'changed', text: 'Dependencies updated for published advisories, including tar (critical — used by backup and restore) and ws (high — every console session).' },
+    ],
+  },
+  {
     version: '2.5.4',
     date: '2026-06-03',
     changes: [

@@ -172,7 +172,12 @@ export async function buildCloudInitIso(vmUuidRaw: string, cfg: CloudInitConfig,
     ...(sshKeyLines ? [`    ssh_authorized_keys:\n${sshKeyLines}`] : []),
     `chpasswd:`,
     `  list: |`,
-    `    ${username}:${cfg.password.replace(/[:\\]/g, (c) => '\\' + c)}`,
+    // Emitted verbatim: cloud-init splits each line on the FIRST colon and
+    // neither it nor chpasswd(8) honours backslash escapes, so escaping here
+    // would bake literal backslashes into the guest password while the
+    // credentials endpoint still showed the original. The control-character
+    // guard above is what stops the value breaking out of the block scalar.
+    `    ${username}:${cfg.password}`,
     `  expire: False`,
     `ssh_pwauth: True`,
     `package_update: false`,

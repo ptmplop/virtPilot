@@ -160,6 +160,22 @@ if [[ -f "${ENV_FILE}" ]] && ! grep -q '^BIND_ADDRESS=' "${ENV_FILE}"; then
   fi
 fi
 
+# ─── TRUST_PROXY migration ────────────────────────────────────────────────────
+# The backend used to trust one proxy hop unconditionally, which let anyone
+# spoof X-Forwarded-For past the rate limiter and the IP allowlist. It now
+# trusts nothing unless TRUST_PROXY says otherwise — so nginx-fronted installs
+# have to opt in during this upgrade, or every client would resolve to
+# 127.0.0.1 and the allowlist would lock the operator out of their own host.
+if [[ -f "${ENV_FILE}" ]] && ! grep -q '^TRUST_PROXY=' "${ENV_FILE}"; then
+  if [[ -e /etc/nginx/sites-enabled/virtpilot ]]; then
+    info "nginx front detected — setting TRUST_PROXY=1 so client IPs survive the proxy hop"
+    echo "TRUST_PROXY=1" >> "${ENV_FILE}"
+  else
+    info "No nginx front detected — setting TRUST_PROXY=0 (client IPs read straight off the socket)"
+    echo "TRUST_PROXY=0" >> "${ENV_FILE}"
+  fi
+fi
+
 # ─── Dependencies ─────────────────────────────────────────────────────────────
 # Run npm as the service user so installed packages match the runtime owner.
 # Use `npm ci` when a lockfile is present so the lockfile is treated as
@@ -231,6 +247,14 @@ if [[ -f "${SUDOERS_FILE}" ]] && ! grep -q 'libvirt-qemu.*qemu-img' "${SUDOERS_F
   visudo -cf "${SUDOERS_FILE}" >/dev/null
   log "Sudoers rules healed"
 fi
+
+# ─── Heal update.sh ownership (idempotent) ───────────────────────────────────
+# Installs made before this release left update.sh owned by ${SERVICE_USER},
+# which meant the service user could rewrite the very script that next runs as
+# root. install.sh now roots it; do the same for existing installs. The
+# recursive chown above only covers node_modules/ and packages/, so this sticks.
+chown root:root "${INSTALL_DIR}/update.sh" 2>/dev/null || true
+chmod 0755 "${INSTALL_DIR}/update.sh" 2>/dev/null || true
 
 # ─── Restart service ──────────────────────────────────────────────────────────
 info "Restarting service..."

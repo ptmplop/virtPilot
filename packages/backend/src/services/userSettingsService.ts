@@ -16,6 +16,13 @@ export interface UserSettings {
   totpPendingSecret?: string;
   backup: BackupSettings;
   templateSetDismissed: boolean;
+  /**
+   * Set when a totpSecret exists on disk but could not be decrypted (rotated
+   * ENCRYPTION_KEY, truncated file). Derived at read time and never persisted.
+   * totpEnabled stays as stored, so 2FA keeps failing closed instead of
+   * silently switching itself off.
+   */
+  totpSecretUnreadable?: boolean;
 }
 
 const DEFAULT: UserSettings = {
@@ -28,21 +35,76 @@ const DEFAULT: UserSettings = {
 
 const settingsFile = () => path.join(config.storageRoot, 'user-settings.json');
 
-export async function getUserSettings(): Promise<UserSettings> {
+// Reads and parses the settings file with the secrets still encrypted.
+// Returns null only when the file is genuinely absent (first boot).
+async function readStored(): Promise<Partial<UserSettings> | null> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(settingsFile(), 'utf8');
-    const parsed = JSON.parse(raw) as Partial<UserSettings>;
-    // Decrypt at-rest secrets transparently. Legacy plaintext values pass
-    // through unchanged so existing installs keep working.
-    if (parsed.totpSecret) parsed.totpSecret = decryptSecret(parsed.totpSecret);
-    if (parsed.totpPendingSecret) parsed.totpPendingSecret = decryptSecret(parsed.totpPendingSecret);
-    return { ...DEFAULT, ...parsed };
-  } catch {
-    return { ...DEFAULT };
+    raw = await fs.readFile(settingsFile(), 'utf8');
+  } catch (err: unknown) {
+    // Only a genuinely absent file means "first boot, use defaults". Every
+    // other failure (permissions, I/O) must propagate: the defaults are
+    // totpEnabled:false + an empty ipWhitelist, so failing open here would
+    // silently switch off two-factor auth and the IP allowlist — and
+    // saveUserSettings reads through this function, so the next write would
+    // persist that loss permanently. Callers turn the rejection into a 503.
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+    throw err;
   }
+  // A parse failure is a genuine corruption — propagate it for the same reason.
+  return JSON.parse(raw) as Partial<UserSettings>;
+}
+
+// getUserSettings runs on every authenticated request; log an undecryptable
+// secret once rather than once per request.
+const loggedSecretFailures = new Set<string>();
+function warnUnreadableSecret(field: string, err: unknown): void {
+  if (loggedSecretFailures.has(field)) return;
+  loggedSecretFailures.add(field);
+  console.error(
+    `[settings] Could not decrypt ${field} from user-settings.json — ` +
+    'ENCRYPTION_KEY has probably changed (a re-run of an older install.sh minted a fresh one). ' +
+    'Two-factor authentication stays enabled and will reject every code until the secret is re-enrolled. ' +
+    `Cause: ${err instanceof Error ? err.message : String(err)}`,
+  );
+}
+
+export async function getUserSettings(): Promise<UserSettings> {
+  const stored = await readStored();
+  if (!stored) return { ...DEFAULT };
+  const parsed: Partial<UserSettings> = { ...stored };
+  delete parsed.totpSecretUnreadable; // derived here, never trusted from disk
+  // Decrypt at-rest secrets transparently. Legacy plaintext values pass
+  // through unchanged so existing installs keep working. Each secret is
+  // caught on its own: an unreadable secret is dropped (so nothing downstream
+  // can verify against garbage) but totpEnabled is kept exactly as stored, so
+  // a key rotation fails 2FA closed rather than switching it off. Letting the
+  // throw escape instead would hang every request — Express 4 has nowhere to
+  // route a rejection from an async handler.
+  if (parsed.totpSecret) {
+    try {
+      parsed.totpSecret = decryptSecret(parsed.totpSecret);
+    } catch (err) {
+      warnUnreadableSecret('totpSecret', err);
+      delete parsed.totpSecret;
+      parsed.totpSecretUnreadable = true;
+    }
+  }
+  if (parsed.totpPendingSecret) {
+    try {
+      parsed.totpPendingSecret = decryptSecret(parsed.totpPendingSecret);
+    } catch (err) {
+      // A pending secret is mid-enrolment only — dropping it just makes the
+      // operator restart the 2FA setup wizard.
+      warnUnreadableSecret('totpPendingSecret', err);
+      delete parsed.totpPendingSecret;
+    }
+  }
+  return { ...DEFAULT, ...parsed };
 }
 
 export async function saveUserSettings(updates: Partial<UserSettings>): Promise<UserSettings> {
+  const stored = await readStored();
   const current = await getUserSettings();
   const merged = { ...current };
   if (updates.maxLogs !== undefined) merged.maxLogs = updates.maxLogs;
@@ -63,12 +125,25 @@ export async function saveUserSettings(updates: Partial<UserSettings>): Promise<
 
   // Encrypt secrets *just before* writing — keep `merged` in plaintext for
   // the return value so the caller's view is unchanged.
-  const onDisk = {
+  const onDisk: Record<string, unknown> = {
     ...merged,
     totpSecret: encryptSecret(merged.totpSecret),
     totpPendingSecret: encryptSecret(merged.totpPendingSecret),
   };
-  await fs.writeFile(settingsFile(), JSON.stringify(onDisk, null, 2), { encoding: 'utf8', mode: 0o600 });
+  // An undecryptable secret must survive the write byte-for-byte. Re-encrypting
+  // the dropped plaintext (undefined) would erase it, leaving totpEnabled:true
+  // with no secret — a permanent lockout. Only an explicit update replaces it.
+  if (current.totpSecretUnreadable && !('totpSecret' in updates)) onDisk.totpSecret = stored?.totpSecret;
+  delete onDisk.totpSecretUnreadable;
+
+  // Write-then-rename: a plain writeFile truncates first, so a crash or a full
+  // disk mid-write leaves a half-written user-settings.json that no longer
+  // parses — taking 2FA and the IP allowlist down with it. rename() is atomic
+  // within the same directory, so readers see either the old or the new file.
+  const target = settingsFile();
+  const tmp = `${target}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(onDisk, null, 2), { encoding: 'utf8', mode: 0o600 });
+  await fs.rename(tmp, target);
   return merged;
 }
 

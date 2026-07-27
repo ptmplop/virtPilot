@@ -3,6 +3,7 @@ import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -22,6 +23,7 @@ import { totpRouter } from './routes/totp.js';
 import { backupsRouter } from './routes/backups.js';
 import { downloadsRouter } from './routes/downloads.js';
 import { requireAuth, verifyWsToken, isIpAllowed } from './middleware/auth.js';
+import { asyncHandler, wrapRouterAsync } from './lib/asyncHandler.js';
 import { getUserSettings } from './services/userSettingsService.js';
 import { createConsoleWss } from './console.js';
 import { createSshWss } from './ssh.js';
@@ -36,9 +38,35 @@ import { getDb } from './services/db.js';
 
 const app = express();
 
-// Trust the first proxy if running behind nginx/Caddy. Without this, req.ip is
-// the proxy IP and rate-limit + ipWhitelist key off the wrong address.
-app.set('trust proxy', process.env.TRUST_PROXY ? Number(process.env.TRUST_PROXY) : 1);
+// Trust proxy hops ONLY when the operator opts in via TRUST_PROXY. Defaulting
+// to 1 meant any install listening on a public address without a reverse proxy
+// would take X-Forwarded-For from the client itself — defeating login/TOTP rate
+// limiting and the IP allowlist with a single header. A malformed value
+// (TRUST_PROXY=yes → NaN) or a negative count is treated as untrusted rather
+// than silently trusting a hop.
+function trustedProxyHops(): number {
+  const raw = process.env.TRUST_PROXY;
+  if (!raw) return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
+}
+const trustProxyHops = trustedProxyHops();
+app.set('trust proxy', trustProxyHops > 0 ? trustProxyHops : false);
+
+// A non-loopback bind almost always means nginx/Caddy is in front (install.sh
+// writes TRUST_PROXY=1 for those). Warn rather than guess: without it every
+// request looks like it came from the proxy's address.
+function isLoopbackBind(addr: string): boolean {
+  return addr === 'localhost' || addr === '::1' || /^127\./.test(addr);
+}
+if (!process.env.TRUST_PROXY && !isLoopbackBind(config.bindAddress)) {
+  console.warn(
+    `[startup] TRUST_PROXY is unset and BIND_ADDRESS=${config.bindAddress} — X-Forwarded-For is ignored, ` +
+    'so rate limiting and the IP allowlist use the direct connection address. ' +
+    'If a reverse proxy fronts VirtPilot, set TRUST_PROXY=1 in .env.',
+  );
+}
 
 app.use(
   helmet({
@@ -104,23 +132,30 @@ app.use(express.urlencoded({ extended: true }));
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-app.use('/api/auth', authRouter);
+// Every router is mounted through wrapRouterAsync and requireAuth through
+// asyncHandler, so a rejected async handler reaches the error middleware below
+// instead of silently hanging the request (see lib/asyncHandler.ts). Doing it
+// at the mount boundary closes the whole class in one place rather than
+// depending on each route file remembering to wrap.
+const auth = asyncHandler(requireAuth);
 
-app.use('/api/vms', requireAuth, vmsRouter);
-app.use('/api/networks', requireAuth, networksRouter);
-app.use('/api/templates', requireAuth, templatesRouter);
-app.use('/api/isos', requireAuth, isosRouter);
-app.use('/api/storage', requireAuth, storageRouter);
-app.use('/api/settings', requireAuth, settingsRouter);
-app.use('/api/system', requireAuth, systemRouter);
-app.use('/api/logs', requireAuth, logsRouter);
-app.use('/api/devices', requireAuth, devicesRouter);
-app.use('/api/ssh-keys', requireAuth, sshKeysRouter);
-app.use('/api/2fa', requireAuth, totpRouter);
-app.use('/api/backups', requireAuth, backupsRouter);
+app.use('/api/auth', wrapRouterAsync(authRouter));
+
+app.use('/api/vms', auth, wrapRouterAsync(vmsRouter));
+app.use('/api/networks', auth, wrapRouterAsync(networksRouter));
+app.use('/api/templates', auth, wrapRouterAsync(templatesRouter));
+app.use('/api/isos', auth, wrapRouterAsync(isosRouter));
+app.use('/api/storage', auth, wrapRouterAsync(storageRouter));
+app.use('/api/settings', auth, wrapRouterAsync(settingsRouter));
+app.use('/api/system', auth, wrapRouterAsync(systemRouter));
+app.use('/api/logs', auth, wrapRouterAsync(logsRouter));
+app.use('/api/devices', auth, wrapRouterAsync(devicesRouter));
+app.use('/api/ssh-keys', auth, wrapRouterAsync(sshKeysRouter));
+app.use('/api/2fa', auth, wrapRouterAsync(totpRouter));
+app.use('/api/backups', auth, wrapRouterAsync(backupsRouter));
 // Disk downloads use signed tickets in the URL (issued by /api/vms/:uuid/disk-files/.../download-ticket)
 // rather than the Bearer token — so the route is mounted outside requireAuth.
-app.use('/api/downloads', downloadsRouter);
+app.use('/api/downloads', wrapRouterAsync(downloadsRouter));
 
 // Reject API paths that didn't match a router so the SPA fallback below
 // doesn't return 200/HTML for unknown /api/ requests.
@@ -141,6 +176,43 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(frontendDist, 'index.html'));
 });
 
+// Last-resort error handler. Registered after every router *and* the SPA
+// fallback because Express matches error middleware by registration order —
+// anything registered later would never see these errors. A thrown handler
+// (or a rejected async one, which Express 4 surfaces here only when the route
+// forwards it) becomes a 500 instead of a hung socket. The stack goes to the
+// journal, never to the client.
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[express] Unhandled error:', err instanceof Error ? err.stack ?? err.message : err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// Never let a stray rejection or throw take the daemon down: a killed process
+// drops every live console/SSH/VNC session and any in-flight VM operation. Log
+// with the full stack and keep serving — the request that caused it has already
+// failed, but the rest of the install stays up.
+// Flipped once the server is actually accepting connections. Until then a
+// fault is a *boot* failure, and swallowing it is far worse than dying: the
+// sampler intervals keep the event loop alive, so systemd reports
+// `active (running)` with nothing listening and never restarts us.
+let ready = false;
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] Unhandled promise rejection:', reason instanceof Error ? reason.stack ?? reason.message : reason);
+  if (!ready) {
+    console.error('[process] Rejection occurred before the server was listening — exiting so systemd can restart.');
+    process.exit(1);
+  }
+});
+process.on('uncaughtException', (err) => {
+  console.error('[process] Uncaught exception:', err.stack ?? err.message);
+  if (!ready) {
+    console.error('[process] Exception occurred before the server was listening — exiting so systemd can restart.');
+    process.exit(1);
+  }
+});
+
 // Run HTTPS when both cert files exist (production install path); otherwise
 // fall back to HTTP for dev mode where the installer hasn't generated certs.
 const tlsAvailable =
@@ -154,6 +226,17 @@ const server = tlsAvailable
       app,
     )
   : http.createServer(app);
+
+// A listen failure (EADDRINUSE while the previous process releases the port
+// during an update.sh restart, EACCES on a privileged port) has no other
+// listener, so without this it reaches uncaughtException. Exit non-zero and
+// let systemd's Restart=on-failure retry in a few seconds — staying up with a
+// dead listener turns a self-healing transient into a permanent outage.
+server.on('error', (err: Error) => {
+  const code = (err as NodeJS.ErrnoException).code ?? 'unknown';
+  console.error(`[server] Fatal server error (${code}): ${err.message}`);
+  process.exit(1);
+});
 
 const consoleWss = createConsoleWss();
 const sshWss = createSshWss();
@@ -185,8 +268,8 @@ function extractWsToken(req: http.IncomingMessage): string | null {
 // real client whitelist entry.
 function clientIpFromUpgrade(req: http.IncomingMessage): string | undefined {
   const direct = req.socket.remoteAddress?.replace(/^::ffff:/, '');
-  const trust = process.env.TRUST_PROXY ? Number(process.env.TRUST_PROXY) : 1;
-  if (!Number.isFinite(trust) || trust < 1 || !direct) return direct;
+  const trust = trustProxyHops;
+  if (trust < 1 || !direct) return direct;
   const header = req.headers['x-forwarded-for'];
   const chain = (typeof header === 'string' ? header : '')
     .split(',')
@@ -200,27 +283,39 @@ function clientIpFromUpgrade(req: http.IncomingMessage): string | undefined {
   return chain[idx] ?? direct;
 }
 
+// Anything that throws in here must still close the socket. There is no
+// Express error middleware on the upgrade path: an escaping rejection leaves
+// the raw TCP socket open waiting for a 101 that never arrives, and the
+// console/SSH/VNC reconnect loop then leaks a socket and a file descriptor per
+// retry, forever.
 server.on('upgrade', async (req, socket, head) => {
-  const url = new URL(req.url ?? '', 'http://localhost');
-  const token = extractWsToken(req);
-  if (!verifyWsToken(token)) {
-    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+  try {
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const token = extractWsToken(req);
+    if (!verifyWsToken(token)) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    const { ipWhitelist } = await getUserSettings();
+    if (!isIpAllowed(clientIpFromUpgrade(req), ipWhitelist)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    const pathname = url.pathname;
+    const handle = (wss: ReturnType<typeof createConsoleWss>) =>
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    if (pathname === '/ws/console') handle(consoleWss);
+    else if (pathname === '/ws/ssh') handle(sshWss);
+    else if (pathname === '/ws/vnc') handle(vncWss);
+    else { socket.destroy(); }
+  } catch (err) {
+    console.error('[ws] Upgrade failed:', err instanceof Error ? err.stack ?? err.message : err);
+    // Fail closed: the client gets a definitive status and the fd is released.
+    if (socket.writable) socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
     socket.destroy();
-    return;
   }
-  const { ipWhitelist } = await getUserSettings();
-  if (!isIpAllowed(clientIpFromUpgrade(req), ipWhitelist)) {
-    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-    socket.destroy();
-    return;
-  }
-  const pathname = url.pathname;
-  const handle = (wss: ReturnType<typeof createConsoleWss>) =>
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-  if (pathname === '/ws/console') handle(consoleWss);
-  else if (pathname === '/ws/ssh') handle(sshWss);
-  else if (pathname === '/ws/vnc') handle(vncWss);
-  else { socket.destroy(); }
 });
 
 async function main() {
@@ -250,9 +345,18 @@ async function main() {
   startVmMetricsSampling();
   startBackupScheduler();
   server.listen(config.port, config.bindAddress, () => {
+    // Boot is done — from here on, request-scoped faults are logged and
+    // swallowed rather than taking every live console/SSH/VNC session with them.
+    ready = true;
     const proto = tlsAvailable ? 'https' : 'http';
     console.log(`VirtPilot backend listening on ${proto}://${config.bindAddress}:${config.port}`);
   });
 }
 
-main().catch(console.error);
+// Same reasoning as the uncaughtException gate: if boot itself fails we must
+// exit non-zero, because the sampler intervals would otherwise hold the
+// process open with no listener and systemd would never restart it.
+main().catch((err) => {
+  console.error('[startup] Boot failed:', err instanceof Error ? err.stack ?? err.message : err);
+  process.exit(1);
+});

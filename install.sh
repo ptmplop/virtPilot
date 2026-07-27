@@ -180,6 +180,14 @@ log "Storage ready"
 # the dashboard self-upgrade needs to git-pull and npm-ci.
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}"
 
+# update.sh runs as root (systemd-run, from the dashboard upgrade flow), so the
+# service user must not be able to edit it — otherwise "run this script as
+# root" is just a root shell for anyone who compromises the backend. Ownership
+# survives self-upgrade: update.sh's post-npm chown only covers node_modules/
+# and packages/, and git rewrites this file as root when it changes.
+chown root:root "${INSTALL_DIR}/update.sh"
+chmod 0755 "${INSTALL_DIR}/update.sh"
+
 # ─── TLS self-signed certificate ──────────────────────────────────────────────
 TLS_DIR="/var/lib/virtpilot/tls"
 mkdir -p "${TLS_DIR}"
@@ -212,9 +220,52 @@ else
   chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TLS_DIR}"
 fi
 
+# ─── Existing configuration ───────────────────────────────────────────────────
+# Re-running install.sh on a live host is a documented path (bootstrap.sh execs
+# it on every run) and /var/lib/virtpilot survives, so whatever is already in
+# .env has to survive too. Minting a fresh ENCRYPTION_KEY would orphan every
+# `enc:v1:` blob on disk, a fresh JWT_SECRET would log everyone out, and
+# rewriting the file wholesale would silently discard the operator's
+# DEFAULT_BRIDGE / ALLOWED_ORIGINS / BACKUP_ROOT edits.
+ENV_FILE="${INSTALL_DIR}/packages/backend/.env"
+
+# Read one KEY=value back without sourcing the file — a stray backtick or
+# $(...) in an operator-edited value must not execute in this shell.
+env_get() {
+  [[ -f "${ENV_FILE}" ]] || return 0
+  sed -n "s/^$1=//p" "${ENV_FILE}" | tail -n 1
+}
+
+# Set KEY, replacing any existing line. Deleting-then-appending avoids having
+# to escape the value for sed's replacement syntax (hashes contain `$`).
+env_set() {
+  local key="$1" value="${2-}"
+  sed -i "/^${key}=/d" "${ENV_FILE}"
+  printf '%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
+}
+
+# Append KEY only when it is absent — never clobbers an operator's value.
+env_default() {
+  grep -q "^$1=" "${ENV_FILE}" || printf '%s=%s\n' "$1" "${2-}" >> "${ENV_FILE}"
+}
+
+EXISTING_ENV=false
+AUTH_PASSWORD_HASH=""
+JWT_SECRET=""
+ENCRYPTION_KEY=""
+if [[ -f "${ENV_FILE}" ]]; then
+  EXISTING_ENV=true
+  AUTH_PASSWORD_HASH="$(env_get AUTH_PASSWORD_HASH)"
+  JWT_SECRET="$(env_get JWT_SECRET)"
+  ENCRYPTION_KEY="$(env_get ENCRYPTION_KEY)"
+  log "Existing configuration found at ${ENV_FILE} — reusing its secrets"
+fi
+
 # ─── Password setup ───────────────────────────────────────────────────────────
 # Allow non-interactive installs via env var: VP_PASSWORD=secret sudo -E bash install.sh
-if [[ -n "${VP_PASSWORD:-}" ]]; then
+if [[ -n "${AUTH_PASSWORD_HASH}" && -z "${VP_PASSWORD:-}" && "${VP_RESET_PASSWORD:-0}" != "1" ]]; then
+  log "Keeping the existing login password (VP_RESET_PASSWORD=1 to change it)"
+elif [[ -n "${VP_PASSWORD:-}" ]]; then
   if [[ ${#VP_PASSWORD} -lt 8 ]]; then
     die "VP_PASSWORD must be at least 8 characters."
   fi
@@ -244,8 +295,9 @@ fi
 # the same scrypt format the backend's password.ts module uses (parsed back at
 # runtime). Doing the hashing here means the plaintext lives only in this
 # script's memory — never on disk.
-info "Hashing login password..."
-AUTH_PASSWORD_HASH="$(VP_PWD="${VP_PASSWORD}" node -e '
+if [[ -n "${VP_PASSWORD:-}" ]]; then
+  info "Hashing login password..."
+  AUTH_PASSWORD_HASH="$(VP_PWD="${VP_PASSWORD}" node -e '
 const { scryptSync, randomBytes } = require("crypto");
 const pwd = process.env.VP_PWD;
 const salt = randomBytes(16);
@@ -253,15 +305,38 @@ const N = 16384, r = 8, p = 1;
 const derived = scryptSync(pwd, salt, 64, { N, r, p, maxmem: 64 * 1024 * 1024 });
 process.stdout.write(`scrypt$N=${N},r=${r},p=${p}$${salt.toString("hex")}$${derived.toString("hex")}`);
 ')"
-unset VP_PASSWORD VP_PASSWORD2
+  unset VP_PASSWORD VP_PASSWORD2
+fi
 
-# ─── Generate JWT and at-rest encryption secrets ────────────────────────────
-JWT_SECRET=$(openssl rand -hex 32)
-ENCRYPTION_KEY=$(openssl rand -hex 32)
+# ─── JWT and at-rest encryption secrets ──────────────────────────────────────
+# Generate only what is actually missing — see the ENV_FILE note above.
+[[ -n "${JWT_SECRET}" ]]     || JWT_SECRET=$(openssl rand -hex 32)
+[[ -n "${ENCRYPTION_KEY}" ]] || ENCRYPTION_KEY=$(openssl rand -hex 32)
 
 # ─── Write .env ───────────────────────────────────────────────────────────────
 info "Writing configuration..."
-ENV_FILE="${INSTALL_DIR}/packages/backend/.env"
+if [[ "${EXISTING_ENV}" == true ]]; then
+  # Fill in keys the operator's file predates, refresh the ones we own, and
+  # leave everything else exactly as found.
+  env_default PORT 3001
+  env_default NODE_ENV production
+  env_default BIND_ADDRESS 127.0.0.1
+  env_default STORAGE_ROOT /var/lib/virtpilot
+  env_default TEMPLATES_DIR /var/lib/virtpilot/templates
+  env_default ISOS_DIR /var/lib/virtpilot/isos
+  env_default VMS_DIR /var/lib/virtpilot/vms
+  env_default CLOUD_INIT_DIR /var/lib/virtpilot/cloud-init
+  env_default DEFAULT_BRIDGE br0
+  env_default LIBVIRT_URI qemu:///system
+  env_default ALLOWED_ORIGINS ""
+  # Proxy headers stay untrusted until the nginx flow below opts in.
+  env_default TRUST_PROXY 0
+  # The repo may have moved since the last run, so this one is always rewritten.
+  env_set VIRTPILOT_REPO_DIR "${INSTALL_DIR}"
+  env_set AUTH_PASSWORD_HASH "${AUTH_PASSWORD_HASH}"
+  env_set JWT_SECRET "${JWT_SECRET}"
+  env_set ENCRYPTION_KEY "${ENCRYPTION_KEY}"
+else
 cat > "${ENV_FILE}" << EOF
 PORT=3001
 NODE_ENV=production
@@ -289,10 +364,17 @@ VIRTPILOT_REPO_DIR=${INSTALL_DIR}
 # same-origin only (correct when the SPA is served by this backend).
 ALLOWED_ORIGINS=
 
+# Number of reverse-proxy hops to trust for X-Forwarded-For. 0 means client IPs
+# come straight off the socket — the only safe default, since a trusted header
+# on a directly-exposed backend lets anyone spoof their IP past the rate
+# limiter and the allowlist. The nginx flow below raises this to 1.
+TRUST_PROXY=0
+
 AUTH_PASSWORD_HASH=${AUTH_PASSWORD_HASH}
 JWT_SECRET=${JWT_SECRET}
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 EOF
+fi
 chown "${SERVICE_USER}:${SERVICE_USER}" "${ENV_FILE}"
 chmod 600 "${ENV_FILE}"
 log "Configuration written"
@@ -308,6 +390,15 @@ log "Configuration written"
 
 info "Installing nginx..."
 apt-get install -y -qq nginx
+
+# On a host that had no nginx before, the package ships an enabled default vhost
+# on :80 serving the welcome page — a plain-HTTP service the operator never
+# asked for. Unlink it only when it is the symlink the package created; a
+# regular file here is an operator's own config and must be left alone.
+if [[ -L /etc/nginx/sites-enabled/default ]]; then
+  rm -f /etc/nginx/sites-enabled/default
+  log 'Disabled nginx default vhost on :80'
+fi
 
 # nginx (running as www-data) needs to read the private key.
 chgrp www-data "${TLS_DIR}/key.pem"
@@ -371,10 +462,6 @@ server {
 NGINXSITE
 ln -sf /etc/nginx/sites-available/virtpilot /etc/nginx/sites-enabled/virtpilot
 
-# Pull nginx's default vhost off port 80 only if it's currently enabled —
-# don't clobber a config the operator might have already customised.
-rm -f /etc/nginx/sites-enabled/default
-
 if ! nginx -t >/dev/null 2>&1; then
   nginx -t || true
   die "nginx config validation failed. Check /etc/nginx/sites-available/virtpilot"
@@ -387,10 +474,27 @@ log "nginx listening on :${PUBLIC_PORT} with the self-signed cert"
 # Move the backend off the public port and disable its own TLS — nginx
 # terminates TLS on ${PUBLIC_PORT}, the backend speaks plain HTTP locally.
 sed -i "s|^PORT=.*|PORT=${BACKEND_PORT}|" "${ENV_FILE}"
+
+# Force the listener back to loopback, not just default it. update.sh writes
+# BIND_ADDRESS=0.0.0.0 for installs with no nginx site, so a migrated install
+# that is later upgraded by re-running install.sh would otherwise come up
+# serving the whole API in cleartext on every interface while nginx holds the
+# TLS port — env_default is a no-op once the key exists, so this must be a set.
+PREV_BIND="$(env_get BIND_ADDRESS)"
+env_set BIND_ADDRESS 127.0.0.1
+if [[ -n "${PREV_BIND}" && "${PREV_BIND}" != "127.0.0.1" && "${PREV_BIND}" != "localhost" ]]; then
+  info "BIND_ADDRESS was ${PREV_BIND} — reset to 127.0.0.1 so only nginx (TLS on :${PUBLIC_PORT}) can reach the backend"
+fi
+
 sed -i 's|^TLS_CERT_PATH=.*|TLS_CERT_PATH=|' "${ENV_FILE}" || true
 sed -i 's|^TLS_KEY_PATH=.*|TLS_KEY_PATH=|' "${ENV_FILE}" || true
 grep -q '^TLS_CERT_PATH=' "${ENV_FILE}" || echo "TLS_CERT_PATH=" >> "${ENV_FILE}"
 grep -q '^TLS_KEY_PATH=' "${ENV_FILE}" || echo "TLS_KEY_PATH=" >> "${ENV_FILE}"
+
+# Exactly one proxy hop (this nginx) sits in front of the backend, so the last
+# X-Forwarded-For entry is the real client. Without this the backend sees
+# 127.0.0.1 for every request and the IP allowlist locks the operator out.
+env_set TRUST_PROXY 1
 
 # Firewall: allow public access to nginx, deny direct backend.
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
@@ -402,21 +506,33 @@ fi
 # ─── Sudoers rules ────────────────────────────────────────────────────────────
 # The service user needs to run a tiny set of privileged commands:
 #  - iptables / ip link (firewall + bridge management)
-#  - systemd-run / systemctl (self-upgrade orchestration)
-#  - bash update.sh (the upgrade itself)
+#  - systemd-run (self-upgrade orchestration)
+#  - systemctl reset-failed on the transient upgrade unit only
+#  - apt-get -y upgrade (the dashboard's "update system packages" button). The
+#    bare `apt-get` grant this replaces was a root shell in disguise:
+#    `apt-get -o APT::Update::Pre-Invoke::=<cmd> update` runs <cmd> as root.
 #  - qemu-img as libvirt-qemu (backup of running VMs — the disk file is chowned
 #    to libvirt-qemu by libvirt's dynamic_ownership and mode 0600, so the
 #    unprivileged service user cannot read it directly)
+# The upgrade itself is launched via systemd-run (routes/system.ts), never via
+# a direct `sudo bash update.sh` — that grant was vestigial and is gone.
+# systemd-run stays unrestricted, and it is the one rule that keeps the service
+# account effectively root: `--property=ExecStartPre=…` runs anything. Sudoers
+# arg matching is positional and literal, so the only real narrowing is to pin
+# the exact argv the backend uses — which silently breaks the self-upgrade the
+# moment that argv changes in a later release. The fix is a root-owned,
+# argument-less /usr/local/sbin/virtpilot-upgrade wrapper the backend calls
+# instead; that needs routes/system.ts to change in the same release.
 # Everything else stays under the unprivileged account. NOPASSWD because the
 # service has no interactive session.
 SUDOERS_FILE="/etc/sudoers.d/virtpilot"
 info "Writing sudoers rules..."
 cat > "${SUDOERS_FILE}" << EOF
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/sbin/iptables, /sbin/iptables, /usr/sbin/ip, /sbin/ip
-${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemd-run, /bin/systemctl, /usr/bin/systemctl
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemd-run
+${SERVICE_USER} ALL=(root) NOPASSWD: /bin/systemctl reset-failed virtpilot-update.service, /usr/bin/systemctl reset-failed virtpilot-update.service
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/journalctl
-${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/bash ${INSTALL_DIR}/update.sh
-${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/apt-get -y upgrade
 ${SERVICE_USER} ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img
 EOF
 chmod 0440 "${SUDOERS_FILE}"

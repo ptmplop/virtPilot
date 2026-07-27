@@ -69,6 +69,19 @@ if (isProd && !authPasswordHash && authPasswordLegacy.length < 8) {
 // to a value derived from JWT_SECRET when missing, so existing installs don't
 // break. install.sh writes a dedicated key going forward.
 const encryptionKey = process.env.ENCRYPTION_KEY ?? '';
+// Report a weak key here, at boot, where the operator can see and fix it —
+// not from getKey() on the auth path, where throwing would lock a previously
+// working install out of its own dashboard. Secrets written by such an install
+// used the JWT_SECRET-derived key, so secretsCrypto keeps using that key for
+// backward compatibility until a full-length key is generated and the secrets
+// are re-enrolled.
+if (encryptionKey && encryptionKey.length < 32) {
+  console.warn(
+    `[config] ENCRYPTION_KEY is only ${encryptionKey.length} characters — too short to use, so at-rest secrets ` +
+    'fall back to a key derived from JWT_SECRET. Generate a proper key (openssl rand -hex 32), put it in .env, ' +
+    'and re-enrol 2FA so the stored secrets are re-encrypted with it.',
+  );
+}
 
 // Comma-separated list of permitted browser origins for CORS. Empty = same-
 // origin only (the most common deployment when the SPA is served by the

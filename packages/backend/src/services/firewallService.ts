@@ -81,16 +81,95 @@ export async function deleteFirewallConfig(vmUuid: string): Promise<void> {
   await fs.unlink(firewallPath(vmUuid)).catch(() => {});
 }
 
-async function chainExists(chain: string): Promise<boolean> {
-  return (await runSafe('iptables', ['-L', chain, '-n'])) !== null;
+// Every invocation waits up to 5s for the xtables lock. libvirt, docker and
+// our own port-forward service all drive iptables on the same host, so without
+// this a concurrent run makes us fail with "another app is currently holding
+// the xtables lock" instead of simply queueing.
+const WAIT = ['-w', '5'];
+
+async function iptables(args: readonly string[]): Promise<string> {
+  return run('iptables', [...WAIT, ...args]);
 }
+
+async function iptablesSafe(args: readonly string[]): Promise<string | null> {
+  return runSafe('iptables', [...WAIT, ...args]);
+}
+
+// `-m comment` and `-m conntrack` need the xt_comment / xt_conntrack kernel
+// modules. On a host without them iptables rejects the whole rule, so probe
+// once against a scratch chain and degrade instead of failing every apply.
+// Cached for the process lifetime — kernel modules don't come and go.
+let matchSupport: Promise<{ comment: boolean; conntrack: boolean }> | null = null;
+
+function probeMatchSupport(): Promise<{ comment: boolean; conntrack: boolean }> {
+  if (!matchSupport) matchSupport = (async () => {
+    const probe = 'VP-PROBE';
+    await iptablesSafe(['-N', probe]);
+    await iptablesSafe(['-F', probe]);
+    const comment = (await iptablesSafe(['-A', probe, '-m', 'comment', '--comment', 'virtpilot-probe', '-j', 'ACCEPT'])) !== null;
+    const conntrack = (await iptablesSafe(['-A', probe, '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT'])) !== null;
+    await iptablesSafe(['-F', probe]);
+    await iptablesSafe(['-X', probe]);
+    return { comment, conntrack };
+  })();
+  return matchSupport;
+}
+
+// Split one `iptables -S` line into argv tokens, unquoting double-quoted
+// values (comments are emitted quoted). Exported because portForwardService
+// has to reconcile its own rules out of a live table the same way.
+export function tokeniseIptablesRule(line: string): string[] {
+  const tokens: string[] = [];
+  const re = /"((?:[^"\\]|\\.)*)"|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    tokens.push(m[1] !== undefined ? m[1].replace(/\\(.)/g, '$1') : m[2]);
+  }
+  return tokens;
+}
+
+// Delete every FORWARD rule that jumps to one of our chains, whatever its
+// `-s`/`-d` match happens to be. Matching on the VM's current IP isn't enough:
+// if the IP changed since the last apply, the old jump would be orphaned in
+// FORWARD and keep filtering traffic for whoever inherits that address.
+async function removeForwardJumps(chains: readonly string[]): Promise<void> {
+  const dump = await iptablesSafe(['-S', 'FORWARD']);
+  if (dump === null) return;
+  for (const line of dump.split('\n')) {
+    const tokens = tokeniseIptablesRule(line.trim());
+    if (tokens[0] !== '-A' || tokens[1] !== 'FORWARD') continue;
+    const jump = tokens.lastIndexOf('-j');
+    if (jump === -1 || !chains.includes(tokens[jump + 1])) continue;
+    await iptablesSafe(['-D', ...tokens.slice(1)]);
+  }
+}
+
+async function destroyChains(chains: readonly string[]): Promise<void> {
+  for (const chain of chains) {
+    await iptablesSafe(['-F', chain]);
+    await iptablesSafe(['-X', chain]);
+  }
+}
+
+// xt_multiport stores at most 15 ports, and a range consumes two of those
+// slots. validatePortRange deliberately allows longer lists so existing saved
+// configs still load, so the cap is enforced here instead — at rule-build time,
+// which runs before any live filtering is touched.
+const MULTIPORT_MAX_ENTRIES = 15;
 
 // Build the iptables --dport / --dports args for a port-range value. The
 // value is pre-validated against PORT_RANGE_RE so we know it only contains
 // digits, commas, hyphens, and colons.
 function portArgs(portRange: string): string[] {
   if (portRange.includes(',')) {
-    const ports = portRange.split(',').map((p) => p.includes('-') ? p.replace('-', ':') : p).join(',');
+    const parts = portRange.split(',');
+    const slots = parts.reduce((n, p) => n + (p.includes('-') || p.includes(':') ? 2 : 1), 0);
+    if (slots > MULTIPORT_MAX_ENTRIES) {
+      throw new Error(
+        `Port list "${portRange}" needs ${slots} multiport slots but the kernel allows at most ${MULTIPORT_MAX_ENTRIES} (a range counts as two). Split it across several rules.`
+      );
+    }
+    const ports = parts.map((p) => p.includes('-') ? p.replace('-', ':') : p).join(',');
     return ['-m', 'multiport', '--dports', ports];
   }
   const range = portRange.includes('-') ? portRange.replace('-', ':') : portRange;
@@ -103,36 +182,25 @@ export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: F
   const inC = inChain(vmUuid);
   const outC = outChain(vmUuid);
 
-  // Remove existing jump rules
-  await runSafe('iptables', ['-D', 'FORWARD', '-d', vmIp, '-j', inC]);
-  await runSafe('iptables', ['-D', 'FORWARD', '-s', vmIp, '-j', outC]);
-
-  for (const chain of [inC, outC]) {
-    if (await chainExists(chain)) {
-      await runSafe('iptables', ['-F', chain]);
-      await runSafe('iptables', ['-X', chain]);
-    }
-  }
-
-  if (
+  const isNoop =
     rules.length === 0 &&
     defaultInbound === 'allow' &&
     defaultOutbound === 'allow' &&
     !allowEstablishedInbound &&
-    !allowEstablishedOutbound
-  ) return;
+    !allowEstablishedOutbound;
 
-  await run('iptables', ['-N', inC]);
-  await run('iptables', ['-N', outC]);
+  // Build (and therefore validate) every rule BEFORE any live filtering is
+  // touched. Tearing the chains down first meant a single malformed rule left
+  // the VM completely unfiltered.
+  const { comment: hasComment, conntrack: hasConntrack } = await probeMatchSupport();
+  const commentArgs = hasComment
+    ? ['-m', 'comment', '--comment', `virtpilot-fw-${uuidShort(vmUuid)}`]
+    : [];
 
-  if (allowEstablishedInbound) {
-    await runSafe('iptables', ['-A', inC, '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT']);
-  }
-  if (allowEstablishedOutbound) {
-    await runSafe('iptables', ['-A', outC, '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT']);
-  }
+  const inDefault = defaultInbound === 'allow' ? 'ACCEPT' : 'DROP';
+  const outDefault = defaultOutbound === 'allow' ? 'ACCEPT' : 'DROP';
 
-  for (const rule of rules) {
+  const ruleArgs: string[][] = isNoop ? [] : rules.map((rule) => {
     const chain = rule.direction === 'inbound' ? inC : outC;
     const target = rule.action === 'allow' ? 'ACCEPT' : 'DROP';
     const proto = validateProtocol(rule.protocol);
@@ -148,35 +216,81 @@ export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: F
       }
     }
     args.push('-j', target);
-    args.push('-m', 'comment', '--comment', `virtpilot-fw-${uuidShort(vmUuid)}`);
-    await runSafe('iptables', args);
+    args.push(...commentArgs);
+    return args;
+  });
+
+  await removeForwardJumps([inC, outC]);
+  await destroyChains([inC, outC]);
+
+  if (isNoop) return;
+
+  try {
+    // `-N` is best-effort and `-F` unconditional: a chain left behind by an
+    // earlier half-finished apply must not make every later apply fail and
+    // strand the VM with no filtering at all.
+    for (const chain of [inC, outC]) {
+      await iptablesSafe(['-N', chain]);
+      await iptables(['-F', chain]);
+    }
+
+    if (allowEstablishedInbound || allowEstablishedOutbound) {
+      if (hasConntrack) {
+        if (allowEstablishedInbound) {
+          await iptables(['-A', inC, '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT']);
+        }
+        if (allowEstablishedOutbound) {
+          await iptables(['-A', outC, '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT']);
+        }
+      } else {
+        console.warn('[firewall] Host has no xt_conntrack support — established/related rules omitted');
+      }
+    }
+
+    // Strict from here on: a rejected rule used to be skipped silently, so the
+    // API reported "Applied N rule(s)" for a policy the kernel never had.
+    for (const args of ruleArgs) {
+      await iptables(args);
+    }
+
+    await iptables(['-A', inC, '-j', inDefault]);
+    await iptables(['-A', outC, '-j', outDefault]);
+
+    await iptables(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
+    await iptables(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
+  } catch (err) {
+    // Half-built chains are worse than none — an incomplete allow-list can both
+    // leak and black-hole traffic. But rolling back to *nothing* is worse still:
+    // it left a `defaultInbound: 'drop'` VM with no chains and no FORWARD jumps,
+    // i.e. completely unfiltered, and stickily so because every retry hit the
+    // same rule. Fall back to the DECLARED default policy instead: empty chains
+    // carrying only their terminal target, plus the FORWARD jumps. A failed
+    // apply then fails CLOSED. Best-effort throughout — the caller must still
+    // see the original error, so the API reports the failure honestly.
+    try {
+      await removeForwardJumps([inC, outC]);
+      for (const chain of [inC, outC]) {
+        await iptablesSafe(['-N', chain]);
+        await iptablesSafe(['-F', chain]);
+      }
+      await iptablesSafe(['-A', inC, '-j', inDefault]);
+      await iptablesSafe(['-A', outC, '-j', outDefault]);
+      await iptablesSafe(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
+      await iptablesSafe(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
+      console.warn(`[firewall] Apply failed for ${vmUuid} — fell back to the declared default policy (in=${inDefault}, out=${outDefault})`);
+    } catch (fallbackErr) {
+      console.error('[firewall] Could not install the default-policy fallback after a failed apply:', fallbackErr);
+    }
+    throw err;
   }
-
-  const inDefault = defaultInbound === 'allow' ? 'ACCEPT' : 'DROP';
-  const outDefault = defaultOutbound === 'allow' ? 'ACCEPT' : 'DROP';
-  await runSafe('iptables', ['-A', inC, '-j', inDefault]);
-  await runSafe('iptables', ['-A', outC, '-j', outDefault]);
-
-  await run('iptables', ['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
-  await run('iptables', ['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
 }
 
-export async function removeVmFirewall(vmUuid: string, vmIpRaw?: string | null): Promise<void> {
+export async function removeVmFirewall(vmUuid: string, _vmIpRaw?: string | null): Promise<void> {
   const inC = inChain(vmUuid);
   const outC = outChain(vmUuid);
-  // If we know the VM's IP, drop the FORWARD jump rules that pivot on it.
-  // Without it we can't target the rules precisely — leave them; flushing
-  // the chains below makes them no-ops, and the next `applyFirewallRules`
-  // run rebuilds correctly.
-  if (vmIpRaw) {
-    try {
-      const vmIp = validateIpv4(vmIpRaw);
-      await runSafe('iptables', ['-D', 'FORWARD', '-d', vmIp, '-j', inC]);
-      await runSafe('iptables', ['-D', 'FORWARD', '-s', vmIp, '-j', outC]);
-    } catch { /* invalid IP — chain flush below still cleans up */ }
-  }
-  for (const chain of [inC, outC]) {
-    await runSafe('iptables', ['-F', chain]);
-    await runSafe('iptables', ['-X', chain]);
-  }
+  // Sweep FORWARD by jump target rather than by the VM's IP: the caller's idea
+  // of the IP can be stale (or absent), and any jump we leave behind keeps
+  // filtering traffic for whoever inherits that address next.
+  await removeForwardJumps([inC, outC]);
+  await destroyChains([inC, outC]);
 }

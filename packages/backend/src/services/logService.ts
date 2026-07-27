@@ -32,18 +32,27 @@ async function readLogs(): Promise<LogEntry[]> {
 }
 
 export async function appendLog(entry: Omit<LogEntry, 'id' | 'timestamp'>): Promise<void> {
-  writeQueue = writeQueue.then(async () => {
-    const { maxLogs } = await getUserSettings();
-    const logs = await readLogs();
-    const newEntry: LogEntry = {
-      id: randomUUID(),
-      timestamp: new Date().toISOString(),
-      ...entry,
-    };
-    logs.unshift(newEntry);
-    if (logs.length > maxLogs) logs.length = maxLogs;
-    await fs.writeFile(logsFile(), JSON.stringify(logs), 'utf8');
-  });
+  // The .catch() is load-bearing: writeQueue is the tail of the chain, so a
+  // single failure (unreadable settings, full disk) would leave it permanently
+  // rejected — every later append would no-op and every caller awaiting one
+  // would reject. Swallow it here instead; the activity log is a record of the
+  // operation, not part of it, so a failed write must not fail the VM action.
+  writeQueue = writeQueue
+    .then(async () => {
+      const { maxLogs } = await getUserSettings();
+      const logs = await readLogs();
+      const newEntry: LogEntry = {
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        ...entry,
+      };
+      logs.unshift(newEntry);
+      if (logs.length > maxLogs) logs.length = maxLogs;
+      await fs.writeFile(logsFile(), JSON.stringify(logs), 'utf8');
+    })
+    .catch((err: unknown) => {
+      console.error('[logs] Could not append activity log entry:', err instanceof Error ? err.message : err);
+    });
   return writeQueue;
 }
 
@@ -52,8 +61,12 @@ export async function getLogs(): Promise<LogEntry[]> {
 }
 
 export async function clearLogs(): Promise<void> {
-  writeQueue = writeQueue.then(async () => {
+  const op = writeQueue.then(async () => {
     await fs.writeFile(logsFile(), '[]', 'utf8');
   });
-  return writeQueue;
+  // The caller asked for this one explicitly, so it still sees the failure
+  // (the route is wrapped by asyncHandler and answers 500) — but the queue
+  // itself must stay resolvable for every subsequent write.
+  writeQueue = op.catch(() => undefined);
+  return op;
 }

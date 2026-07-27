@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { execSync } from 'child_process';
+import { escapeXml } from '../lib/validate.js';
 
 export function kvmAvailable(): boolean {
   return fs.existsSync('/dev/kvm');
@@ -86,7 +87,12 @@ interface DomainXmlOptions {
 }
 
 export function buildDomainXml(opts: DomainXmlOptions): string {
-  const memKb = opts.memoryMb * 1024;
+  // Callers only truthiness-check cpus/memoryMb, so a NaN can reach here and be
+  // spliced into XML that virsh define persists. Coerce at the sink instead of
+  // trusting every call site; the route validators are what return a clean 400.
+  const cpus = Number.isFinite(Number(opts.cpus)) ? Math.trunc(Number(opts.cpus)) : 1;
+  const memoryMb = Number.isFinite(Number(opts.memoryMb)) ? Math.trunc(Number(opts.memoryMb)) : 512;
+  const memKb = memoryMb * 1024;
   const kvm = opts.useKvm ?? kvmAvailable();
   const domainType = kvm ? 'kvm' : 'qemu';
   const cpuMode = opts.cpuMode ?? 'host-passthrough';
@@ -113,18 +119,20 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
       : OVMF.vars;
     loaderXml = `
     <loader readonly="yes"${secureAttr} type="pflash">${loaderPath}</loader>
-    <nvram template="${varsTemplate}">${opts.nvramPath ?? `/var/lib/libvirt/qemu/nvram/${opts.uuid}_VARS.fd`}</nvram>`;
+    <nvram template="${varsTemplate}">${escapeXml(opts.nvramPath ?? `/var/lib/libvirt/qemu/nvram/${opts.uuid}_VARS.fd`)}</nvram>`;
   }
 
   const nicsXml = opts.nics
     .map((nic) => {
-      const inb = nic.inboundKbps && nic.inboundKbps > 0 ? `<inbound average="${nic.inboundKbps}"/>` : '';
-      const outb = nic.outboundKbps && nic.outboundKbps > 0 ? `<outbound average="${nic.outboundKbps}"/>` : '';
+      const inKbps = Number(nic.inboundKbps);
+      const outKbps = Number(nic.outboundKbps);
+      const inb = Number.isFinite(inKbps) && inKbps > 0 ? `<inbound average="${Math.trunc(inKbps)}"/>` : '';
+      const outb = Number.isFinite(outKbps) && outKbps > 0 ? `<outbound average="${Math.trunc(outKbps)}"/>` : '';
       const bandwidthXml = inb || outb ? `\n      <bandwidth>${inb}${outb}</bandwidth>` : '';
       return `    <interface type="bridge">
-      <mac address="${nic.mac}"/>
-      <source bridge="${nic.bridge}"/>
-      <model type="${nic.model ?? 'virtio'}"/>${bandwidthXml}
+      <mac address="${escapeXml(nic.mac)}"/>
+      <source bridge="${escapeXml(nic.bridge)}"/>
+      <model type="${escapeXml(nic.model ?? 'virtio')}"/>${bandwidthXml}
     </interface>`;
     })
     .join('\n');
@@ -133,11 +141,11 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
   const primaryCdromPath = isIsoInstall ? opts.installIsoPath! : opts.cloudInitIsoPath!;
 
   return `<domain type="${domainType}">
-  <name>${opts.name}</name>
-  <uuid>${opts.uuid}</uuid>
+  <name>${escapeXml(opts.name)}</name>
+  <uuid>${escapeXml(opts.uuid)}</uuid>
   <memory unit="KiB">${memKb}</memory>
   <currentMemory unit="KiB">${memKb}</currentMemory>
-  <vcpu placement="static">${opts.cpus}</vcpu>
+  <vcpu placement="static">${cpus}</vcpu>
   <os>
     <type arch="x86_64" machine="q35">hvm</type>${loaderXml}
     ${isIsoInstall ? '<boot dev="cdrom"/>' : ''}
@@ -181,12 +189,12 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
     <controller type="pci" index="14" model="pcie-root-port"/>
     <disk type="file" device="disk">
       <driver name="qemu" type="qcow2" discard="unmap" cache="none" io="native"/>
-      <source file="${opts.diskPath}"/>
+      <source file="${escapeXml(opts.diskPath)}"/>
       <target dev="vda" bus="virtio"/>
     </disk>
     <disk type="file" device="cdrom">
       <driver name="qemu" type="raw"/>
-      <source file="${primaryCdromPath}"/>
+      <source file="${escapeXml(primaryCdromPath)}"/>
       <target dev="sda" bus="sata"/>
       <readonly/>
     </disk>

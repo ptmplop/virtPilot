@@ -803,6 +803,16 @@ function ResourcesStep({
 
 // ─── Network step ─────────────────────────────────────────────────────────────
 
+// Both bridge kinds carry a static-IP mode — 'bridge' is a VirtPilot-managed
+// bridge, 'existing-bridge' one that already existed on the host. Every place
+// that decides "does this NIC need an IP?" has to agree, otherwise the wizard
+// lets an existing-bridge static network through without one, shows "DHCP" on
+// the Review step, and the backend rejects it at the very last click.
+function isStaticBridge(network: import('@/types').Network | undefined): boolean {
+  if (!network) return false;
+  return (network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static';
+}
+
 function NetworkCard({
   network,
   selection,
@@ -819,7 +829,7 @@ function NetworkCard({
   ipOptions: Array<{ ip: string; allocated: boolean }>;
 }) {
   const checked = !!selection;
-  const needsIp = (network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static';
+  const needsIp = isStaticBridge(network);
 
   const typeBadgeClass = network.type === 'nat'
     ? 'bg-blue-500/10 text-blue-400'
@@ -1059,7 +1069,7 @@ function NetworkCardWithIps({
   onSetIp: (ip: string) => void;
 }) {
   const { data: detail } = useNetwork(
-    selection && (network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static' ? network.id : ''
+    selection && isStaticBridge(network) ? network.id : ''
   );
   const availableIps = (detail?.ips ?? []).filter((i) => !i.allocated);
 
@@ -1481,12 +1491,12 @@ export function VmCreatePage() {
     form.networks.some((s) => s.isPrimary) &&
     form.networks.every((s) => {
       const n = networks?.find((x) => x.id === s.networkId);
-      return !(n?.type === 'bridge' && n?.ipMode === 'static') || !!s.staticIp;
+      return !isStaticBridge(n) || !!s.staticIp;
     });
 
   const networkRows = form.networks.map((s) => {
     const n = networks?.find((x) => x.id === s.networkId);
-    const ip = n?.type === 'bridge' && n?.ipMode === 'static'
+    const ip = isStaticBridge(n)
       ? (s.staticIp || '—')
       : 'DHCP';
     return { name: n?.name ?? s.networkId, ip, primary: s.isPrimary };

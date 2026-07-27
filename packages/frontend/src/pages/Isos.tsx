@@ -29,6 +29,22 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+// Mirrors the server's deriveIsoFilename (backend routes/isos.ts): compressed
+// uploads are decompressed before being saved, so the file lands under the
+// .iso name, not the name the browser sent. Logos are keyed on the filename
+// the ISO list renders, so keying them on the client name meant every .iso.gz
+// upload lost its logo. The upload response carries the real filename but
+// useUploadIso's mutation resolves with void, so we derive it here instead.
+function deriveIsoFilename(clientName: string): string {
+  let name = clientName.replace(/^.*[\\/]/, '');
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.tar.gz')) name = name.slice(0, -'.tar.gz'.length);
+  else if (lower.endsWith('.tgz')) name = name.slice(0, -'.tgz'.length);
+  else if (lower.endsWith('.gz')) name = name.slice(0, -'.gz'.length);
+  if (!name.toLowerCase().endsWith('.iso')) name += '.iso';
+  return name;
+}
+
 function StatCard({ icon: Icon, label, value, iconClass }: {
   icon: React.ElementType;
   label: string;
@@ -169,13 +185,19 @@ export function IsosPage() {
     setUploadAbort(ac.abort.bind(ac));
     try {
       await uploadIso.mutateAsync({ file, displayName, storageDirId: uploadStorageDirId || undefined, signal: ac.signal });
-      if (logoSlug) setIsoLogo(file.name, logoSlug);
+      if (logoSlug) setIsoLogo(deriveIsoFilename(file.name), logoSlug);
       toast.success(`${displayName || file.name} uploaded`);
-    } catch {
+    } catch (err: unknown) {
       if (ac.signal.aborted) {
         toast.info('Upload cancelled');
       } else {
-        toast.error('Upload failed');
+        // Surface the backend's message verbatim — a 409 names the exact
+        // filename already on disk, which the operator cannot guess from a
+        // generic "Upload failed".
+        toast.error(
+          (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+          'Upload failed'
+        );
       }
     } finally {
       setUploadPct(null);
@@ -214,8 +236,12 @@ export function IsosPage() {
       if (downloadLogoSlug) setIsoLogo(result.filename, downloadLogoSlug);
       resetUrlDialog();
       setActiveJob({ jobId: result.jobId, job: { filename: result.filename, bytesDownloaded: 0, totalBytes: 0, status: 'downloading' } });
-    } catch {
-      toast.error('Failed to start download');
+    } catch (err: unknown) {
+      // 409 here means the resolved filename already exists — show which one.
+      toast.error(
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Failed to start download'
+      );
     }
   };
 

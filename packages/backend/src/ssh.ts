@@ -6,6 +6,13 @@ import { ensureHostSshKeypair } from './services/cloudInitService.js';
 import { virsh } from './services/safeExec.js';
 import { validateVmUuid } from './lib/validate.js';
 
+// Liveness flag hung off each socket by the heartbeat below.
+type AliveSocket = WebSocket & { isAlive?: boolean };
+
+// A client that floods while the SSH handshake is still in flight would grow
+// pendingInput without limit, so cap what we're willing to hold for it.
+const MAX_PENDING_BYTES = 256 * 1024;
+
 function pickProtocol(protocols: Set<string>): string | false {
   for (const p of protocols) {
     if (p.startsWith('virtpilot.token.')) return p;
@@ -47,7 +54,25 @@ export function createSshWss(): WebSocketServer {
     handleProtocols: pickProtocol,
   });
 
-  wss.on('connection', async (ws, req) => {
+  // ws disables the socket timeout, so a client that disappears without a FIN
+  // (laptop lid, dropped Wi-Fi, NAT timeout) would hold its SSH channel into
+  // the guest open forever. Ping every 30s and drop anyone who misses a pong.
+  const heartbeat = setInterval(() => {
+    for (const socket of wss.clients) {
+      const client = socket as AliveSocket;
+      if (client.isAlive === false) { client.terminate(); continue; }
+      client.isAlive = false;
+      client.ping();
+    }
+  }, 30_000);
+  heartbeat.unref();
+  wss.on('close', () => clearInterval(heartbeat));
+
+  wss.on('connection', async (socket, req) => {
+    const ws = socket as AliveSocket;
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+
     const url = new URL(req.url ?? '', 'http://localhost');
     const rawVm = url.searchParams.get('vm');
     let vmUuid: string;
@@ -61,6 +86,23 @@ export function createSshWss(): WebSocketServer {
     const send = (msg: string) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(msg);
     };
+
+    // The socket is open and parsing frames the moment the prelude below
+    // yields, so teardown has to be wired up before the first await: a
+    // malformed frame emitting 'error' with no listener would take the whole
+    // process down (killing every other live session), and a client that
+    // vanishes mid-prelude would never fire 'close', leaking the ssh2 client
+    // plus a live shell inside the guest.
+    let closed = false;
+    let ssh: SshClient | null = null;
+    let activeStream: ClientChannel | null = null;
+    const teardown = (): void => {
+      closed = true;
+      activeStream?.close();
+      ssh?.end();
+    };
+    ws.on('close', teardown);
+    ws.on('error', teardown);
 
     const meta = await vmMetaService.getVmMeta(vmUuid).catch(() => null);
     const displayName = meta?.name ?? vmUuid;
@@ -87,7 +129,8 @@ export function createSshWss(): WebSocketServer {
 
     send(`\x1b[2mConnecting SSH to ${username}@${ip}…\x1b[0m\r\n`);
 
-    const ssh = new SshClient();
+    const client = new SshClient();
+    ssh = client;
 
     // Attach the inbound handler immediately — not inside ssh.shell — so the
     // client's initial resize message (sent on WS open, before the SSH
@@ -95,8 +138,8 @@ export function createSshWss(): WebSocketServer {
     // otherwise boot at the placeholder 220×50 and apps like nano/vi would
     // render at that geometry, leaving a visible right-side gap.
     let latestSize: { cols: number; rows: number } | null = null;
-    let activeStream: ClientChannel | null = null;
     let pendingInput: Array<{ data: Buffer; isBinary: boolean }> = [];
+    let pendingBytes = 0;
 
     const handleControl = (str: string): boolean => {
       try {
@@ -111,28 +154,32 @@ export function createSshWss(): WebSocketServer {
       return false;
     };
 
+    const queueInput = (data: Buffer, isBinary: boolean): void => {
+      pendingInput.push({ data, isBinary });
+      pendingBytes += data.length;
+      if (pendingBytes > MAX_PENDING_BYTES) ws.close(1009, 'Input buffer exceeded');
+    };
+
     ws.on('message', (data, isBinary) => {
       if (!isBinary) {
         const str = (data as Buffer).toString();
         if (handleControl(str)) return;
         if (activeStream) { activeStream.write(str); return; }
-        pendingInput.push({ data: Buffer.from(str), isBinary: false });
+        queueInput(Buffer.from(str), false);
         return;
       }
       if (activeStream) { activeStream.write(data as Buffer); return; }
-      pendingInput.push({ data: data as Buffer, isBinary: true });
+      queueInput(data as Buffer, true);
     });
-    ws.on('close', () => { activeStream?.close(); ssh.end(); });
-    ws.on('error', () => { activeStream?.close(); ssh.end(); });
 
-    ssh.on('ready', () => {
+    client.on('ready', () => {
       // Open the shell at the size the client actually wants (if it's already
       // told us), so the pty is born with the right geometry.
       const initial = latestSize ?? { cols: 220, rows: 50 };
-      ssh.shell({ term: 'xterm-256color', cols: initial.cols, rows: initial.rows }, (err, stream) => {
+      client.shell({ term: 'xterm-256color', cols: initial.cols, rows: initial.rows }, (err, stream) => {
         if (err) {
           send(`\r\n\x1b[31mSSH shell error: ${err.message}\x1b[0m\r\n`);
-          ssh.end();
+          client.end();
           ws.close(1011, 'SSH shell error');
           return;
         }
@@ -151,7 +198,7 @@ export function createSshWss(): WebSocketServer {
 
         stream.on('close', () => {
           if (ws.readyState === WebSocket.OPEN) ws.close(1000, 'SSH session closed');
-          ssh.end();
+          client.end();
         });
 
         // Drain keystrokes the user typed during the SSH handshake.
@@ -159,15 +206,20 @@ export function createSshWss(): WebSocketServer {
           stream.write(isBinary ? data : data.toString());
         }
         pendingInput = [];
+        pendingBytes = 0;
       });
     });
 
-    ssh.on('error', (err) => {
+    client.on('error', (err) => {
       send(`\r\n\x1b[31mSSH error: ${err.message}\x1b[0m\r\n`);
       if (ws.readyState === WebSocket.OPEN) ws.close(1011, 'SSH error');
     });
 
-    ssh.connect({
+    // The client may have gone away while we were resolving the IP and key —
+    // don't open a shell inside the guest that nobody is attached to.
+    if (closed || ws.readyState !== WebSocket.OPEN) return;
+
+    client.connect({
       host: ip,
       port: 22,
       username,

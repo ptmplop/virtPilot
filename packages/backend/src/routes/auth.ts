@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import type { Response } from 'express';
 import jwt from 'jsonwebtoken';
 import fs from 'fs/promises';
+import { timingSafeEqual } from 'crypto';
 import { config } from '../config.js';
-import { getUserSettings } from '../services/userSettingsService.js';
+import { getUserSettings, type UserSettings } from '../services/userSettingsService.js';
 import { isIpAllowed } from '../middleware/auth.js';
 import { verifyTotp } from '../lib/totp.js';
 import { hashPassword, verifyPassword, looksHashed } from '../lib/password.js';
@@ -69,9 +71,14 @@ async function checkPassword(submitted: string): Promise<boolean> {
     // Legacy plaintext fallback. We dummy-call hashPassword so the response
     // time is comparable to the hashed path (mitigates timing oracles that
     // could otherwise reveal which path is in use).
-    const ok = submitted.length === config.authPasswordLegacy.length &&
-      // Constant-time compare on equal-length buffers
-      require('crypto').timingSafeEqual(Buffer.from(submitted), Buffer.from(config.authPasswordLegacy));
+    // Buffer first, then compare *byte* lengths. Comparing string lengths is
+    // wrong: a non-ASCII password can match on UTF-16 code units while
+    // producing longer UTF-8 buffers, and timingSafeEqual throws RangeError on
+    // a length mismatch — an unauthenticated crash on the login path.
+    const a = Buffer.from(submitted, 'utf8');
+    const b = Buffer.from(config.authPasswordLegacy, 'utf8');
+    // Constant-time compare on equal-length buffers
+    const ok = a.length === b.length && timingSafeEqual(a, b);
     if (ok) {
       // Migrate to hashed format in the background — don't block the login
       // response on the disk write.
@@ -82,8 +89,23 @@ async function checkPassword(submitted: string): Promise<boolean> {
   return false;
 }
 
+// An unreadable settings file must not hang the login form. Express 4 drops
+// rejections from async handlers without writing a response, so the read is
+// answered here with a 503 the operator can act on.
+async function readSettingsOr503(res: Response): Promise<UserSettings | null> {
+  try {
+    return await getUserSettings();
+  } catch (err) {
+    console.error('[auth] Could not read user settings:', err instanceof Error ? err.message : err);
+    res.status(503).json({ error: 'Server settings unavailable — check user-settings.json and the VirtPilot service log' });
+    return null;
+  }
+}
+
 authRouter.post('/login', loginLimiter, async (req, res) => {
-  const { ipWhitelist } = await getUserSettings();
+  const preAuthSettings = await readSettingsOr503(res);
+  if (!preAuthSettings) return;
+  const { ipWhitelist } = preAuthSettings;
   if (!isIpAllowed(req.ip, ipWhitelist)) {
     res.status(403).json({ error: 'IP not allowed', clientIp: normaliseIp(req.ip) });
     return;
@@ -99,8 +121,18 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
     return;
   }
 
-  const settings = await getUserSettings();
-  if (settings.totpEnabled && settings.totpSecret) {
+  const settings = await readSettingsOr503(res);
+  if (!settings) return;
+  if (settings.totpEnabled && !settings.totpSecret) {
+    // 2FA is on but the secret is missing or undecryptable. Handing out a full
+    // session token here would turn a key rotation into a silent 2FA bypass,
+    // so refuse the login and point at the fix.
+    res.status(503).json({
+      error: 'Two-factor secret could not be read — restore ENCRYPTION_KEY in .env, or disable 2FA in user-settings.json to recover',
+    });
+    return;
+  }
+  if (settings.totpEnabled) {
     const tempToken = jwt.sign({ pending2fa: true }, config.jwtSecret, { expiresIn: '5m' });
     res.json({ requiresTotp: true, tempToken });
     return;
@@ -108,7 +140,10 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
 
   // Reset the bucket so a successful login frees up the IP immediately.
   loginLimiter.reset(loginLimiter.keyFor(req));
-  const token = jwt.sign({}, config.jwtSecret, { expiresIn: '24h' });
+  // typ:'session' marks a full-API token. Narrower JWTs we mint (disk-download
+  // tickets, pending-2FA tokens) deliberately lack it, so requireAuth can tell
+  // a leaked ticket from a real session.
+  const token = jwt.sign({ typ: 'session' }, config.jwtSecret, { expiresIn: '24h' });
   res.json({ token });
 });
 
@@ -132,9 +167,18 @@ authRouter.post('/verify-totp', totpLimiter, async (req, res) => {
     return;
   }
 
-  const settings = await getUserSettings();
-  if (!settings.totpEnabled || !settings.totpSecret) {
+  const settings = await readSettingsOr503(res);
+  if (!settings) return;
+  if (!settings.totpEnabled) {
     res.status(400).json({ error: '2FA is not enabled' });
+    return;
+  }
+  if (!settings.totpSecret) {
+    // Enabled but unreadable — every code must fail rather than the endpoint
+    // reporting "2FA is not enabled", which reads like a way in.
+    res.status(503).json({
+      error: 'Two-factor secret could not be read — restore ENCRYPTION_KEY in .env, or disable 2FA in user-settings.json to recover',
+    });
     return;
   }
 
@@ -157,7 +201,7 @@ authRouter.post('/verify-totp', totpLimiter, async (req, res) => {
   }
 
   totpLimiter.reset(totpLimiter.keyFor(req));
-  const token = jwt.sign({}, config.jwtSecret, { expiresIn: '24h' });
+  const token = jwt.sign({ typ: 'session' }, config.jwtSecret, { expiresIn: '24h' });
   res.json({ token });
 });
 

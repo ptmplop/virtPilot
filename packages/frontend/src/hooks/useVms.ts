@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { DhcpReservation, FirewallConfig, Vm, VmCredentials, VmMeta, VmMetricsRange, VmMetricsResponse, VmSnapshot, VmStatsResponse, VmSummary } from '@/types';
 
-const KEYS = {
+// Exported so hooks in other files invalidate the same keys these queries
+// register under — hand-written literals drift and silently no-op.
+export const KEYS = {
   vms: ['vms'] as const,
   vm: (uuid: string) => ['vms', uuid] as const,
 };
@@ -263,9 +265,12 @@ export function useRevertSnapshot(uuid: string) {
 export function useSnapshotToTemplate(uuid: string) {
   return useMutation({
     mutationFn: async ({ snapshotName, templateName }: { snapshotName: string; templateName: string }) => {
+      // Converting a snapshot to a template copies the whole backing chain, so
+      // it easily outruns the 30s axios default — match the backend's budget.
       const { data } = await api.post<{ ok: boolean; filename: string; sourceTemplateFilename?: string }>(
         `/api/vms/${uuid}/snapshots/${snapshotName}/to-template`,
         { templateName },
+        { timeout: 5 * 60_000 },
       );
       return data;
     },

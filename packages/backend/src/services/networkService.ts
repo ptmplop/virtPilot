@@ -3,7 +3,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { run, runSafe, virsh } from './safeExec.js';
-import { validateBridgeName, validateNicName } from '../lib/validate.js';
+import { validateBridgeName, validateNicName, validateIpv4, escapeXml } from '../lib/validate.js';
 
 export type NetworkType = 'nat' | 'bridge' | 'existing-bridge';
 export type BridgeIpMode = 'dhcp' | 'static';
@@ -116,6 +116,22 @@ function cidrsOverlap(a: string, b: string): boolean {
   return aStart <= bEnd && bStart <= aEnd;
 }
 
+// The gateway is interpolated into libvirt network XML and later handed to
+// guest cloud-init, so it has to be a real address that actually sits in the
+// network the operator asked for — otherwise libvirt silently builds a network
+// no guest can route out of.
+function assertGatewayInCidr(gateway: string, cidr: string): void {
+  const { networkAddr, broadcast, prefix } = parseCidr(cidr);
+  const lo = ipToNum(networkAddr);
+  const hi = ipToNum(broadcast);
+  const n = ipToNum(gateway);
+  // /31 and /32 have no reserved network/broadcast address.
+  const inRange = prefix >= 31 ? n >= lo && n <= hi : n > lo && n < hi;
+  if (!inRange) {
+    throw new Error(`Gateway ${gateway} is not a usable address within ${cidr}`);
+  }
+}
+
 function checkCidrConflict(cidr: string, networks: Network[]): void {
   for (const n of networks) {
     if (cidrsOverlap(cidr, n.cidr)) {
@@ -184,17 +200,18 @@ export async function createNatNetwork(opts: {
   const bridge = `vp${nextBridgeIndex(networks)}`;
   const libvirtName = `virtpilot-${id.slice(0, 8)}`;
   const { prefix, first, last } = parseCidr(opts.cidr);
-  const gateway = opts.gateway ?? first;
+  const gateway = validateIpv4(opts.gateway ?? first);
+  assertGatewayInCidr(gateway, opts.cidr);
   const dns = opts.dns ?? ['8.8.8.8', '8.8.4.4'];
   const dhcpStart = gateway === first ? numToIp(ipToNum(first) + 1) : first;
 
   const xml = `<network>
-  <name>${libvirtName}</name>
+  <name>${escapeXml(libvirtName)}</name>
   <forward mode='nat'/>
-  <bridge name='${bridge}' stp='on' delay='0'/>
-  <ip address='${gateway}' prefix='${prefix}'>
+  <bridge name='${escapeXml(bridge)}' stp='on' delay='0'/>
+  <ip address='${escapeXml(gateway)}' prefix='${prefix}'>
     <dhcp>
-      <range start='${dhcpStart}' end='${last}'/>
+      <range start='${escapeXml(dhcpStart)}' end='${escapeXml(last)}'/>
     </dhcp>
   </ip>
 </network>`;
@@ -227,13 +244,19 @@ export async function createBridgeNetwork(opts: {
   physicalNic?: string;
 }): Promise<Network> {
   if (!isValidCidr(opts.cidr)) throw new Error(`Invalid CIDR notation: ${opts.cidr}`);
+  const gateway = validateIpv4(opts.gateway);
   const networks = await readNetworks();
   checkCidrConflict(opts.cidr, networks);
   const bridge = `vp${nextBridgeIndex(networks)}`;
 
   if (opts.physicalNic) {
     const nic = validateNicName(opts.physicalNic);
-    const addrOut = await runSafe('ip', ['-4', 'addr', 'show', 'dev', nic, 'scope', 'global']) ?? '';
+    const addrOut = await runSafe('ip', ['-4', 'addr', 'show', 'dev', nic, 'scope', 'global']);
+    // Fail closed: if we can't read the NIC's addresses we don't know whether
+    // enslaving it would cut the host off, so refuse rather than guess.
+    if (addrOut === null) {
+      throw new Error(`Could not inspect ${nic} — refusing to enslave a NIC whose IP configuration is unknown.`);
+    }
     if (/inet /.test(addrOut)) {
       throw new Error(
         `${nic} has active IP addresses — enslaving it would drop host connectivity. ` +
@@ -244,12 +267,28 @@ export async function createBridgeNetwork(opts: {
   }
 
   const safeBridge = validateBridgeName(bridge);
-  await run('ip', ['link', 'add', safeBridge, 'type', 'bridge']);
-  await run('ip', ['link', 'set', safeBridge, 'up']);
+  // Never adopt a pre-existing vpN device — it may belong to something else,
+  // and the rollback below must only ever delete a bridge we created here.
+  if ((await runSafe('ip', ['link', 'show', 'dev', safeBridge])) !== null) {
+    throw new Error(
+      `Interface "${safeBridge}" already exists on this host. ` +
+      `Remove it (ip link delete ${safeBridge}) or attach it here using "Existing OS bridge".`
+    );
+  }
 
-  if (opts.physicalNic) {
-    const nic = validateNicName(opts.physicalNic);
-    await run('ip', ['link', 'set', nic, 'master', safeBridge]);
+  try {
+    await run('ip', ['link', 'add', safeBridge, 'type', 'bridge']);
+    await run('ip', ['link', 'set', safeBridge, 'up']);
+    if (opts.physicalNic) {
+      const nic = validateNicName(opts.physicalNic);
+      await run('ip', ['link', 'set', nic, 'master', safeBridge]);
+    }
+  } catch (err) {
+    // A half-built bridge is never written to networks.json, so nextBridgeIndex
+    // would keep handing out the same vpN and every later create — NAT ones
+    // included — would collide with the orphan. Tear it down before rethrowing.
+    await runSafe('ip', ['link', 'delete', safeBridge]);
+    throw err;
   }
 
   const network: Network = {
@@ -258,7 +297,7 @@ export async function createBridgeNetwork(opts: {
     type: 'bridge',
     ipMode: opts.ipMode,
     cidr: opts.cidr,
-    gateway: opts.gateway,
+    gateway,
     dns: opts.dns ?? ['8.8.8.8', '8.8.4.4'],
     bridge,
     physicalNic: opts.physicalNic,
@@ -285,6 +324,7 @@ export async function createExistingBridgeNetwork(opts: {
     );
   }
   if (!isValidCidr(opts.cidr)) throw new Error(`Invalid CIDR notation: ${opts.cidr}`);
+  const gateway = validateIpv4(opts.gateway);
   const networks = await readNetworks();
   checkCidrConflict(opts.cidr, networks);
 
@@ -294,7 +334,7 @@ export async function createExistingBridgeNetwork(opts: {
     type: 'existing-bridge',
     ipMode: opts.ipMode,
     cidr: opts.cidr,
-    gateway: opts.gateway,
+    gateway,
     dns: opts.dns ?? ['8.8.8.8', '8.8.4.4'],
     bridge: opts.bridge,
     createdAt: new Date().toISOString(),
@@ -312,6 +352,14 @@ export async function deleteNetwork(id: string): Promise<void> {
   if (allocations.some((a) => a.networkId === id)) {
     throw new Error('Network has active IP allocations — delete the associated VMs first');
   }
+
+  // NAT networks never create IP allocations, so the check above doesn't cover
+  // them. Without this a NAT network can be deleted while port forwards still
+  // reference it — and the DNAT rules are built from the network's bridge, so
+  // once it's gone nothing can construct the matching `-D` and the rules are
+  // orphaned in PREROUTING for good. Lazy import: portForwardService imports
+  // this module, so a top-level import would be a cycle.
+  await (await import('./portForwardService.js')).assertNetworkHasNoForwards(id);
 
   if (network.type === 'nat' && network.libvirtName) {
     if (!/^[A-Za-z0-9._-]{1,64}$/.test(network.libvirtName)) throw new Error('Invalid libvirt network name');

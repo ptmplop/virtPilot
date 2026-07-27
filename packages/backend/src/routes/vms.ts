@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { virsh, qemuImg } from '../services/safeExec.js';
-import { validateVmName, validateVmUuid, validateFilename } from '../lib/validate.js';
+import { validateVmName, validateVmUuid, validateFilename, validateNicModel, validatePositiveInt } from '../lib/validate.js';
 import * as vmService from '../services/vmService.js';
 import * as deviceService from '../services/deviceService.js';
 import * as storageService from '../services/storageService.js';
@@ -51,6 +51,23 @@ async function logSubject(uuid: string): Promise<{ subject: string; subjectUuid:
   return { subject, subjectUuid: uuid };
 }
 
+// Fail-closed existence probe for the orphan-storage routes. `virsh dominfo`
+// tells the two failure modes apart: a domain libvirt genuinely doesn't know
+// (safe to call orphaned) versus libvirtd being unreachable, which must never
+// read as "the VM is gone" — an outage would otherwise green-light wiping the
+// disks of every running VM. Deliberately not listVmsRaw(): its per-VM
+// fallback records the domain NAME as `id`, so any VM whose info lookup fails
+// never matches by uuid and looks orphaned even on a healthy host.
+async function isVmDefined(uuid: string): Promise<boolean> {
+  try {
+    await virsh(['dominfo', validateVmUuid(uuid)]);
+    return true;
+  } catch (err: unknown) {
+    if (/failed to get domain|domain not found|no domain with matching/i.test(String(err))) return false;
+    throw err;
+  }
+}
+
 vmsRouter.get('/', async (_req, res) => {
   try {
     const vms = await vmService.listVmsRaw();
@@ -68,19 +85,37 @@ vmsRouter.get('/disks', async (_req, res) => {
     // `virsh undefine` directly).
     const definedUuids = new Set<string>();
     const statusByUuid = new Map<string, string>();
+    // Fail closed: with libvirt unreachable we cannot tell an orphaned disk
+    // from a running VM's, and marking every disk orphaned would put a delete
+    // button next to live storage exactly when the operator is least able to
+    // check.
     try {
       const vms = await vmService.listVmsRaw();
       for (const v of vms) {
         definedUuids.add(v.id);
         statusByUuid.set(v.id, v.status);
       }
-    } catch { /* libvirt unavailable */ }
+    } catch (err: unknown) {
+      return res.status(503).json({ error: `libvirt is unavailable — cannot determine which disks are orphaned (${String(err)})` });
+    }
 
     const locations = await storageDirService.listAllDiskLocations();
     const dirsById = new Map<string, Awaited<ReturnType<typeof storageDirService.getDir>>>();
     for (const loc of locations) {
       if (!dirsById.has(loc.storageDirId)) {
         dirsById.set(loc.storageDirId, await storageDirService.getDir(loc.storageDirId));
+      }
+    }
+
+    // A uuid missing from the roster isn't proof the VM is gone — listVmsRaw
+    // records the domain name as `id` whenever its per-VM lookup failed. Ask
+    // libvirt directly about each apparent orphan before flagging it.
+    for (const vmUuid of new Set(locations.map((l) => l.vmUuid))) {
+      if (definedUuids.has(vmUuid)) continue;
+      try {
+        if (await isVmDefined(vmUuid)) definedUuids.add(vmUuid);
+      } catch (err: unknown) {
+        return res.status(503).json({ error: `libvirt is unavailable — cannot determine which disks are orphaned (${String(err)})` });
       }
     }
 
@@ -147,16 +182,21 @@ vmsRouter.get('/disks', async (_req, res) => {
 vmsRouter.delete('/disks/:uuid', requireUuidParam, async (req, res) => {
   const start = Date.now();
   const { uuid } = req.params;
-  try {
-    let stillDefined = false;
-    try {
-      const vms = await vmService.listVmsRaw();
-      stillDefined = vms.some((v) => v.id === uuid);
-    } catch { /* libvirt unavailable — treat as not defined */ }
-    if (stillDefined) {
-      return res.status(409).json({ error: `VM "${uuid}" is still defined; delete the VM first` });
-    }
 
+  // Probe outside the try: the recursive delete below must be unreachable
+  // unless libvirt positively confirmed the domain is gone. A swallowed error
+  // here used to mean an unreachable libvirtd read as "not defined".
+  let stillDefined: boolean;
+  try {
+    stillDefined = await isVmDefined(uuid);
+  } catch (err: unknown) {
+    return res.status(503).json({ error: `Cannot reach libvirt to confirm VM "${uuid}" is undefined; refusing to delete its storage (${String(err)})` });
+  }
+  if (stillDefined) {
+    return res.status(409).json({ error: `VM "${uuid}" is still defined; delete the VM first` });
+  }
+
+  try {
     await storageService.deleteVmDir(uuid);
     await deleteCloudInitArtifacts(uuid);
 
@@ -283,8 +323,39 @@ vmsRouter.post('/', async (req, res) => {
     if (!name || !cpus || !memoryMb || !diskGb) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    if (!/^[a-zA-Z0-9_-]{1,80}$/.test(name)) {
-      return res.status(400).json({ error: 'VM name must be 1–80 characters: letters, numbers, hyphens, underscores only' });
+    // Everything below is validated before the uniqueness probe (whose catch
+    // would otherwise read a rejected name as "the name is free") and long
+    // before qemu-img runs — a NaN diskGb or a junk nicModel used to surface
+    // only at `virsh define`, by which point the qcow2 had been created and
+    // was left orphaned on disk.
+    try {
+      validateVmName(name);
+    } catch {
+      return res.status(400).json({ error: 'VM name must start with a letter or number, be at most 63 characters, and contain only letters, numbers, dots, hyphens and underscores' });
+    }
+    let safeCpus: number;
+    let safeMemoryMb: number;
+    let safeDiskGb: number;
+    let safeNicModel: string;
+    try {
+      safeCpus = validatePositiveInt(cpus, 512);
+    } catch {
+      return res.status(400).json({ error: 'cpus must be a whole number between 1 and 512' });
+    }
+    try {
+      safeMemoryMb = validatePositiveInt(memoryMb, 4_194_304);
+    } catch {
+      return res.status(400).json({ error: 'memoryMb must be a whole number between 1 and 4194304' });
+    }
+    try {
+      safeDiskGb = validatePositiveInt(diskGb, 65_536);
+    } catch {
+      return res.status(400).json({ error: 'diskGb must be a whole number between 1 and 65536' });
+    }
+    try {
+      safeNicModel = validateNicModel(nicModel ?? 'virtio');
+    } catch {
+      return res.status(400).json({ error: 'nicModel must be a libvirt model name (lowercase letters, numbers and hyphens)' });
     }
     if (!templateFilename && !isoFilename) {
       return res.status(400).json({ error: 'Either templateFilename or isoFilename is required' });
@@ -365,7 +436,7 @@ vmsRouter.post('/', async (req, res) => {
         metaNetworks.push({ networkId: req.networkId, mac, isPrimary: req.isPrimary });
       }
 
-      nicDefinitions.push({ bridge: network.bridge, mac, model: nicModel ?? 'virtio' });
+      nicDefinitions.push({ bridge: network.bridge, mac, model: safeNicModel });
     }
 
     await storageService.ensureDirs();
@@ -383,16 +454,16 @@ vmsRouter.post('/', async (req, res) => {
     const firmwareOpts = { firmware, secureBoot, nvramPath, vtpm };
 
     if (isIsoInstall) {
-      diskPath = await storageService.createBlankPrimaryDisk(uuid, diskGb, storageDirId, trace);
+      diskPath = await storageService.createBlankPrimaryDisk(uuid, safeDiskGb, storageDirId, trace);
       const installIsoPath = await storageService.resolveIsoPath(isoFilename!);
-      domainXml = buildDomainXml({ uuid, name, cpus, memoryMb, diskPath, installIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
+      domainXml = buildDomainXml({ uuid, name, cpus: safeCpus, memoryMb: safeMemoryMb, diskPath, installIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
     } else {
-      diskPath = await storageService.createVmDisk(uuid, templateFilename!, diskGb, storageDirId, trace);
+      diskPath = await storageService.createVmDisk(uuid, templateFilename!, safeDiskGb, storageDirId, trace);
       const hostPubKey = await getHostSshPublicKey();
       const sshKeys = [...(cloudInit!.sshKeys ?? [])];
       if (hostPubKey && !sshKeys.includes(hostPubKey)) sshKeys.push(hostPubKey);
       const cloudInitIsoPath = await buildCloudInitIso(uuid, { ...cloudInit!, sshKeys, nics: nicCloudInit }, trace);
-      domainXml = buildDomainXml({ uuid, name, cpus, memoryMb, diskPath, cloudInitIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
+      domainXml = buildDomainXml({ uuid, name, cpus: safeCpus, memoryMb: safeMemoryMb, diskPath, cloudInitIsoPath, nics: nicDefinitions, cpuMode, ...firmwareOpts });
     }
 
     // name.txt makes UUID-named directories operator-readable: someone sshing
@@ -446,8 +517,10 @@ vmsRouter.put('/:uuid/rename', requireUuidParam, async (req, res) => {
   const { newName } = req.body as { newName?: string };
 
   if (!newName || typeof newName !== 'string') return res.status(400).json({ error: 'newName is required' });
-  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(newName)) {
-    return res.status(400).json({ error: 'VM name must be 1–80 characters: letters, numbers, hyphens, underscores only' });
+  try {
+    validateVmName(newName);
+  } catch {
+    return res.status(400).json({ error: 'VM name must start with a letter or number, be at most 63 characters, and contain only letters, numbers, dots, hyphens and underscores' });
   }
 
   try {
@@ -606,10 +679,18 @@ vmsRouter.post('/:uuid/disks', requireUuidParam, async (req, res) => {
   const log = await logSubject(uuid);
   try {
     const { sizeGb, target, storageDirId } = req.body as { sizeGb?: number; target?: string; storageDirId?: string };
+    // No default: a cleared Size field sends null, and silently provisioning
+    // 20 GB behind a success toast hides the client bug from the operator.
+    let safeSizeGb: number;
+    try {
+      safeSizeGb = validatePositiveInt(sizeGb, 65_536);
+    } catch {
+      return res.status(400).json({ error: 'sizeGb must be a whole number between 1 and 65536' });
+    }
     const vm = await vmService.getVmInfo(uuid);
     const existingExtras = vm.disks.filter((d) => d.target.startsWith('vd') && d.target !== 'vda').length;
     const storageTrace: TraceEntry[] = [];
-    const diskPath = await storageService.createBlankDisk(uuid, existingExtras + 1, sizeGb ?? 20, storageDirId, storageTrace);
+    const diskPath = await storageService.createBlankDisk(uuid, existingExtras + 1, safeSizeGb, storageDirId, storageTrace);
     const assignedTarget = target ?? `vd${String.fromCharCode(98 + existingExtras)}`;
     const virshOutput = await vmService.attachDisk(uuid, diskPath, assignedTarget);
     const output = [formatTrace(storageTrace), virshOutput].filter(Boolean).join('\n\n');
@@ -871,7 +952,7 @@ vmsRouter.post('/:uuid/snapshots/:snapshot/to-template', requireUuidParam, async
   const { uuid, snapshot } = req.params;
   const log = await logSubject(uuid);
   try {
-    const { templateName, storageDirId } = req.body as { templateName?: string; storageDirId?: string };
+    const { templateName, storageDirId, overwrite } = req.body as { templateName?: string; storageDirId?: string; overwrite?: boolean };
     if (!templateName?.trim()) return res.status(400).json({ error: 'templateName is required' });
     const safeName = templateName.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
     const filename = `${safeName}.qcow2`;
@@ -885,6 +966,29 @@ vmsRouter.post('/:uuid/snapshots/:snapshot/to-template', requireUuidParam, async
       return res.status(400).json({ error: `Storage directory "${templatesDir.name}" is not flagged for templates` });
     }
     const destPath = path.join(storageDirService.getTemplatesSubdir(templatesDir), filename);
+
+    // Templates are live backing files for every VM created from them, so
+    // letting `qemu-img convert` write over one would silently corrupt those
+    // disks. storageService.moveTemplate refuses the same collision. Report
+    // the resolved filename — the name is normalised (e.g. "Ubuntu 22.04" →
+    // "Ubuntu-22-04.qcow2"), so a clash on the typed name reads as nonsense.
+    if (overwrite !== true) {
+      let destExists = true;
+      try {
+        await fs.access(destPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        destExists = false;
+      }
+      if (destExists) {
+        // This is an early return, so the success/error logging at the bottom
+        // of the handler never runs — emit the audit entry here or a refused
+        // export leaves no trace at all and looks like it never happened.
+        const conflict = `A template file named "${filename}" already exists in "${templatesDir.name}" — choose another name, or delete the existing template first`;
+        void logService.appendLog({ type: 'vm.snapshot.export', ...log, status: 'error', output: conflict, durationMs: Date.now() - start });
+        return res.status(409).json({ error: conflict });
+      }
+    }
 
     // Source template recorded at VM-create time is the authoritative answer —
     // unlike walking the qcow2 backing chain, it stays correct when external
@@ -1188,11 +1292,24 @@ vmsRouter.put('/:uuid/resources', requireUuidParam, async (req, res) => {
   const log = await logSubject(uuid);
   try {
     const { cpus, memoryMb } = req.body as { cpus: number; memoryMb: number };
-    if (!cpus || cpus < 1) return res.status(400).json({ error: 'cpus must be ≥ 1' });
-    if (!memoryMb || memoryMb < 128) return res.status(400).json({ error: 'memoryMb must be ≥ 128' });
+    // Range comparisons alone let NaN and floats through (`NaN < 1` is false),
+    // and both end up in the domain XML.
+    let safeCpus: number;
+    let safeMemoryMb: number;
+    try {
+      safeCpus = validatePositiveInt(cpus, 512);
+    } catch {
+      return res.status(400).json({ error: 'cpus must be a whole number between 1 and 512' });
+    }
+    try {
+      safeMemoryMb = validatePositiveInt(memoryMb, 4_194_304);
+    } catch {
+      return res.status(400).json({ error: 'memoryMb must be a whole number between 128 and 4194304' });
+    }
+    if (safeMemoryMb < 128) return res.status(400).json({ error: 'memoryMb must be ≥ 128' });
     const vm = await vmService.getVmInfo(uuid);
     if (vm.status !== 'stopped') return res.status(400).json({ error: 'VM must be stopped before editing resources' });
-    const output = await vmService.updateVmResources(uuid, cpus, memoryMb);
+    const output = await vmService.updateVmResources(uuid, safeCpus, safeMemoryMb);
     void logService.appendLog({ type: 'vm.resources.update', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {

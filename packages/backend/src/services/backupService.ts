@@ -585,6 +585,11 @@ export function computeNextRunAt(schedule: BackupSchedule): Date {
       }
       break;
     }
+    default:
+      // A schedule persisted by an older (or tampered) build could carry a
+      // frequency we no longer understand. Falling through would return "now",
+      // which the scheduler reads as permanently due and re-fires every tick.
+      throw new Error(`Unknown backup frequency: ${String(schedule.frequency)}`);
   }
   return next;
 }

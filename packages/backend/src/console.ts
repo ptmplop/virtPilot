@@ -3,6 +3,9 @@ import * as pty from 'node-pty';
 import { config } from './config.js';
 import { validateVmUuid } from './lib/validate.js';
 
+// Liveness flag hung off each socket by the heartbeat below.
+type AliveSocket = WebSocket & { isAlive?: boolean };
+
 // Pick the token-bearing subprotocol so the ws library echoes it back in the
 // 101 Switching Protocols response. Without this the browser tears the
 // connection down with "subprotocol not accepted".
@@ -23,7 +26,25 @@ export function createConsoleWss(): WebSocketServer {
     handleProtocols: pickProtocol,
   });
 
-  wss.on('connection', (ws, req) => {
+  // ws disables the socket timeout, so a client that disappears without a FIN
+  // (laptop lid, dropped Wi-Fi, NAT timeout) would hold its `virsh console`
+  // pty open forever. Ping every 30s and drop anyone who misses a pong.
+  const heartbeat = setInterval(() => {
+    for (const socket of wss.clients) {
+      const client = socket as AliveSocket;
+      if (client.isAlive === false) { client.terminate(); continue; }
+      client.isAlive = false;
+      client.ping();
+    }
+  }, 30_000);
+  heartbeat.unref();
+  wss.on('close', () => clearInterval(heartbeat));
+
+  wss.on('connection', (socket, req) => {
+    const ws = socket as AliveSocket;
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+
     const url = new URL(req.url ?? '', 'http://localhost');
     const rawVm = url.searchParams.get('vm');
     let vmUuid: string;

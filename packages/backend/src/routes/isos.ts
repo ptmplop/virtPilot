@@ -5,6 +5,7 @@ import https from 'https';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import zlib from 'zlib';
+import { Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 import multer from 'multer';
 import * as tar from 'tar';
@@ -52,9 +53,66 @@ async function moveCrossFs(src: string, dest: string): Promise<void> {
     await fsp.rename(src, dest);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
-    await fsp.copyFile(src, dest);
+    // Copy into a sibling .tmp and rename into place rather than opening dest
+    // directly: writing into an existing dest rewrites the inode QEMU already
+    // has open, which corrupts the guest currently booting off that ISO. The
+    // rename swaps in a new inode and leaves open handles on the old one.
+    const tmpPath = `${dest}.tmp`;
+    try {
+      await fsp.copyFile(src, tmpPath);
+      await fsp.rename(tmpPath, dest);
+    } catch (copyErr) {
+      await fsp.unlink(tmpPath).catch(() => {});
+      throw copyErr;
+    }
     await fsp.unlink(src);
   }
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fsp.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Multipart fields arrive as strings, so an overwrite flag can be either the
+// real boolean (JSON callers) or the text a FormData upload sends.
+function isTrue(v: unknown): boolean {
+  return v === true || v === 'true' || v === '1';
+}
+
+// Thrown when a write would clobber an existing ISO; the routes map it to 409
+// rather than the catch-all 500 so the UI can tell the operator what blocked
+// the write. The message names the *resolved* filename, which the operator has
+// no way to guess from what they typed. No client can request an overwrite, so
+// the remedy we advertise is the one that actually exists: delete it first.
+class DestinationExistsError extends Error {
+  constructor(filename: string, dirName: string) {
+    super(`An ISO named "${filename}" already exists in "${dirName}". Delete the existing ISO first.`);
+    this.name = 'DestinationExistsError';
+  }
+}
+
+// Cap on the *decompressed* size of an upload. multer only limits the bytes on
+// the wire, so without this a few-MB gzip bomb can fill the volume that also
+// holds vms/ and virtpilot.db. Comfortably above any real installer image.
+const MAX_DECOMPRESSED_BYTES = 100 * 1024 * 1024 * 1024;
+
+function limitBytes(max: number): Transform {
+  let seen = 0;
+  return new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      seen += chunk.length;
+      if (seen > max) {
+        cb(new Error(`Decompressed size exceeds the ${Math.round(max / 1024 ** 3)} GiB limit`));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
 }
 
 const GZIP_MAGIC = Buffer.from([0x1f, 0x8b]);
@@ -121,12 +179,16 @@ async function extractIsoFromTarGz(srcPath: string, destPath: string): Promise<v
       if (!norm.toLowerCase().endsWith('.iso')) { entry.resume(); return; }
       extracted = true;
       const ws = fs.createWriteStream(destPath);
+      // Same decompression-bomb cap as the plain-gzip path: a tar entry
+      // declares its own size but nothing forces the stream to honour it.
+      const limiter = limitBytes(MAX_DECOMPRESSED_BYTES);
       writeDone = new Promise((resolve, reject) => {
         ws.on('finish', () => resolve());
         ws.on('error', reject);
+        limiter.on('error', (err) => { ws.destroy(); reject(err); });
         entry.on('error', reject);
       });
-      entry.pipe(ws);
+      entry.pipe(limiter).pipe(ws);
     },
   });
 
@@ -138,7 +200,7 @@ async function extractIsoFromTarGz(srcPath: string, destPath: string): Promise<v
 // isos subfolder. Returns the final filename. Removes the source temp file
 // once finished. originalName is treated as untrusted: we only ever use its
 // leaf-name and re-validate the result.
-async function processUploadedFile(srcPath: string, originalNameRaw: string, targetDir: StorageDir): Promise<string> {
+async function processUploadedFile(srcPath: string, originalNameRaw: string, targetDir: StorageDir, overwrite = false): Promise<string> {
   const originalName = path.basename(originalNameRaw);
   const lower = originalName.toLowerCase();
   const magic = await readMagic(srcPath);
@@ -146,9 +208,18 @@ async function processUploadedFile(srcPath: string, originalNameRaw: string, tar
   const isTarGzExt = lower.endsWith('.tar.gz') || lower.endsWith('.tgz');
   const isosSubdir = storageDirService.getIsosSubdir(targetDir);
 
+  // Every branch below opens destPath for writing, so the collision check has
+  // to happen before the write starts — and before the catch blocks that
+  // unlink destPath on failure, or a refused upload would delete the ISO it
+  // just declined to replace.
+  const assertFree = async (destPath: string, destName: string): Promise<void> => {
+    if (!overwrite && await pathExists(destPath)) throw new DestinationExistsError(destName, targetDir.name);
+  };
+
   if (looksGzipped && isTarGzExt) {
     const destName = deriveIsoFilename(originalName);
     const destPath = path.join(isosSubdir, destName);
+    await assertFree(destPath, destName);
     try {
       await extractIsoFromTarGz(srcPath, destPath);
     } catch (err) {
@@ -163,10 +234,12 @@ async function processUploadedFile(srcPath: string, originalNameRaw: string, tar
   if (looksGzipped) {
     const destName = deriveIsoFilename(originalName);
     const destPath = path.join(isosSubdir, destName);
+    await assertFree(destPath, destName);
     try {
       await pipeline(
         fs.createReadStream(srcPath),
         zlib.createGunzip(),
+        limitBytes(MAX_DECOMPRESSED_BYTES),
         fs.createWriteStream(destPath),
       );
     } catch (err) {
@@ -184,6 +257,7 @@ async function processUploadedFile(srcPath: string, originalNameRaw: string, tar
     throw new Error('Invalid ISO filename');
   }
   const destPath = path.join(isosSubdir, destName);
+  await assertFree(destPath, destName);
   await moveCrossFs(srcPath, destPath);
   return destName;
 }
@@ -221,36 +295,36 @@ function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<voi
 
     const attempt = (attemptUrl: string) => {
       if (cancelled) { reject(new Error('cancelled')); return; }
-      let safeUrl: URL;
-      try {
-        safeUrl = assertSafeDownloadUrl(attemptUrl);
-      } catch (err) {
-        reject(err);
-        return;
-      }
-      const client = safeUrl.protocol === 'https:' ? https : http;
-      activeReq = client.get(safeUrl.toString(), (res) => {
-        if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
-          res.resume();
-          if (redirectsLeft-- <= 0) { reject(new Error('Too many redirects')); return; }
-          // Re-validate the redirect target — defends against an upstream that
-          // 302s us to http://169.254.169.254/ etc.
-          attempt(new URL(res.headers.location, safeUrl).toString());
-          return;
-        }
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
-          return;
-        }
-        job.totalBytes = parseInt(res.headers['content-length'] ?? '0', 10);
-        const file = fs.createWriteStream(destPath);
-        activeFile = file;
-        res.on('data', (chunk: Buffer) => { job.bytesDownloaded += chunk.length; });
-        res.pipe(file);
-        file.on('finish', () => { file.close(); resolve(); });
-        file.on('error', reject);
-        res.on('error', reject);
-      }).on('error', reject);
+      // The guard resolves DNS, so it's async now. Pin the connect to the
+      // address it validated via the `lookup` option — otherwise the client's
+      // own resolution reopens the DNS-rebinding window we just closed.
+      assertSafeDownloadUrl(attemptUrl).then((target) => {
+        if (cancelled) { reject(new Error('cancelled')); return; }
+        const safeUrl = target.url;
+        const client = safeUrl.protocol === 'https:' ? https : http;
+        activeReq = client.get(safeUrl.toString(), { lookup: target.lookup }, (res) => {
+          if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+            res.resume();
+            if (redirectsLeft-- <= 0) { reject(new Error('Too many redirects')); return; }
+            // Re-validate the redirect target — defends against an upstream that
+            // 302s us to http://169.254.169.254/ etc.
+            attempt(new URL(res.headers.location, safeUrl).toString());
+            return;
+          }
+          if (res.statusCode !== 200) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          job.totalBytes = parseInt(res.headers['content-length'] ?? '0', 10);
+          const file = fs.createWriteStream(destPath);
+          activeFile = file;
+          res.on('data', (chunk: Buffer) => { job.bytesDownloaded += chunk.length; });
+          res.pipe(file);
+          file.on('finish', () => { file.close(); resolve(); });
+          file.on('error', reject);
+          res.on('error', reject);
+        }).on('error', reject);
+      }, reject);
     };
     attempt(url);
   });
@@ -273,7 +347,7 @@ isosRouter.post('/upload', upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const body = req.body as Record<string, string>;
     const targetDir = await resolveIsosUploadDir(body.storageDirId);
-    const finalName = await processUploadedFile(req.file.path, req.file.originalname, targetDir);
+    const finalName = await processUploadedFile(req.file.path, req.file.originalname, targetDir, isTrue(body.overwrite));
     const displayName = body.name?.trim();
     if (displayName) {
       await storageService.setIsoDisplayName(finalName, displayName);
@@ -281,12 +355,15 @@ isosRouter.post('/upload', upload.single('file'), async (req, res) => {
     res.json({ filename: finalName, storageDirId: targetDir.id });
   } catch (err: unknown) {
     if (tempPath) await safeUnlink(tempPath);
+    if (err instanceof DestinationExistsError) {
+      return res.status(409).json({ error: err.message });
+    }
     res.status(500).json({ error: String(err) });
   }
 });
 
 isosRouter.post('/download', async (req, res) => {
-  const { url, filename, name, storageDirId } = req.body as { url?: string; filename?: string; name?: string; storageDirId?: string };
+  const { url, filename, name, storageDirId, overwrite } = req.body as { url?: string; filename?: string; name?: string; storageDirId?: string; overwrite?: boolean };
   if (!url) return res.status(400).json({ error: 'url is required' });
 
   // Preserve archive extensions (.gz/.tar.gz/.tgz) on the raw download name so
@@ -298,7 +375,15 @@ isosRouter.post('/download', async (req, res) => {
   } catch {
     return res.status(400).json({ error: 'Invalid URL' });
   }
-  const finalFilename = deriveIsoFilename(rawFilename);
+  // deriveIsoFilename throws on anything FILENAME_RE rejects (a space in the
+  // typed filename is enough). Express 4 doesn't catch throws from an async
+  // handler, so an unguarded call here takes the whole daemon down.
+  let finalFilename: string;
+  try {
+    finalFilename = deriveIsoFilename(rawFilename);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 
   let targetDir: StorageDir;
   try {
@@ -313,6 +398,11 @@ isosRouter.post('/download', async (req, res) => {
   const isosSubdir = storageDirService.getIsosSubdir(targetDir);
   const tempPath = path.join(isosSubdir, `.${jobId}.download`);
   const destPath = path.join(isosSubdir, finalFilename);
+  // Fail before the job is queued so the operator sees the conflict on the
+  // request rather than as a mystery error on a job that already ran.
+  if (!isTrue(overwrite) && await pathExists(destPath)) {
+    return res.status(409).json({ error: new DestinationExistsError(finalFilename, targetDir.name).message });
+  }
   const job: DownloadJob = {
     filename: finalFilename,
     partPath: tempPath,
@@ -330,7 +420,7 @@ isosRouter.post('/download', async (req, res) => {
   streamUrl(url, tempPath, job)
     .then(async () => {
       job.status = 'processing';
-      const written = await processUploadedFile(tempPath, rawFilename, targetDir);
+      const written = await processUploadedFile(tempPath, rawFilename, targetDir, isTrue(overwrite));
       job.filename = written;
       job.status = 'done';
       if (job.displayName) {

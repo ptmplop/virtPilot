@@ -13,6 +13,7 @@ import {
   validateBridgeName,
   validateMac,
   validateDiskTarget,
+  validateNicModel,
   validateNonNegativeInt,
 } from '../lib/validate.js';
 
@@ -503,10 +504,11 @@ export async function attachNic(
 ): Promise<string> {
   const name = validateVmName(nameOrId);
   const br = validateBridgeName(bridge);
-  // Model is from a fixed set so a regex is sufficient.
-  if (!/^[a-z0-9-]{1,32}$/.test(model)) throw new Error('Invalid NIC model');
+  // Shared with the domain-XML builder — keep the check in one place so the
+  // two callers can't drift apart.
+  const nicModel = validateNicModel(model);
   const trace: TraceEntry[] = [];
-  const args = ['attach-interface', name, 'bridge', br, '--model', model];
+  const args = ['attach-interface', name, 'bridge', br, '--model', nicModel];
   if (mac) {
     const m = validateMac(mac);
     args.push('--mac', m);
@@ -766,6 +768,15 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
   const name = validateVmName(nameOrId);
   const snap = validateSnapshotName(snapshotName);
   const trace: TraceEntry[] = [];
+  // The description rides in the virsh argv, so it must be a plain single-line
+  // string — anything else is rejected rather than escaped. It is passed with
+  // the named `--description` flag below, which makes leading dashes harmless.
+  if (description !== undefined) {
+    // eslint-disable-next-line no-control-regex
+    if (typeof description !== 'string' || description.length > 512 || /[\x00-\x1f\x7f]/.test(description)) {
+      throw new Error('Invalid snapshot description');
+    }
+  }
   const uefi = await isUefiVm(name);
 
   const frozen = await fsFreeze(name);
@@ -786,7 +797,7 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
         throw new Error('No qcow2 disks found to snapshot');
       }
       const args = ['snapshot-create-as', name, snap];
-      if (description) args.push(description);
+      if (description) args.push('--description', description);
       args.push('--disk-only', '--atomic');
       for (const d of persistent) {
         const dir = path.dirname(d.source);
@@ -802,7 +813,7 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
       await virsh(args, trace, SNAPSHOT_TIMEOUT);
     } else {
       const args = ['snapshot-create-as', name, snap];
-      if (description) args.push(description);
+      if (description) args.push('--description', description);
       args.push('--atomic');
       await virsh(args, trace, SNAPSHOT_TIMEOUT);
     }

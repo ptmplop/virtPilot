@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as networkService from '../services/networkService.js';
 import * as portForwardService from '../services/portForwardService.js';
 import * as logService from '../services/logService.js';
+import { validateIpv4, ValidationError } from '../lib/validate.js';
 
 export const networksRouter = Router();
 
@@ -31,6 +32,15 @@ networksRouter.post('/', async (req, res) => {
     const { name, type, cidr, gateway, dns, ipMode, physicalNic, bridge: existingBridgeName } = req.body;
     if (!name || !type || !cidr) {
       return res.status(400).json({ error: 'name, type, and cidr are required' });
+    }
+    // gateway is interpolated into the libvirt network XML, so it has to be a
+    // real address before it goes anywhere near the service layer.
+    if (gateway) {
+      try {
+        validateIpv4(gateway);
+      } catch (err) {
+        return res.status(400).json({ error: err instanceof ValidationError ? err.message : 'Invalid gateway' });
+      }
     }
 
     let network: networkService.Network;

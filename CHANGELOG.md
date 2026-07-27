@@ -3,6 +3,51 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.0] — 2026-07-27
+
+Security and robustness release from a full audit of the codebase. Two changes need operator attention — see **Upgrade notes** at the end.
+
+### Security
+
+- **Proxy headers are no longer trusted by default.** The backend trusted one proxy hop unconditionally, so any install reachable directly (`BIND_ADDRESS=0.0.0.0` without a reverse proxy) let an unauthenticated client spoof `X-Forwarded-For` and walk straight past login rate limiting, 2FA rate limiting and the IP allowlist. Client IPs now come off the socket unless `TRUST_PROXY` opts in; `update.sh` sets it automatically for nginx-fronted installs.
+- **A failed secret decryption no longer silently disables 2FA and the IP allowlist.** `getUserSettings()` caught every error and returned defaults, so a rotated or mismatched `ENCRYPTION_KEY` turned two-factor auth off and emptied the allowlist without a word — and the next settings save made it permanent by overwriting the TOTP secret. Only a genuinely absent settings file now yields defaults.
+- **Disk-download tickets are no longer accepted as full session tokens.** The short-lived ticket that authorises a single disk download travels in a URL query string (so it lands in proxy logs and browser history) but satisfied every authenticated endpoint and WebSocket. Session tokens now carry a `typ` claim that tickets deliberately lack.
+- **VM creation can no longer inject arbitrary libvirt device XML.** `nicModel` from the create request reached the generated domain XML unvalidated and unescaped, so a crafted value could close the attribute and append devices — an extra `<disk>` pointing at a host block device, a `<serial>` writing to an arbitrary path — into a domain that is then persisted by `virsh define`. All interpolated values are now escaped at the builder, and the route validates before anything touches disk.
+- **The service account can no longer rewrite the script that runs as root.** `update.sh` was owned by the unprivileged service user while sudoers granted it `NOPASSWD` root execution. It is now root-owned, and the (unused) grant is gone. The `systemctl` and `apt-get` grants have been narrowed to the exact commands the dashboard issues — the previous bare `apt-get` grant was a root shell in disguise.
+- **Logging out now survives a restart.** Revoked tokens were held in memory only, so a service restart — which every self-upgrade performs — brought them back to life. Revocations are now persisted (hashed) in the existing database.
+- **The download SSRF guard actually resolves hostnames now.** It classified only literal addresses, so a hostname pointing at a private or link-local address passed, and IPv4-mapped IPv6 literals (`[::ffff:169.254.169.254]`) matched none of its patterns. It now resolves the host, rejects any private answer, and pins the connection to the address it validated.
+- Snapshot descriptions are passed as a named option instead of a bare argument, so a description starting with `--` can no longer be parsed by `virsh` as a flag (`--print-xml` made the API report success while creating nothing).
+- Uploaded archives are now capped on decompressed size, and the SSH WebSocket's pre-connection input buffer is bounded.
+
+### Fixed
+
+- **Three ways to kill the backend, one of them unauthenticated.** A login attempt with a non-ASCII password crashed the process outright — the length check counted UTF-16 units while the comparison used UTF-8 bytes, and the mismatch threw inside an async handler. An ISO download filename containing a space threw outside its error handler. WebSocket handlers registered their `error` listener only after several awaits, so a malformed frame arriving in that window took the whole daemon down — along with every live console, SSH and VNC session. All three are fixed, and process-level guards now keep the service up rather than letting one bad request end it.
+- **Console, SSH and VNC sessions no longer leak.** A client that vanished without closing cleanly (laptop lid, dropped Wi-Fi) left a `virsh console` pty, an SSH channel into the guest, or a VNC socket to QEMU held open forever — and the VNC leak blocked all future VNC sessions for that VM. All three now use a heartbeat, and a client that disconnects mid-connect no longer leaves a guest shell behind.
+- **Deleting an "orphaned" disk during a libvirt outage no longer deletes live VM disks.** When libvirt was unreachable the check for "is this VM still defined?" failed open, the Storage page marked every disk orphaned, and the delete button removed real data. The check now fails closed and returns an error.
+- **Uploads and snapshot exports no longer overwrite live disk images.** Templates are backing files for every VM created from them; writing over one corrupted running guests. Colliding writes now return a conflict, and the cross-filesystem move path writes to a temporary file and renames rather than rewriting an inode QEMU has open.
+- **Firewall rules are no longer torn down before they are validated.** The existing chains were flushed first, so a rule set that failed to apply left the VM with no filtering at all while the API reported success. Rules are now built and validated up front, applied strictly, and rolled back on failure. Stale rules from a previous VM IP are swept properly.
+- **Port forwarding no longer hijacks other guests' traffic.** The NAT rule matched on destination port alone, so forwarding a host port to one VM silently redirected every other guest's outbound traffic on that port. Rules now match on the inbound interface; existing rules are reconciled automatically at startup.
+- **A backup schedule with an unrecognised frequency no longer loops every minute** until the disk fills.
+- **VM names accepted at creation now match what the rest of the app accepts.** The create form was more permissive than the validator, so a name like `_build01` created a VM that could not then be opened, started or deleted from the dashboard.
+- **Cloud-init passwords containing `:` or `\` now work.** They were escaped for a format that treats neither character specially, so the backslashes became part of the guest password while the dashboard displayed the original.
+- **VM metadata writes no longer race.** Concurrent updates could interleave and a torn file was read as "no metadata for any VM", which the next save then made permanent. Writes are serialised and atomic.
+- A failed bridge-network creation no longer leaks the bridge and wedges the name counter; a failed port-forward no longer leaves an unremovable rule behind.
+- `uninstall.sh` no longer deletes VM disks it did not create — it selected any domain whose XML merely mentioned the storage path, which matched every VM and some hand-made ones.
+- `install.sh` no longer disables nginx's default site, and `bootstrap.sh` no longer redeploys a stale commit while reporting success.
+- Frontend: the starter-template downloader could run twice across tabs and corrupt the download; the Backups page hid backups belonging to deleted VMs (and excluded them from the storage total); the network step of the VM wizard let you continue without a required static IP; snapshot-to-template timed out in the UI while succeeding on the server; a cleared disk-size field silently provisioned 20 GB.
+
+### Changed
+
+- **Re-running `install.sh` no longer destroys an existing install.** It regenerated `JWT_SECRET` and `ENCRYPTION_KEY` and rewrote `.env` wholesale — orphaning every encrypted value on disk and discarding operator edits. It now reuses existing secrets, keeps the current password unless `VP_RESET_PASSWORD=1`, and preserves unrelated settings.
+- Dependencies updated for published advisories, including `tar` (critical — used by backup and restore) and `ws` (high — every console session).
+
+### Upgrade notes
+
+- **Behind a reverse proxy:** `update.sh` adds `TRUST_PROXY=1` automatically when it detects the nginx site. If you front VirtPilot with something else, add `TRUST_PROXY=1` to `packages/backend/.env` yourself, or client IPs will all appear as the proxy's address and an IP allowlist will lock you out.
+- **Replacing a template or ISO** by uploading over an existing one now returns a conflict instead of silently overwriting. The dashboard does not yet offer a "replace" toggle — delete the old file first.
+- **VMs created with a name the validator rejects** (a leading underscore, or longer than 63 characters) remain unusable from the dashboard; rename them with `virsh domrename`.
+- **Existing sudoers rules are not rewritten by `update.sh`** — re-run `install.sh` to pick up the narrowed grants.
+
 ## [2.5.4] — 2026-06-03
 
 ### Changed

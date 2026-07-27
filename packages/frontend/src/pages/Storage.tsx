@@ -22,7 +22,9 @@ function ResourceCard({
   iconClass,
 }: {
   label: string;
-  count: number;
+  // Accepts a string so a card whose source query failed can show "—" rather
+  // than a 0 that reads as a real, trustworthy count.
+  count: number | string;
   detail?: string;
   icon: typeof HardDrive;
   iconClass: string;
@@ -125,7 +127,7 @@ function UsageBar({ dir }: { dir: StorageDirWithUsage }) {
 export function StoragePage() {
   const { data: templates } = useTemplates();
   const { data: isos } = useIsos();
-  const { data: vmDisks } = useVmDisks();
+  const { data: vmDisks, isError: vmDisksError } = useVmDisks();
   const { data: storageDirs } = useStorageDirs();
   const deleteOrphan = useDeleteOrphanedVmDisk();
   const downloadDisk = useDownloadVmDisk();
@@ -141,7 +143,11 @@ export function StoragePage() {
   const totalIsoGb = isos?.reduce((s, i) => s + i.sizeGb, 0) ?? 0;
   const totalDiskGb = vmDisks?.reduce((s, d) => s + d.sizeGb, 0) ?? 0;
 
-  const hasContent = !!(templates?.length || isos?.length || vmDisks?.length);
+  // A failed VM-disk query counts as content: it renders its own error card,
+  // and without this the page would show the "nothing here yet" empty state
+  // underneath it, which reads as "you have no disks" rather than "we can't
+  // tell".
+  const hasContent = !!(templates?.length || isos?.length || vmDisks?.length || vmDisksError);
 
   const openAdd = () => { setEditingDir(undefined); setDirDialogOpen(true); };
   const openEdit = (dir: StorageDir) => { setEditingDir(dir); setDirDialogOpen(true); };
@@ -166,8 +172,8 @@ export function StoragePage() {
         />
         <ResourceCard
           label="VM Disks"
-          count={vmDisks?.length ?? 0}
-          detail={`${totalDiskGb.toFixed(1)} GB on disk`}
+          count={vmDisksError ? '—' : (vmDisks?.length ?? 0)}
+          detail={vmDisksError ? 'libvirt unreachable' : `${totalDiskGb.toFixed(1)} GB on disk`}
           icon={Database}
           iconClass="bg-emerald-500/10 text-emerald-500"
         />
@@ -307,8 +313,31 @@ export function StoragePage() {
         </section>
       )}
 
+      {/* VM Disks — explicit failure state. The backend now 503s this endpoint
+          when libvirt is unreachable rather than returning a partial list,
+          because a partial list marks live VMs' disks as "orphaned" and the
+          delete button next to them really does remove the file. Say plainly
+          that orphan status is unknown instead of silently rendering nothing. */}
+      {vmDisksError && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold text-foreground">VM Disks</h2>
+          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-4 shadow-sm">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">libvirt unreachable — orphan status unknown</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                VirtPilot cannot ask libvirt which VMs are defined, so it cannot tell which disk files are
+                genuinely orphaned. The list is hidden rather than shown with unreliable orphan flags — deleting
+                from a stale list would remove the disk of a running VM. Check the libvirt daemon
+                (<code className="font-mono">systemctl status libvirtd</code>) and reload this page.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* VM Disks table */}
-      {!!vmDisks?.length && (
+      {!vmDisksError && !!vmDisks?.length && (
         <section>
           <h2 className="mb-3 text-sm font-semibold text-foreground">VM Disks</h2>
           <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">

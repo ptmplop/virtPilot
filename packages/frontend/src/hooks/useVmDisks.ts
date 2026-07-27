@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { KEYS as VM_KEYS } from '@/hooks/useVms';
 import type { VmDiskFile } from '@/types';
 
 export function useVmDisks() {
@@ -56,7 +57,7 @@ export function useMoveVmDisk() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['vm-disks'] });
       qc.invalidateQueries({ queryKey: ['storage-dirs'] });
-      qc.invalidateQueries({ queryKey: ['vm', vars.vmUuid] });
+      qc.invalidateQueries({ queryKey: VM_KEYS.vm(vars.vmUuid) });
     },
   });
 }

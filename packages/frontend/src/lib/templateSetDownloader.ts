@@ -52,6 +52,15 @@ const RETRY_BACKOFF_MS = 5_000;
 // both spin up loops in parallel — racing each other and double-counting.
 let orchestratorRunning = false;
 
+// ...but the flag is per-document while the state it guards is in
+// localStorage, shared origin-wide. Opening the VM console in a popup (or just
+// a second tab) mounts ProtectedRoute, which calls
+// `resumeTemplateSetDownloadIfNeeded` in a document where the flag is false —
+// so two orchestrators pick up the same persisted run and race each other.
+// Web Locks are shared across same-origin documents, so a named lock is the
+// only cross-document guard available to us.
+const LOCK_NAME = 'virtpilot-template-set';
+
 export function isTemplateSetDownloadRunning(): boolean {
   return orchestratorRunning || useUploadProgressStore.getState().templateBulk !== null;
 }
@@ -62,8 +71,9 @@ async function fetchExistingFilenames(): Promise<Set<string>> {
     return new Set(data.templates.map((t) => t.filename));
   } catch {
     // Worst case: we re-issue a download for a file that's already there.
-    // The backend will overwrite the .part and rename atomically, so the
-    // dest file is fine — just wasted bandwidth.
+    // The backend now refuses to clobber an existing template and answers
+    // 409 — `downloadOne` treats that as success (the file we wanted is on
+    // disk), so the only cost is one wasted round-trip.
     return new Set();
   }
 }
@@ -72,10 +82,26 @@ export async function startTemplateSetDownload(): Promise<void> {
   if (orchestratorRunning) return;
   orchestratorRunning = true;
   try {
-    await runOrchestrator();
+    await withCrossDocumentLock(runOrchestrator);
   } finally {
     orchestratorRunning = false;
   }
+}
+
+// `ifAvailable` makes the losing document bail immediately rather than queue
+// behind the winner and re-run the whole set once it finishes.
+//
+// Caveat: navigator.locks is a secure-context API, and VirtPilot is commonly
+// served over plain HTTP on a LAN IP where it's simply undefined. There we
+// fall back to the module flag alone, which does nothing across documents —
+// the backend downloading to a job-unique temp path is what actually keeps a
+// concurrent run from clobbering the file.
+async function withCrossDocumentLock(fn: () => Promise<void>): Promise<void> {
+  if (!navigator.locks) return fn();
+  await navigator.locks.request(LOCK_NAME, { ifAvailable: true }, async (lock) => {
+    if (!lock) return;
+    await fn();
+  });
 }
 
 export async function resumeTemplateSetDownloadIfNeeded(): Promise<void> {
@@ -209,6 +235,12 @@ async function downloadOne(item: TemplateSetItem): Promise<ItemResult> {
     useLogoStore.getState().setTemplateLogo(data.filename, item.logo);
     useUploadProgressStore.getState().updateTemplateBulk((b) => b ? { ...b, jobId } : null);
   } catch (err: unknown) {
+    // 409 = the destination filename is already on disk. For the starter set
+    // that is exactly the desired end state, so count it as a success rather
+    // than burning three retries and reporting a failure. The pre-flight
+    // filename snapshot catches most of these; this covers the cases it
+    // can't (listing failed, or a file landed mid-run).
+    if (isConflict(err)) return { ok: true };
     return { ok: false, error: extractApiError(err, 'failed to start download') };
   }
 
@@ -233,6 +265,11 @@ async function downloadOne(item: TemplateSetItem): Promise<ItemResult> {
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
+}
+
+function isConflict(err: unknown): boolean {
+  return !!err && typeof err === 'object'
+    && (err as { response?: { status?: number } }).response?.status === 409;
 }
 
 function extractApiError(err: unknown, fallback: string): string {

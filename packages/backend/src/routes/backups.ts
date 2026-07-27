@@ -1,5 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { validateVmUuid } from '../lib/validate.js';
+import { validateVmUuid, validateNonNegativeInt, validatePositiveInt, ValidationError } from '../lib/validate.js';
 import {
   listAllVmBackupSummaries,
   listBackupsForVm,
@@ -31,6 +31,13 @@ function validateBackupId(req: Request, res: Response, next: NextFunction): void
     return;
   }
   next();
+}
+
+// Kept in sync with BackupFrequency in backupService.ts — the union is the
+// only set computeNextRunAt knows how to schedule.
+const BACKUP_FREQUENCIES: readonly BackupFrequency[] = ['hourly', 'daily', 'weekly', 'monthly'];
+function isBackupFrequency(v: unknown): v is BackupFrequency {
+  return typeof v === 'string' && (BACKUP_FREQUENCIES as readonly string[]).includes(v);
 }
 
 function requireUuidParam(req: Request, res: Response, next: NextFunction): void {
@@ -91,26 +98,35 @@ backupsRouter.put('/schedules/:vmUuid', requireUuidParam, async (req, res) => {
   try {
     const { vmUuid } = req.params;
     const body = req.body as {
-      frequency: BackupFrequency;
-      hour?: number;
-      minute?: number;
-      dayOfWeek?: number;
-      dayOfMonth?: number;
+      frequency?: unknown;
+      hour?: unknown;
+      minute?: unknown;
+      dayOfWeek?: unknown;
+      dayOfMonth?: unknown;
       retentionDays?: number | null;
       enabled?: boolean;
     };
 
+    // An unknown or missing frequency makes computeNextRunAt fall back to
+    // "now", and the scheduler then re-fires the backup every tick until the
+    // disk fills. Reject it outright rather than guessing a default.
+    if (!isBackupFrequency(body.frequency)) {
+      return res.status(400).json({ error: `frequency must be one of: ${BACKUP_FREQUENCIES.join(', ')}` });
+    }
     const existing = await getSchedule(vmUuid);
     const vmName = existing?.vmName ?? await resolveVmName(vmUuid);
+    // Validate rather than clamp: Math.min/max pass NaN straight through
+    // (Math.min(23, Math.max(0, NaN)) is NaN), which poisons every date
+    // computed from the schedule.
     const schedule: BackupSchedule = {
       vmUuid,
       vmName,
       frequency: body.frequency,
-      hour: Math.min(23, Math.max(0, body.hour ?? existing?.hour ?? 2)),
-      minute: Math.min(59, Math.max(0, body.minute ?? existing?.minute ?? 0)),
-      dayOfWeek: Math.min(6, Math.max(0, body.dayOfWeek ?? existing?.dayOfWeek ?? 1)),
-      // Clamp to 28 — day 29+ overflows on short months.
-      dayOfMonth: Math.min(28, Math.max(1, body.dayOfMonth ?? existing?.dayOfMonth ?? 1)),
+      hour: body.hour != null ? validateNonNegativeInt(body.hour, 23) : (existing?.hour ?? 2),
+      minute: body.minute != null ? validateNonNegativeInt(body.minute, 59) : (existing?.minute ?? 0),
+      dayOfWeek: body.dayOfWeek != null ? validateNonNegativeInt(body.dayOfWeek, 6) : (existing?.dayOfWeek ?? 1),
+      // Capped at 28 — day 29+ overflows on short months.
+      dayOfMonth: body.dayOfMonth != null ? validatePositiveInt(body.dayOfMonth, 28) : (existing?.dayOfMonth ?? 1),
       retentionDays: body.retentionDays !== undefined ? body.retentionDays : (existing?.retentionDays ?? null),
       enabled: body.enabled !== undefined ? body.enabled : true,
       lastRunAt: existing?.lastRunAt ?? null,
@@ -120,6 +136,9 @@ backupsRouter.put('/schedules/:vmUuid', requireUuidParam, async (req, res) => {
     await saveSchedule(schedule);
     res.json({ schedule });
   } catch (err: unknown) {
+    if (err instanceof ValidationError) {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: String(err) });
   }
 });

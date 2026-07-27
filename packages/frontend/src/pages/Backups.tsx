@@ -99,7 +99,7 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
   const runningSet = new Set(runningBackups.map((r) => r.vmUuid));
 
   const summaryMap = new Map((summaries ?? []).map((s) => [s.vmUuid, s]));
-  const rows: BackupVmSummary[] = (vms ?? []).map(
+  const liveRows: BackupVmSummary[] = (vms ?? []).map(
     (vm): BackupVmSummary =>
       summaryMap.get(vm.id) ?? {
         vmUuid: vm.id,
@@ -111,6 +111,13 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
         vmExists: true,
       }
   );
+
+  // Deleting a VM doesn't remove its backup tree, so summaries can outlive the
+  // VM. Listing only live VMs made that space invisible — and this page is the
+  // only way to reclaim it — so orphans go at the bottom, counted in the tiles.
+  const liveUuids = new Set((vms ?? []).map((vm) => vm.id));
+  const orphanRows = (summaries ?? []).filter((s) => !liveUuids.has(s.vmUuid));
+  const rows: BackupVmSummary[] = [...liveRows, ...orphanRows];
 
   const totalBackups = rows.reduce((n, r) => n + r.backupCount, 0);
   const totalSize = rows.reduce((n, r) => n + r.totalSizeBytes, 0);
@@ -308,6 +315,10 @@ function SummaryRow({
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const createBackup = useCreateBackup(summary.vmUuid, summary.vmName);
   const busy = isRunning || createBackup.isPending;
+  // Backups left behind by a deleted VM. Nothing can be backed up or scheduled
+  // against a VM that no longer exists, but History (and the deletes it offers)
+  // has to stay reachable or the space can never be freed.
+  const orphaned = summary.vmExists === false;
 
   function handleBackupNow() {
     toast.promise(createBackup.mutateAsync(), {
@@ -337,8 +348,15 @@ function SummaryRow({
             {busy ? <Spinner className="h-3.5 w-3.5" /> : <HardDrive size={14} />}
           </div>
           <div className="min-w-0">
-            <span className="block truncate font-mono text-sm font-semibold text-foreground transition-colors hover:text-primary">
-              {summary.vmName}
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-mono text-sm font-semibold text-foreground transition-colors hover:text-primary">
+                {summary.vmName}
+              </span>
+              {orphaned && (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                  <ShieldAlert size={8} />Orphaned
+                </span>
+              )}
             </span>
             {busy && (
               <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
@@ -385,6 +403,7 @@ function SummaryRow({
             size="sm"
             className="h-7 gap-1 px-2.5 text-xs"
             onClick={() => setScheduleOpen(true)}
+            disabled={orphaned}
           >
             <CalendarClock size={12} />
             {summary.schedule ? 'Schedule' : 'Set Schedule'}
@@ -393,7 +412,7 @@ function SummaryRow({
             size="sm"
             className="h-7 gap-1 px-2.5 text-xs"
             onClick={handleBackupNow}
-            disabled={busy}
+            disabled={busy || orphaned}
           >
             {busy
               ? <Spinner className="h-3 w-3" />

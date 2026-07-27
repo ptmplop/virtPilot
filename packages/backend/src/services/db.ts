@@ -97,6 +97,23 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    // Revoked JWTs. Held here rather than in memory because JWT_SECRET is
+    // stable across restarts — and update.sh restarts the service on every
+    // self-upgrade — so an in-memory list resurrected every logged-out token.
+    // Only the SHA-256 of the token is stored; the raw token never touches
+    // disk. Rows are pruned once past their original exp.
+    version: 4,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE revoked_tokens (
+          token_hash TEXT    PRIMARY KEY,
+          exp        INTEGER NOT NULL
+        );
+        CREATE INDEX idx_revoked_tokens_exp ON revoked_tokens (exp);
+      `);
+    },
+  },
 ];
 
 function runMigrations(db: Db): void {

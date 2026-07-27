@@ -70,13 +70,16 @@ done
 echo -e "${YELLOW}This will remove:${NC}"
 echo "  • virtpilot systemd service and unit file"
 echo "  • All libvirt networks named virtpilot-* (defined by VirtPilot)"
-echo "  • All libvirt VMs whose disks live under /var/lib/virtpilot/"
+echo "  • Libvirt VMs created by VirtPilot (a hard disk under /var/lib/virtpilot/,"
+echo "    or a cloud-init seed from /var/lib/virtpilot/cloud-init/) — the domain"
+echo "    and those disk images only; disks stored elsewhere are kept"
 echo "  • iptables VP-IN-* / VP-OUT-* chains"
 echo "  • /etc/nginx/sites-{available,enabled}/virtpilot"
 echo "  • UFW rules for ports ${PUBLIC_PORT}/${BACKEND_PORT}"
 echo "  • /etc/sudoers.d/virtpilot"
 echo "  • The ${SERVICE_USER} system user"
-echo "  • /var/lib/virtpilot (VM disks, ISOs, templates, backups, TLS cert)"
+echo "  • /var/lib/virtpilot and everything inside it (VM disks, ISOs, templates,"
+echo "    cloud-init seeds, backups, TLS cert)"
 [[ ${REMOVE_INSTALL_DIR} -eq 1 ]] && echo "  • The install directory ${INSTALL_DIR}"
 [[ ${PURGE_DEPS} -eq 1 ]]        && echo "  • apt packages: qemu-kvm, libvirt-*, virtinst, ovmf, swtpm*, genisoimage, bridge-utils, nginx"
 echo ""
@@ -101,23 +104,63 @@ if [[ -f /etc/systemd/system/virtpilot.service ]]; then
   log "Removed virtpilot.service"
 fi
 
-# ─── 2. Remove VMs whose disks live under /var/lib/virtpilot/ ─────────────────
-# We identify "VirtPilot VMs" by inspecting each domain's XML for a disk path
-# under /var/lib/virtpilot/. This is more reliable than name patterns because
-# users name their VMs freely. Domains using disks elsewhere are left alone.
+# ─── 2. Remove VMs created by VirtPilot ───────────────────────────────────────
+# Identification and deletion are deliberately two different tests.
+#
+# Identification: a VirtPilot VM either has a hard disk under /var/lib/virtpilot/
+# or carries its cloud-init seed from /var/lib/virtpilot/cloud-init/. The seed
+# marker is scoped to that prefix specifically, NOT the whole tree — a hand-made
+# VM merely booting an ISO out of our isos/ directory must not match. Since v2.2
+# a VM's primary disk can live on a registered storage dir at an arbitrary path
+# (e.g. /mnt/nfs/vms/<uuid>/disk.qcow2), so "has a qualifying disk" alone would
+# skip it — and step 10 would then delete the seed ISO out from under a domain
+# left defined but unbootable, exactly what this uninstaller exists to prevent.
+#
+# Deletion: only the disks we actually collected under /var/lib/virtpilot/.
+# Never --remove-all-storage; out-of-tree disks stay on disk and are reported so
+# the operator can reclaim the space themselves.
 if command -v virsh >/dev/null 2>&1; then
   info "Looking for VMs created by VirtPilot..."
   while IFS= read -r dom; do
     [[ -z "$dom" ]] && continue
-    if virsh -c qemu:///system dumpxml "$dom" 2>/dev/null | grep -q "/var/lib/virtpilot/"; then
-      info "  Removing VM: $dom"
-      virsh -c qemu:///system destroy "$dom" 2>/dev/null || true
-      # --nvram drops the per-domain UEFI vars file; --remove-all-storage drops
-      # disks libvirt knows about. Fall back through the option set in case the
-      # libvirt build doesn't support them all (older Ubuntu builds, etc.).
-      virsh -c qemu:///system undefine --nvram --remove-all-storage "$dom" 2>/dev/null \
-        || virsh -c qemu:///system undefine --nvram "$dom" 2>/dev/null \
-        || virsh -c qemu:///system undefine "$dom" 2>/dev/null || true
+    # domblklist --details gives us "Type Device Target Source" per block
+    # device, which is far less error-prone than parsing dumpxml. If it fails
+    # for any reason we collect nothing and skip the domain — leaving a VM
+    # behind is the safe failure mode here.
+    VP_DISKS=()
+    OTHER_DISKS=()
+    IS_VP=false
+    while read -r _type device _target source; do
+      [[ -z "$source" || "$source" == "-" ]] && continue
+      # The cloud-init seed is the marker, whatever device it is attached as.
+      [[ "$source" == /var/lib/virtpilot/cloud-init/* ]] && IS_VP=true
+      [[ "$device" == "disk" ]] || continue
+      if [[ "$source" == /var/lib/virtpilot/* ]]; then
+        VP_DISKS+=("$source")
+      else
+        OTHER_DISKS+=("$source")
+      fi
+    done < <(virsh -c qemu:///system domblklist --details "$dom" 2>/dev/null | tail -n +3)
+    [[ "${IS_VP}" == false && ${#VP_DISKS[@]} -eq 0 ]] && continue
+
+    info "  Removing VM: $dom (${#VP_DISKS[@]} disk(s))"
+    virsh -c qemu:///system destroy "$dom" 2>/dev/null || true
+    # --nvram drops the per-domain UEFI vars file. Deliberately no
+    # --remove-all-storage: that deletes every disk libvirt knows about,
+    # including ones the installer never created. Fall back without --nvram in
+    # case the libvirt build doesn't support it.
+    virsh -c qemu:///system undefine --nvram "$dom" 2>/dev/null \
+      || virsh -c qemu:///system undefine "$dom" 2>/dev/null || true
+    if [[ ${#VP_DISKS[@]} -gt 0 ]]; then
+      for disk in "${VP_DISKS[@]}"; do
+        rm -f "$disk"
+      done
+    fi
+    if [[ ${#OTHER_DISKS[@]} -gt 0 ]]; then
+      warn "  $dom had disk(s) outside /var/lib/virtpilot — left in place, remove manually if unwanted:"
+      for disk in "${OTHER_DISKS[@]}"; do
+        warn "    ${disk}"
+      done
     fi
   done < <(virsh -c qemu:///system list --all --name 2>/dev/null)
 

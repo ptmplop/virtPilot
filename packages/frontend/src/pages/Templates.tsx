@@ -312,11 +312,17 @@ export function TemplatesPage() {
       await uploadTemplate.mutateAsync({ file, displayName, storageDirId: uploadStorageDirId || undefined, signal: ac.signal });
       if (logoSlug) setTemplateLogo(file.name, logoSlug);
       toast.success(`${displayName || file.name} uploaded`);
-    } catch {
+    } catch (err: unknown) {
       if (ac.signal.aborted) {
         toast.info('Upload cancelled');
       } else {
-        toast.error('Upload failed');
+        // Surface the backend's message verbatim — a 409 names the exact
+        // filename already on disk, which the operator cannot guess from a
+        // generic "Upload failed".
+        toast.error(
+          (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+          'Upload failed'
+        );
       }
     } finally {
       setUploadPct(null);
@@ -355,8 +361,12 @@ export function TemplatesPage() {
       if (downloadLogoSlug) setTemplateLogo(result.filename, downloadLogoSlug);
       resetUrlDialog();
       setActiveJob({ jobId: result.jobId, job: { filename: result.filename, bytesDownloaded: 0, totalBytes: 0, status: 'downloading' } });
-    } catch {
-      toast.error('Failed to start download');
+    } catch (err: unknown) {
+      // 409 here means the resolved filename already exists — show which one.
+      toast.error(
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Failed to start download'
+      );
     }
   };
 

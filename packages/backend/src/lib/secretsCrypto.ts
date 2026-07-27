@@ -13,6 +13,12 @@ let cachedKey: Buffer | null = null;
 function getKey(): Buffer {
   if (cachedKey) return cachedKey;
   const raw = process.env.ENCRYPTION_KEY;
+  // A too-short ENCRYPTION_KEY keeps using the JWT_SECRET-derived key rather
+  // than throwing. Those installs' existing blobs were encrypted with the
+  // derived key, so switching keys here (or refusing outright) would make
+  // every stored TOTP secret undecryptable — locking the operator out of a
+  // working install at login time. config.ts warns loudly about it at boot,
+  // which is where a weak key should be reported, not on the auth path.
   if (!raw || raw.length < 32) {
     // Fall back to deriving from JWT_SECRET so existing installs without
     // ENCRYPTION_KEY in .env still get encryption rather than silently

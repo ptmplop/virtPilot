@@ -85,8 +85,17 @@ git config --system --add safe.directory "${INSTALL_DIR}" 2>/dev/null || true
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
   info "Existing clone found at ${INSTALL_DIR} — fetching..."
   cd "${INSTALL_DIR}"
-  "${GIT_SAFE[@]}" fetch --quiet --tags origin
-  "${GIT_SAFE[@]}" reset --hard --quiet "${VP_REF}"
+  "${GIT_SAFE[@]}" fetch --quiet --tags --prune origin
+  # `fetch` only advances origin/<branch>, never the local branch of the same
+  # name — so resetting to a bare "main" would redeploy whatever commit this
+  # clone last had while cheerfully printing "Updated". Prefer the
+  # remote-tracking ref when one exists; the default tag-pinned path has no
+  # refs/remotes entry and falls through unchanged.
+  TARGET_REF="${VP_REF}"
+  if "${GIT_SAFE[@]}" show-ref --verify --quiet "refs/remotes/origin/${VP_REF}"; then
+    TARGET_REF="refs/remotes/origin/${VP_REF}"
+  fi
+  "${GIT_SAFE[@]}" reset --hard --quiet "${TARGET_REF}"
   log "Updated to $("${GIT_SAFE[@]}" rev-parse --short HEAD) (${VP_REF})"
 elif [[ -e "${INSTALL_DIR}" ]]; then
   die "${INSTALL_DIR} exists but is not a git clone — refusing to overwrite. Move or remove it and re-run."

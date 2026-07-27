@@ -726,9 +726,16 @@ function DisksTab({
     }
   };
 
+  // A cleared Size field parses to NaN, which JSON-serialises to null — the
+  // request then went through and the user silently got a disk they never
+  // asked for. Block it here rather than relying on the backend's shape check.
+  const parsedSizeGb = parseInt(sizeGb, 10);
+  const sizeGbValid = Number.isFinite(parsedSizeGb) && parsedSizeGb >= 1;
+
   const handleAddDisk = async () => {
+    if (!sizeGbValid) return;
     try {
-      await addDisk.mutateAsync({ sizeGb: parseInt(sizeGb, 10), storageDirId: addStorageDirId || undefined });
+      await addDisk.mutateAsync({ sizeGb: parsedSizeGb, storageDirId: addStorageDirId || undefined });
       toast.success('Disk added');
       setAddOpen(false);
     } catch {
@@ -1084,7 +1091,7 @@ function DisksTab({
             <Button variant="secondary" size="sm" onClick={() => setAddOpen(false)}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleAddDisk} disabled={addDisk.isPending}>
+            <Button size="sm" onClick={handleAddDisk} disabled={addDisk.isPending || !sizeGbValid}>
               {addDisk.isPending ? 'Adding…' : 'Add Disk'}
             </Button>
           </>
@@ -1097,6 +1104,7 @@ function DisksTab({
             min="1"
             value={sizeGb}
             onChange={(e) => setSizeGb(e.target.value)}
+            error={sizeGbValid ? undefined : 'Enter a size of at least 1 GB'}
           />
           <StorageDirSelect purpose="vmDisks" value={addStorageDirId} onChange={setAddStorageDirId} />
         </div>
@@ -1243,8 +1251,14 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
         if (inheritedSlug) setTemplateLogo(filename, inheritedSlug);
       }
       toast.success('Template created — available on the Templates page');
-    } catch {
-      toast.error('Failed to convert snapshot to template');
+    } catch (err: unknown) {
+      // The 409 names the *resolved* filename ("Ubuntu 22.04" becomes
+      // "Ubuntu-22-04.qcow2"), which the operator cannot work out from what
+      // they typed — so show the server's message rather than a generic one.
+      toast.error(
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Failed to convert snapshot to template'
+      );
     } finally {
       setPendingConvert(null);
     }

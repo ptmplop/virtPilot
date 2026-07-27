@@ -36,8 +36,24 @@ async function tick(): Promise<void> {
 }
 
 async function runScheduledBackup(vmUuid: string, schedule: BackupSchedule): Promise<void> {
-  // Mark next run immediately to avoid double-firing
-  const next = computeNextRunAt(schedule);
+  // Mark next run immediately to avoid double-firing. If we can't work out a
+  // next run that is strictly in the future, the schedule would stay due on
+  // every tick and back the VM up until the disk fills — disable it instead
+  // and let the operator fix the schedule.
+  let next: Date;
+  try {
+    next = computeNextRunAt(schedule);
+  } catch (err) {
+    console.error(`[backup-scheduler] Disabling unusable schedule for ${vmUuid}:`, err);
+    await saveSchedule({ ...schedule, enabled: false, nextRunAt: null });
+    return;
+  }
+  if (next.getTime() <= Date.now()) {
+    console.error(`[backup-scheduler] Disabling schedule for ${vmUuid}: next run (${next.toISOString()}) is not in the future`);
+    await saveSchedule({ ...schedule, enabled: false, nextRunAt: null });
+    return;
+  }
+
   const updated: BackupSchedule = {
     ...schedule,
     lastRunAt: new Date().toISOString(),

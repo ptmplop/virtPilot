@@ -62,9 +62,36 @@ async function moveCrossFs(src: string, dest: string): Promise<void> {
     await fsp.rename(src, dest);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
-    await fsp.copyFile(src, dest);
+    // Copy into a sibling .tmp and rename into place rather than opening dest
+    // directly: templates are qcow2 backing files, and writing into an
+    // existing dest rewrites the very inode QEMU has open — that corrupts
+    // running guests, not just the next VM created from the template. The
+    // rename swaps in a new inode and leaves open handles pointing at the old.
+    const tmpPath = `${dest}.tmp`;
+    try {
+      await fsp.copyFile(src, tmpPath);
+      await fsp.rename(tmpPath, dest);
+    } catch (copyErr) {
+      await fsp.unlink(tmpPath).catch(() => {});
+      throw copyErr;
+    }
     await fsp.unlink(src);
   }
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fsp.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Multipart fields arrive as strings, so an overwrite flag can be either the
+// real boolean (JSON callers) or the text a FormData upload sends.
+function isTrue(v: unknown): boolean {
+  return v === true || v === 'true' || v === '1';
 }
 
 interface DownloadJob {
@@ -112,54 +139,54 @@ function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<voi
     let redirectsLeft = 5;
     const attempt = (attemptUrl: string) => {
       if (cancelled) { reject(new Error('cancelled')); return; }
-      let safeUrl: URL;
-      try {
-        safeUrl = assertSafeDownloadUrl(attemptUrl);
-      } catch (err) {
-        reject(err);
-        return;
-      }
-      const client = safeUrl.protocol === 'https:' ? https : http;
-      activeReq = client.get(safeUrl.toString(), { headers: { 'User-Agent': USER_AGENT } }, (res) => {
-        if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
-          res.resume();
-          if (redirectsLeft-- <= 0) { reject(new Error('Too many redirects')); return; }
-          // Re-validate every redirect target.
-          attempt(new URL(res.headers.location, safeUrl).toString());
-          return;
-        }
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
-          return;
-        }
-        job.totalBytes = parseInt(res.headers['content-length'] ?? '0', 10);
-        const file = fs.createWriteStream(destPath);
-        activeFile = file;
-        // Reset the stall timer on every chunk; if it fires, the upstream
-        // has gone silent and we should bail rather than hang the orchestrator.
-        const armStall = () => {
-          clearStall();
-          stallTimer = setTimeout(() => {
-            const err = new Error(`Upstream stalled — no bytes for ${STALL_TIMEOUT_MS / 1000}s`);
-            activeReq?.destroy(err);
-            reject(err);
-          }, STALL_TIMEOUT_MS);
-        };
-        armStall();
-        res.on('data', (chunk: Buffer) => { job.bytesDownloaded += chunk.length; armStall(); });
-        res.pipe(file);
-        file.on('finish', () => { clearStall(); file.close(); resolve(); });
-        file.on('error', (err) => { clearStall(); reject(err); });
-        res.on('error', (err) => { clearStall(); reject(err); });
-      }).on('error', (err) => { clearStall(); reject(err); });
-      // Headers must arrive within HEADERS_TIMEOUT_MS or we treat the upstream
-      // as dead. setTimeout on the request fires only on socket inactivity,
-      // which is exactly what we want here.
-      activeReq.setTimeout(HEADERS_TIMEOUT_MS, () => {
-        const err = new Error(`Upstream did not send headers within ${HEADERS_TIMEOUT_MS / 1000}s`);
-        activeReq?.destroy(err);
-        reject(err);
-      });
+      // The guard resolves DNS, so it's async now. Pin the connect to the
+      // address it validated via the `lookup` option — otherwise the client's
+      // own resolution reopens the DNS-rebinding window we just closed.
+      assertSafeDownloadUrl(attemptUrl).then((target) => {
+        if (cancelled) { reject(new Error('cancelled')); return; }
+        const safeUrl = target.url;
+        const client = safeUrl.protocol === 'https:' ? https : http;
+        activeReq = client.get(safeUrl.toString(), { headers: { 'User-Agent': USER_AGENT }, lookup: target.lookup }, (res) => {
+          if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+            res.resume();
+            if (redirectsLeft-- <= 0) { reject(new Error('Too many redirects')); return; }
+            // Re-validate every redirect target.
+            attempt(new URL(res.headers.location, safeUrl).toString());
+            return;
+          }
+          if (res.statusCode !== 200) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          job.totalBytes = parseInt(res.headers['content-length'] ?? '0', 10);
+          const file = fs.createWriteStream(destPath);
+          activeFile = file;
+          // Reset the stall timer on every chunk; if it fires, the upstream
+          // has gone silent and we should bail rather than hang the orchestrator.
+          const armStall = () => {
+            clearStall();
+            stallTimer = setTimeout(() => {
+              const err = new Error(`Upstream stalled — no bytes for ${STALL_TIMEOUT_MS / 1000}s`);
+              activeReq?.destroy(err);
+              reject(err);
+            }, STALL_TIMEOUT_MS);
+          };
+          armStall();
+          res.on('data', (chunk: Buffer) => { job.bytesDownloaded += chunk.length; armStall(); });
+          res.pipe(file);
+          file.on('finish', () => { clearStall(); file.close(); resolve(); });
+          file.on('error', (err) => { clearStall(); reject(err); });
+          res.on('error', (err) => { clearStall(); reject(err); });
+        }).on('error', (err) => { clearStall(); reject(err); });
+        // Headers must arrive within HEADERS_TIMEOUT_MS or we treat the upstream
+        // as dead. setTimeout on the request fires only on socket inactivity,
+        // which is exactly what we want here.
+        activeReq.setTimeout(HEADERS_TIMEOUT_MS, () => {
+          const err = new Error(`Upstream did not send headers within ${HEADERS_TIMEOUT_MS / 1000}s`);
+          activeReq?.destroy(err);
+          reject(err);
+        });
+      }, reject);
     };
     attempt(url);
   });
@@ -188,6 +215,16 @@ templatesRouter.post('/upload', upload.single('file'), async (req, res) => {
     const body = req.body as Record<string, string>;
     const targetDir = await resolveTemplatesUploadDir(body.storageDirId);
     const destPath = path.join(storageDirService.getTemplatesSubdir(targetDir), originalName);
+    // Refuse to clobber an existing template unless the caller asks for it —
+    // the file on disk is very likely the backing file of live VMs.
+    // The UI has no overwrite control, so point the operator at the remedy
+    // they can actually perform rather than at a flag they can't send.
+    if (!isTrue(body.overwrite) && await pathExists(destPath)) {
+      await safeUnlink(req.file.path);
+      return res.status(409).json({
+        error: `A template named "${originalName}" already exists in "${targetDir.name}". Delete the existing template first.`,
+      });
+    }
     await moveCrossFs(req.file.path, destPath);
     const displayName = body.name?.trim();
     if (displayName) {
@@ -201,14 +238,14 @@ templatesRouter.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 templatesRouter.post('/download', async (req, res) => {
-  const { url, filename, name, storageDirId } = req.body as { url?: string; filename?: string; name?: string; storageDirId?: string };
+  const { url, filename, name, storageDirId, overwrite } = req.body as { url?: string; filename?: string; name?: string; storageDirId?: string; overwrite?: boolean };
   if (!url) return res.status(400).json({ error: 'url is required' });
 
   let savedFilename: string;
   try {
     // Validate the URL up-front so we never construct a destination path
     // from a server-side fetch that's going to be rejected anyway.
-    const parsed = assertSafeDownloadUrl(url);
+    const { url: parsed } = await assertSafeDownloadUrl(url);
     const fromQuery = filename?.trim() ? path.basename(filename.trim()) : '';
     savedFilename = fromQuery || path.basename(parsed.pathname) || `template-${Date.now()}.qcow2`;
     // Accept the common cloud-image and installer-image extensions. Anything
@@ -230,6 +267,13 @@ templatesRouter.post('/download', async (req, res) => {
 
   const jobId = randomUUID();
   const destPath = path.join(storageDirService.getTemplatesSubdir(targetDir), savedFilename);
+  // Same guard as the upload route: the finished download renames over
+  // destPath, and that file may be the backing file of live VMs.
+  if (!isTrue(overwrite) && await pathExists(destPath)) {
+    return res.status(409).json({
+      error: `A template named "${savedFilename}" already exists in "${targetDir.name}". Delete the existing template first.`,
+    });
+  }
   // Stream into the storage dir's own subfolder; if the mount is healthy a
   // `.part` rename is atomic on the same filesystem. If it isn't, the storage
   // dir is unusable anyway and we want the failure surfaced early.
