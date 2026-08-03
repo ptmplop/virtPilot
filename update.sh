@@ -69,7 +69,16 @@ CURRENT=$("${GIT_SAFE[@]}" symbolic-ref --short --quiet HEAD || echo "(detached)
 if [[ "$CURRENT" != "main" ]]; then
   warn "On '$CURRENT' (expected 'main') — switching back to main"
 fi
-"${GIT_SAFE[@]}" checkout -B main origin/main >/dev/null 2>&1
+# -f is load-bearing. Without it `checkout -B` refuses whenever a tracked file
+# has local modifications that the switch would overwrite — which is precisely
+# the "tracked-file drift" case above, and `npm install` rewriting
+# package-lock.json creates it on every single run. Worse, the failure was
+# silent: output went to /dev/null and `set -e` exited with no message, so the
+# dashboard's update just stopped after "Pulling latest changes..." with
+# nothing to show for it.
+if ! "${GIT_SAFE[@]}" checkout -f -B main origin/main >/dev/null 2>&1; then
+  die "Could not move the working tree onto origin/main. Inspect with: git -C ${INSTALL_DIR} status"
+fi
 "${GIT_SAFE[@]}" reset --hard origin/main >/dev/null
 
 AFTER=$("${GIT_SAFE[@]}" rev-parse HEAD)

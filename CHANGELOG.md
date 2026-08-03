@@ -3,6 +3,14 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.1] — 2026-08-04
+
+### Fixed
+
+- **The in-dashboard update could stop dead after "Pulling latest changes…" with nothing to show for it.** Before resetting the working tree, `update.sh` switched it onto `origin/main` — and that switch refuses whenever a tracked file has been modified locally, which is exactly the drift the reset immediately afterwards exists to clear. `npm install` rewriting `package-lock.json` is enough to cause it. The switch is now forced, matching what the surrounding code already intended.
+
+  The failure was also invisible: the command's output was discarded and the script exited on it without a word, so the update simply stopped mid-stream. It now reports what went wrong and where to look.
+
 ## [2.8.0] — 2026-08-03
 
 ### Added

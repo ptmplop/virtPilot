@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.8.1',
+    date: '2026-08-04',
+    changes: [
+      { type: 'fixed', text: 'The in-dashboard update could stop dead after "Pulling latest changes…" with nothing to show for it. Before resetting the working tree, update.sh switched it onto origin/main — and that switch refuses whenever a tracked file has local modifications, which is exactly the drift the reset immediately afterwards exists to clear (npm install rewriting package-lock.json is enough to cause it). The switch is now forced, and the failure is no longer silent: the command’s output was discarded and the script exited on it without a word.' },
+    ],
+  },
+  {
     version: '2.8.0',
     date: '2026-08-03',
     changes: [
