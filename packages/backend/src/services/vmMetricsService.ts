@@ -4,7 +4,13 @@ import { virsh } from './safeExec.js';
 import { validateVmUuid } from '../lib/validate.js';
 
 const SAMPLE_INTERVAL_MS = 30_000;
-const RETENTION_MS = 24 * 60 * 60 * 1000;
+// Raw 30s samples are kept a little beyond the 24h view they serve, so the
+// chart never has a hole at its left edge if a rollup runs late.
+const RETENTION_MS = 36 * 60 * 60 * 1000;
+// Hourly rollups are cheap — 24 rows per VM per day — so they can go back far
+// enough to answer capacity questions.
+const HOURLY_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 const PRUNE_EVERY_N_TICKS = 60;
 
 export interface VmMetricsPoint {
@@ -136,9 +142,33 @@ function writePoint(vmUuid: string, p: VmMetricsPoint): void {
   );
 }
 
-function prune(): void {
-  const cutoff = Date.now() - RETENTION_MS;
-  getDb().prepare('DELETE FROM vm_metrics WHERE ts < ?').run(cutoff);
+/**
+ * Folds every completed hour of raw samples into the hourly table, then drops
+ * raw rows past their (short) retention and hourly rows past their long one.
+ *
+ * Only *completed* hours are rolled up: averaging the hour still in progress
+ * would write a value that later samples would make wrong. INSERT OR REPLACE
+ * makes a re-run harmless.
+ */
+function rollUpAndPrune(): void {
+  const db = getDb();
+  const currentHour = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+
+  db.prepare(`
+    INSERT OR REPLACE INTO vm_metrics_hourly
+      (vm_uuid, ts, cpu_percent, mem_used_mb, mem_total_mb,
+       disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps)
+    SELECT vm_uuid,
+           (CAST(ts / ? AS INTEGER)) * ? AS bucket_ts,
+           AVG(cpu_percent), AVG(mem_used_mb), AVG(mem_total_mb),
+           AVG(disk_read_bps), AVG(disk_write_bps), AVG(net_rx_bps), AVG(net_tx_bps)
+    FROM vm_metrics
+    WHERE ts < ?
+    GROUP BY vm_uuid, bucket_ts
+  `).run(HOUR_MS, HOUR_MS, currentHour);
+
+  db.prepare('DELETE FROM vm_metrics WHERE ts < ?').run(Date.now() - RETENTION_MS);
+  db.prepare('DELETE FROM vm_metrics_hourly WHERE ts < ?').run(Date.now() - HOURLY_RETENTION_MS);
 }
 
 async function tick(): Promise<void> {
@@ -164,7 +194,7 @@ async function tick(): Promise<void> {
 
   tickCounter++;
   if (tickCounter % PRUNE_EVERY_N_TICKS === 0) {
-    try { prune(); } catch { /* best-effort */ }
+    try { rollUpAndPrune(); } catch { /* best-effort */ }
   }
 }
 
@@ -173,7 +203,7 @@ export function startVmMetricsSampling(): void {
   setInterval(() => { void tick(); }, SAMPLE_INTERVAL_MS);
 }
 
-export type MetricsRange = '1h' | '24h';
+export type MetricsRange = '1h' | '24h' | '7d' | '30d';
 
 export function getVmMetricsHistory(vmUuid: string, range: MetricsRange): VmMetricsPoint[] {
   const now = Date.now();
@@ -194,6 +224,33 @@ export function getVmMetricsHistory(vmUuid: string, range: MetricsRange): VmMetr
       cpuPercent: r.cpu_percent,
       memUsedMb: r.mem_used_mb,
       memTotalMb: r.mem_total_mb,
+      diskReadBps: r.disk_read_bps,
+      diskWriteBps: r.disk_write_bps,
+      netRxBps: r.net_rx_bps,
+      netTxBps: r.net_tx_bps,
+    }));
+  }
+
+  // Beyond 24h the raw table no longer reaches back far enough, so the long
+  // ranges read the hourly rollup instead. 7d is 168 points, 30d is 720 —
+  // both comfortable for a chart without further bucketing.
+  if (range === '7d' || range === '30d') {
+    const days = range === '7d' ? 7 : 30;
+    const rows = getDb().prepare(`
+      SELECT ts, cpu_percent, mem_used_mb, mem_total_mb,
+             disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps
+      FROM vm_metrics_hourly
+      WHERE vm_uuid = ? AND ts >= ?
+      ORDER BY ts ASC
+    `).all(vmUuid, now - days * 24 * 60 * 60 * 1000) as Array<{
+      ts: number; cpu_percent: number; mem_used_mb: number; mem_total_mb: number;
+      disk_read_bps: number; disk_write_bps: number; net_rx_bps: number; net_tx_bps: number;
+    }>;
+    return rows.map((r) => ({
+      ts: r.ts,
+      cpuPercent: Math.round(r.cpu_percent * 10) / 10,
+      memUsedMb: Math.round(r.mem_used_mb),
+      memTotalMb: Math.round(r.mem_total_mb),
       diskReadBps: r.disk_read_bps,
       diskWriteBps: r.disk_write_bps,
       netRxBps: r.net_rx_bps,
@@ -238,6 +295,7 @@ export function getVmMetricsHistory(vmUuid: string, range: MetricsRange): VmMetr
 export function deleteVmMetrics(vmUuid: string): void {
   try {
     getDb().prepare('DELETE FROM vm_metrics WHERE vm_uuid = ?').run(vmUuid);
+    getDb().prepare('DELETE FROM vm_metrics_hourly WHERE vm_uuid = ?').run(vmUuid);
   } catch { /* best-effort */ }
 }
 

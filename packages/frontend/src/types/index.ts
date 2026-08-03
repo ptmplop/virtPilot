@@ -66,7 +66,7 @@ export interface VmStatsResponse {
   history: VmStatsSample[];
 }
 
-export type VmMetricsRange = '1h' | '24h';
+export type VmMetricsRange = '1h' | '24h' | '7d' | '30d';
 
 export interface VmMetricsPoint {
   ts: number;
@@ -305,6 +305,40 @@ export interface BackupEntry {
   hasDependents: boolean;
   /** On-disk size of this backup plus every ancestor it needs. */
   chainSizeBytes: number;
+  /** Result of the last explicit verification, if it has ever been run. */
+  lastVerify?: BackupVerifyRecord;
+}
+
+export interface BackupVerifyRecord {
+  checkedAt: string;
+  ok: boolean;
+  summary: string;
+}
+
+export interface BackupVerifyLink {
+  backupId: string;
+  kind: BackupKind;
+  target: string;
+  filename: string;
+  present: boolean;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface BackupVerifyResult {
+  backupId: string;
+  ok: boolean;
+  checkedAt: string;
+  links: BackupVerifyLink[];
+  summary: string;
+}
+
+export interface BackupAlert {
+  vmUuid: string;
+  vmName: string;
+  severity: 'error' | 'warning';
+  kind: 'schedule-failed' | 'chain-broken' | 'schedule-overdue' | 'verify-failed';
+  message: string;
 }
 
 export interface IncrementalStatus {
@@ -338,6 +372,9 @@ export interface BackupSchedule {
   mode?: BackupScheduleMode;
   /** Incremental mode: take a fresh full backup once the chain reaches this length. */
   fullEvery?: number;
+  /** How the last scheduled run ended — surfaced so a silent failure isn't. */
+  lastRunStatus?: 'success' | 'error';
+  lastError?: string;
 }
 
 export type BackupScheduleMode = 'full' | 'incremental';

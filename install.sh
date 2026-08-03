@@ -297,6 +297,9 @@ fi
 # script's memory — never on disk.
 if [[ -n "${VP_PASSWORD:-}" ]]; then
   info "Hashing login password..."
+  # shellcheck disable=SC2016  # single quotes are deliberate: the ${...} below
+  # are JavaScript template literals, and the password is passed via VP_PWD in
+  # the environment precisely so the shell never interpolates it.
   AUTH_PASSWORD_HASH="$(VP_PWD="${VP_PASSWORD}" node -e '
 const { scryptSync, randomBytes } = require("crypto");
 const pwd = process.env.VP_PWD;

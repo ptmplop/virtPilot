@@ -15,6 +15,7 @@ import {
   Power,
   Server,
   ShieldAlert,
+  ShieldCheck,
   Trash2,
   Unlink,
   Zap,
@@ -34,6 +35,8 @@ import {
   useDeleteBackup,
   useRestoreBackup,
   useRestoreBackupAsNewVm,
+  useVerifyBackup,
+  useBackupAlerts,
   useSaveSchedule,
   useDeleteSchedule,
   useRunningBackups,
@@ -53,6 +56,40 @@ import type {
   BackupVmSummary,
   IncrementalStatus,
 } from '@/types';
+
+// ─── Backup health banner ─────────────────────────────────────────────────────
+
+// A backup that has quietly stopped working is the failure that actually costs
+// you something, and until now the only trace of a failed scheduled run was a
+// line in journalctl.
+function BackupAlertsBanner() {
+  const { data: alerts = [] } = useBackupAlerts();
+  if (alerts.length === 0) return null;
+  const errors = alerts.filter((a) => a.severity === 'error');
+  const tone = errors.length > 0 ? 'destructive' : 'amber';
+
+  return (
+    <div className={cn(
+      'space-y-2 rounded-xl border px-5 py-4',
+      tone === 'destructive' ? 'border-destructive/30 bg-destructive/5' : 'border-amber-500/30 bg-amber-500/5',
+    )}>
+      <div className="flex items-center gap-2.5">
+        <ShieldAlert size={15} className={tone === 'destructive' ? 'text-destructive' : 'text-amber-400'} />
+        <p className="text-sm font-semibold text-foreground">
+          {alerts.length} backup {alerts.length === 1 ? 'problem' : 'problems'} need attention
+        </p>
+      </div>
+      <ul className="space-y-1 pl-[26px]">
+        {alerts.map((a, i) => (
+          <li key={`${a.vmUuid}-${a.kind}-${i}`} className="text-xs leading-relaxed text-muted-foreground">
+            <span className="font-mono font-semibold text-foreground">{a.vmName}</span>
+            {' — '}{a.message}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -155,6 +192,8 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
           <StatCard icon={Archive} label="Total Backups" value={isLoading ? '—' : String(totalBackups)} iconClass="bg-violet-500/10 text-violet-500" />
           <StatCard icon={Database} label="Storage Used" value={isLoading ? '—' : formatBytes(totalSize)} iconClass="bg-amber-500/10 text-amber-500" />
         </div>
+
+        <BackupAlertsBanner />
 
         {/* Info panel */}
         <BackupInfoPanel />
@@ -637,6 +676,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
                   key={b.id}
                   backup={b}
                   index={i}
+                  vmUuid={vmUuid}
                   onDelete={() => setDeleteTarget(b)}
                   onRestore={() => setRestoreTarget(b)}
                 />
@@ -813,15 +853,26 @@ const consistencyConfig: Record<BackupConsistency, {
 function BackupRow({
   backup,
   index,
+  vmUuid,
   onDelete,
   onRestore,
 }: {
   backup: BackupEntry;
   index: number;
+  vmUuid: string;
   onDelete: () => void;
   onRestore: () => void;
 }) {
   const cons = consistencyConfig[backup.consistency];
+  const verify = useVerifyBackup(vmUuid);
+
+  function handleVerify() {
+    toast.promise(verify.mutateAsync(backup.id), {
+      loading: 'Checking every image in the chain…',
+      success: (r) => (r.ok ? `Verified — ${r.summary}` : `Verification FAILED — ${r.summary}`),
+      error: (e) => `Could not verify: ${apiError(e)}`,
+    });
+  }
 
   return (
     <div
@@ -845,6 +896,19 @@ function BackupRow({
             <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-1.5 py-px text-[10px] font-semibold text-destructive">
               <Unlink size={8} />Chain broken
             </span>
+          )}
+          {backup.lastVerify && (
+            <Tooltip label={`${backup.lastVerify.summary} · checked ${formatRelative(backup.lastVerify.checkedAt)}`}>
+              <span className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-semibold',
+                backup.lastVerify.ok
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                  : 'border-destructive/30 bg-destructive/10 text-destructive',
+              )}>
+                <ShieldCheck size={8} />
+                {backup.lastVerify.ok ? 'Verified' : 'Verify failed'}
+              </span>
+            </Tooltip>
           )}
         </div>
         {backup.chainBroken && (
@@ -907,6 +971,18 @@ function BackupRow({
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-1">
+        <Tooltip label="Read every image this backup depends on and check it for corruption">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleVerify}
+            disabled={verify.isPending}
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            aria-label="Verify backup"
+          >
+            {verify.isPending ? <Spinner className="h-3 w-3" /> : <ShieldCheck size={13} />}
+          </Button>
+        </Tooltip>
         <Button
           variant="ghost"
           size="sm"

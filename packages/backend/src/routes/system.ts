@@ -6,7 +6,7 @@ import { Router, type Request, type Response } from 'express';
 import { config, VERSION } from '../config.js';
 import { listPhysicalNics } from '../services/networkService.js';
 import { getHistory, takeSample } from '../services/statsService.js';
-import { getSystemMetricsHistory } from '../services/systemMetricsService.js';
+import { type SystemMetricsRange, getSystemMetricsHistory } from '../services/systemMetricsService.js';
 import { run, runSafe, sudo, sudoSafe } from '../services/safeExec.js';
 import * as logService from '../services/logService.js';
 import { createRateLimiter } from '../lib/rateLimit.js';
@@ -89,7 +89,10 @@ systemRouter.get('/stats', async (_req, res) => {
 // /api/vms/:name/metrics endpoint so the dashboard can offer the same
 // Live / 1h / 24h ranges as the per-VM Metrics tab.
 systemRouter.get('/metrics', (req, res) => {
-  const range = req.query.range === '24h' ? '24h' : '1h';
+  // Long ranges are served from the hourly rollup; anything unrecognised
+  // falls back to the live view rather than erroring.
+  const requested = String(req.query.range ?? '');
+  const range = (['1h', '24h', '7d', '30d'].includes(requested) ? requested : '1h') as SystemMetricsRange;
   try {
     const history = getSystemMetricsHistory(range);
     res.json({ range, history });

@@ -59,6 +59,12 @@ const SOURCE_ELEMENT = /<source\b[^>]*(?:\/>|>[\s\S]*?<\/source>)/;
 export function deriveDomainXml(opts: DeriveDomainXmlOptions): string {
   let xml = opts.sourceXml;
 
+  // The cached backing chain describes the *source's* images. The new VM's
+  // disks are standalone copies, so carrying it over hands libvirt a chain the
+  // file does not have — the same stale-cache condition that makes qemu refuse
+  // to open a disk with `Failed to get "write" lock`. Drop it and let libvirt
+  // re-probe from the images.
+  xml = xml.replace(/[ \t]*<backingStore\b[^>]*(?:\/>|>[\s\S]*?<\/backingStore>)\n?/g, '');
   // Security labels and device aliases belong to the domain that generated
   // them. libvirt rejects a user-supplied alias that isn't `ua-`-prefixed, and
   // regenerates both for a new domain anyway.

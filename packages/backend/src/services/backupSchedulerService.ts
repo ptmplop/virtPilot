@@ -72,9 +72,30 @@ async function runScheduledBackup(vmUuid: string, schedule: BackupSchedule): Pro
       kind: schedule.mode === 'incremental' ? 'auto' : 'full',
       fullEvery: schedule.fullEvery,
     });
+    await recordOutcome(vmUuid, { lastRunStatus: 'success', lastError: undefined });
   } catch (err) {
-    // createBackup already writes a failure entry to the activity log, which is
-    // what the operator actually sees; this is for journalctl.
     console.error(`[backup-scheduler] Scheduled backup failed for ${vmUuid}:`, err);
+    // Recorded on the schedule, not just in the log: a backup that has quietly
+    // stopped working is the failure mode that matters, and nobody finds it by
+    // reading journalctl.
+    await recordOutcome(vmUuid, {
+      lastRunStatus: 'error',
+      lastError: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+    });
+  }
+}
+
+// Re-read before writing: the run may have taken hours, and the operator could
+// have edited the schedule in the meantime.
+async function recordOutcome(
+  vmUuid: string,
+  outcome: { lastRunStatus: 'success' | 'error'; lastError?: string },
+): Promise<void> {
+  try {
+    const current = (await readSchedules())[vmUuid];
+    if (!current) return;
+    await saveSchedule({ ...current, ...outcome });
+  } catch (err) {
+    console.error(`[backup-scheduler] Could not record the run outcome for ${vmUuid}:`, err);
   }
 }

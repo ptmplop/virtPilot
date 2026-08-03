@@ -20,8 +20,12 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 FORCE=false
+# Set by the re-exec below; means "the source tree is already current, don't
+# hand off again". Not for operators to pass by hand.
+PHASE2=false
 for arg in "$@"; do
   [[ "$arg" == "--force" ]] && FORCE=true
+  [[ "$arg" == "--phase2" ]] && PHASE2=true
 done
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -94,6 +98,25 @@ else
   log "Updated $("${GIT_SAFE[@]}" rev-parse --short "$BEFORE") → $("${GIT_SAFE[@]}" rev-parse --short "$AFTER")"
   "${GIT_SAFE[@]}" log --oneline "${BEFORE}..${AFTER}"
   echo ""
+fi
+
+# ─── Hand off to the version we just pulled ──────────────────────────────────
+# Everything above ran from the update.sh that was already on disk — the
+# *previous* release's. That is why a release could never carry a migration
+# covering itself: by the time the new script existed, the old one had already
+# decided what to do. It is what made 2.6.0 lock operators out of their own
+# dashboards.
+#
+# So once the working tree has actually moved, re-exec the update.sh we just
+# pulled and let it do the real work. From here on, a release's own migrations
+# run during that release's upgrade.
+#
+# --force matters: in the second pass nothing is left to pull, so BEFORE ==
+# AFTER, and without it a commit that didn't change the version number would
+# take the "already up to date" exit and skip the rebuild entirely.
+if [[ "$PHASE2" == false && "$BEFORE" != "$AFTER" ]]; then
+  info "Handing off to the updated update.sh…"
+  exec bash "${INSTALL_DIR}/update.sh" --phase2 --force
 fi
 
 # ─── APT packages ─────────────────────────────────────────────────────────────

@@ -3,6 +3,28 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.0] — 2026-08-03
+
+### Added
+
+- **Backups can now be verified, not just taken.** A backup was previously only ever read on the day you needed it — and an incremental is only as good as every backup beneath it. **Verify** walks the whole chain, confirms each image is present, and runs `qemu-img check` over every one of them. The result is kept with the backup, so the list shows what was last proved good and when.
+
+- **Backups that stop working now say so.** A failed scheduled run used to leave nothing but a line in `journalctl`. The outcome is recorded on the schedule itself, and the Backups page carries a banner for anything that needs attention: a scheduled run that failed, one that is overdue and hasn't fired, a chain with a missing link, and a backup whose last verification failed.
+
+- **Metrics go back further than a day.** Completed hours are folded into an hourly rollup and kept for 90 days, so **7d** and **30d** ranges join Live/1h/24h on both the dashboard and each VM's Metrics tab. Raw 30-second samples are still what the short ranges read; they are simply no longer the only thing stored, which is what capped history at 24 hours.
+
+- **A test suite and CI.** 157 unit tests over the logic that has actually broken before — input validation, the SSRF guard, domain-XML generation and escaping, firewall rule validation, backup scheduling, backup-chain resolution and the clone/restore XML rewriting. CI additionally runs `shellcheck` over the installer scripts at *default* severity (the bug that had `install.sh` executing fragments of its own comments as root is only reported at "style", so a warning-level gate would have missed it), and checks that the four places a version has to be bumped actually agree.
+
+### Fixed
+
+- **The self-upgrade can finally carry its own migrations.** `update.sh` runs from the copy already on disk — the *previous* release's — so a release could never ship a fix that needed to run during its own upgrade. That is what made 2.6.0 able to lock operators out of their own dashboards. Once the working tree has moved, the update now hands off to the `update.sh` it just pulled and lets that finish the job.
+
+  This release is still upgraded by the old script, since that is the one on disk; from the next release onward a fix can travel with the upgrade that needs it.
+
+- **Cloning or restoring into a new VM carried over the source's cached backing-file chain.** libvirt records that chain in the VM definition, and the copy's disks are standalone — so the new VM described a chain its files did not have. The same stale-cache condition makes qemu refuse to open a disk outright. Found by the new tests.
+
+- Invalid firewall rules now name which rule is at fault, rather than reporting the bad value with no indication of where it came from.
+
 ## [2.7.1] — 2026-08-03
 
 ### Fixed

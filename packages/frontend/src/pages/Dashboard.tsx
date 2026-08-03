@@ -1652,7 +1652,7 @@ export function DashboardPage() {
             </button>
             {!metricsCollapsed && (
               <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-card">
-                {(['live', '1h', '24h'] as const).map((r) => (
+                {(['live', '1h', '24h', '7d', '30d'] as const).map((r) => (
                   <button
                     key={r}
                     type="button"

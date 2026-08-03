@@ -43,7 +43,7 @@ export function useSystemStats() {
   });
 }
 
-export type SystemMetricsRange = '1h' | '24h';
+export type SystemMetricsRange = '1h' | '24h' | '7d' | '30d';
 
 export interface SystemMetricsPoint {
   ts: number;

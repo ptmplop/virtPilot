@@ -541,6 +541,46 @@ ISO and gets its **own** seed (or an ejected `sda` if the source had no cloud-in
 
 Append per-run findings here. Format: `### YYYY-MM-DD — vX.Y.Z (host)` then bullet list.
 
+### 2026-08-03 — v2.8.0 (adm241) — verification, alerting, metrics retention, CI
+
+Deployed onto the same host, upgraded in place from 2.7.1.
+
+**Verified**
+
+- Migration 5 applied on boot; `vm_metrics_hourly` and `system_metrics_hourly` present,
+  `user_version` = 5.
+- **Metrics rollup, both directions.** Ran the sampler's own rollup SQL and got three hourly rows
+  with correct averages; `7d` and `30d` then returned exactly those points, per-VM as well as
+  host-wide. An unrecognised range falls back to `1h` rather than erroring.
+- **Backup verification on a real chain**: walked a two-link chain (full + incremental), checked
+  both images, reported ok, and persisted the result into the backup listing.
+- **Verification failure, proved by breaking a real backup.** Overwrote 8 KB in the middle of a full
+  backup's qcow2; verify returned `ok: false` carrying qemu-img's actual complaint
+  ("refcount table entry 5331 has reserved bits set"), and the alerts endpoint raised a
+  `verify-failed` error against that VM. Restoring the good image cleared both.
+- **Scheduled-failure alerting, end to end.** Gave a non-existent VM an hourly schedule due five
+  minutes ago and let the real scheduler tick: it attempted the backup, failed, wrote
+  `lastRunStatus: error` with the underlying message onto the schedule, and the alert surfaced it.
+  Deleting the schedule cleared it.
+- **Chain-broken alerting**: moving a full backup out from under its incremental raised the alert;
+  putting it back cleared it.
+- 157 unit tests, `shellcheck` at default severity, and the version-consistency check all pass
+  locally and are wired into CI.
+
+**Found by the new tests, fixed before release**
+
+- `deriveDomainXml` carried the source's cached `<backingStore>` into a clone or restored VM. The
+  copy's disks are standalone, so the new VM described a chain its files did not have — the same
+  stale-cache condition that makes qemu refuse to open a disk outright.
+- Firewall validation reported a bad value without saying which rule it came from.
+
+**Not yet exercised**
+
+- The `update.sh` hand-off (this release is still upgraded by the old script, by design) — to be
+  tested on the next upgrade.
+- The `schedule-overdue` alert: it only fires when the scheduler *isn't* running, which cannot be
+  staged without stopping the service mid-test.
+
 ### 2026-08-03 — v2.7.0 (adm241 / 62.238.37.117, clean Ubuntu 24.04) — IN PROGRESS
 
 Full-product pass on a **fresh install**: real `bootstrap.sh` one-liner, then 2.7.0 overlaid.

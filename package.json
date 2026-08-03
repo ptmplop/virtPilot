@@ -11,7 +11,8 @@
     "dev:backend": "npm --workspace @virtpilot/backend run dev",
     "dev:frontend": "npm --workspace @virtpilot/frontend run dev",
     "build": "npm --workspace @virtpilot/backend run build && npm --workspace @virtpilot/frontend run build",
-    "typecheck": "npm --workspace @virtpilot/frontend run typecheck"
+    "typecheck": "npm --workspace @virtpilot/frontend run typecheck",
+    "test": "npm --workspace @virtpilot/backend run test"
   },
   "engines": {
     "node": ">=20"

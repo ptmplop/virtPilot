@@ -102,6 +102,35 @@ export interface BackupEntry {
   hasDependents: boolean;
   /** Total on-disk size of this backup plus every ancestor it needs. */
   chainSizeBytes: number;
+  /** Result of the last explicit verification, if it has ever been run. */
+  lastVerify?: BackupVerifyRecord;
+}
+
+/** Outcome of checking one image in a backup's chain. */
+export interface BackupVerifyLink {
+  backupId: string;
+  kind: BackupKind;
+  target: string;
+  filename: string;
+  present: boolean;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface BackupVerifyResult {
+  backupId: string;
+  ok: boolean;
+  checkedAt: string;
+  /** Root-most link first, so a reader sees the full backup before its deltas. */
+  links: BackupVerifyLink[];
+  summary: string;
+}
+
+/** Persisted alongside a backup so the UI can show when it was last proved good. */
+export interface BackupVerifyRecord {
+  checkedAt: string;
+  ok: boolean;
+  summary: string;
 }
 
 export interface BackupVmSummary {
@@ -133,6 +162,13 @@ export interface BackupSchedule {
   enabled: boolean;
   lastRunAt: string | null;
   nextRunAt: string | null;
+  /**
+   * How the last scheduled run ended. Recorded on the schedule itself rather
+   * than left to the activity log, so a silently failing backup is visible
+   * where the operator already looks instead of needing journalctl.
+   */
+  lastRunStatus?: 'success' | 'error';
+  lastError?: string;
   /** Absent on schedules written before 2.7 — treat as 'full'. */
   mode?: BackupScheduleMode;
   /**
@@ -265,9 +301,12 @@ export async function listBackupsForVm(vmUuid: string): Promise<BackupEntry[]> {
   const byId = new Map(manifests.map((m) => [m.id, m]));
 
   const sizes = new Map<string, number>();
+  const verifies = new Map<string, BackupVerifyRecord>();
   await Promise.all(
     manifests.map(async (m) => {
       sizes.set(m.id, await dirSizeBytes(backupDir(vmUuid, m.id)));
+      const rec = await readVerifyRecord(vmUuid, m.id);
+      if (rec) verifies.set(m.id, rec);
     }),
   );
 
@@ -318,6 +357,7 @@ export async function listBackupsForVm(vmUuid: string): Promise<BackupEntry[]> {
         chainBroken: broken,
         hasDependents: dependents.has(m.id),
         chainSizeBytes: totalBytes,
+        ...(verifies.has(m.id) ? { lastVerify: verifies.get(m.id) } : {}),
       };
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -1101,6 +1141,192 @@ export async function materialiseBackupDisk(src: string, dest: string): Promise<
     await fs.unlink(tmp).catch(() => {});
     throw err;
   }
+}
+
+// ─── Verification ─────────────────────────────────────────────────────────────
+
+const verifyPath = (vmUuid: string, id: string) => path.join(backupDir(vmUuid, id), '.verify.json');
+
+export async function readVerifyRecord(vmUuid: string, id: string): Promise<BackupVerifyRecord | null> {
+  try {
+    return JSON.parse(await fs.readFile(verifyPath(vmUuid, id), 'utf8')) as BackupVerifyRecord;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Runs `qemu-img check` on one image and classifies the result.
+ *
+ * qemu-img exits 3 for leaked clusters, which is untidy but not data loss, so
+ * that is reported as healthy with a note rather than failing the backup.
+ */
+async function checkImage(imagePath: string): Promise<{ ok: boolean; detail?: string }> {
+  try {
+    const out = await qemuImg(['check', '-U', '--output=json', imagePath], { timeout: 60 * 60_000 });
+    const info = JSON.parse(out) as { corruptions?: number; leaks?: number };
+    if (info.corruptions && info.corruptions > 0) {
+      return { ok: false, detail: `${info.corruptions} corrupt cluster(s)` };
+    }
+    if (info.leaks && info.leaks > 0) return { ok: true, detail: `${info.leaks} leaked cluster(s)` };
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Exit 3 is leaked-clusters-only; qemu-img still printed its JSON.
+    const leaksOnly = /"corruptions":\s*0/.test(message) && /"leaks":\s*[1-9]/.test(message);
+    if (leaksOnly) return { ok: true, detail: 'leaked clusters' };
+    return { ok: false, detail: message.split('\n').slice(-2).join(' ').trim().slice(0, 200) };
+  }
+}
+
+/**
+ * Proves a backup is actually restorable, rather than merely present.
+ *
+ * An incremental is only as good as every backup beneath it, and nothing else
+ * in the product reads those images between the day they are written and the
+ * day someone needs them. This walks the whole chain, confirms each link is on
+ * disk, and asks qemu-img to check each image.
+ */
+export async function verifyBackup(vmUuid: string, id: string): Promise<BackupVerifyResult> {
+  const entries = await listBackupsForVm(vmUuid);
+  const byId = new Map(entries.map((b) => [b.id, b]));
+  const target = byId.get(id);
+  if (!target) throw new Error('Backup not found');
+
+  // Collect the chain root-first so the report reads bottom-up.
+  const chain: BackupEntry[] = [];
+  const seen = new Set<string>();
+  let cur: BackupEntry | undefined = target;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    chain.unshift(cur);
+    cur = cur.parentBackupId ? byId.get(cur.parentBackupId) : undefined;
+  }
+
+  const links: BackupVerifyLink[] = [];
+  // A chain whose root is an incremental is missing its ancestors entirely.
+  const rootMissing = chain[0]?.kind === 'incremental';
+
+  for (const b of chain) {
+    const manifest = await getBackupManifest(vmUuid, b.id);
+    for (const disk of manifest?.disks ?? []) {
+      const filename = path.basename(disk.filename);
+      const abs = path.join(backupDir(vmUuid, b.id), filename);
+      let present = true;
+      try {
+        await fs.access(abs);
+      } catch {
+        present = false;
+      }
+      if (!present) {
+        links.push({ backupId: b.id, kind: b.kind, target: disk.target, filename, present: false, ok: false, detail: 'image missing' });
+        continue;
+      }
+      const res = await checkImage(abs);
+      links.push({ backupId: b.id, kind: b.kind, target: disk.target, filename, present: true, ...res });
+    }
+  }
+
+  const bad = links.filter((l) => !l.ok);
+  const ok = bad.length === 0 && !rootMissing;
+  const summary = rootMissing
+    ? `Chain is incomplete — the full backup underneath ${chain[0]?.id} is missing`
+    : ok
+      ? `Verified ${links.length} image(s) across ${chain.length} backup(s) in the chain`
+      : `${bad.length} of ${links.length} image(s) failed: ${bad.map((b) => `${b.backupId}/${b.filename} (${b.detail})`).join('; ')}`;
+
+  const result: BackupVerifyResult = { backupId: id, ok, checkedAt: new Date().toISOString(), links, summary };
+
+  await fs.writeFile(
+    verifyPath(vmUuid, id),
+    JSON.stringify({ checkedAt: result.checkedAt, ok, summary } satisfies BackupVerifyRecord, null, 2),
+    'utf8',
+  ).catch(() => { /* the record is a convenience, not the result */ });
+
+  await appendLog({
+    type: 'backup.verify',
+    subject: target.vmName,
+    subjectUuid: vmUuid,
+    status: ok ? 'success' : 'error',
+    output: summary,
+  });
+
+  return result;
+}
+
+// ─── Alerting ─────────────────────────────────────────────────────────────────
+
+export interface BackupAlert {
+  vmUuid: string;
+  vmName: string;
+  severity: 'error' | 'warning';
+  kind: 'schedule-failed' | 'chain-broken' | 'schedule-overdue' | 'verify-failed';
+  message: string;
+}
+
+// A schedule that should have fired this long ago is not merely late — either
+// the service was down or the run is wedged.
+const OVERDUE_GRACE_MS = 2 * 60 * 60_000;
+
+/**
+ * Everything about backups the operator would want to be told without going
+ * looking. Backups that quietly stop working are the classic disaster, and
+ * before this the only signal a scheduled run had failed was a line in
+ * journalctl.
+ */
+export async function getBackupAlerts(): Promise<BackupAlert[]> {
+  const alerts: BackupAlert[] = [];
+  const summaries = await listAllVmBackupSummaries();
+
+  for (const s of summaries) {
+    const schedule = s.schedule;
+    if (schedule?.lastRunStatus === 'error') {
+      alerts.push({
+        vmUuid: s.vmUuid,
+        vmName: s.vmName,
+        severity: 'error',
+        kind: 'schedule-failed',
+        message: `The last scheduled backup failed: ${schedule.lastError ?? 'no detail recorded'}`,
+      });
+    }
+    if (schedule?.enabled && schedule.nextRunAt) {
+      const due = new Date(schedule.nextRunAt).getTime();
+      if (Number.isFinite(due) && Date.now() - due > OVERDUE_GRACE_MS) {
+        alerts.push({
+          vmUuid: s.vmUuid,
+          vmName: s.vmName,
+          severity: 'warning',
+          kind: 'schedule-overdue',
+          message: `A scheduled backup was due ${new Date(due).toISOString()} and has not run`,
+        });
+      }
+    }
+
+    const backups = await listBackupsForVm(s.vmUuid);
+    const broken = backups.filter((b) => b.chainBroken);
+    if (broken.length > 0) {
+      alerts.push({
+        vmUuid: s.vmUuid,
+        vmName: s.vmName,
+        severity: 'error',
+        kind: 'chain-broken',
+        message: `${broken.length} backup(s) cannot be restored — a backup they build on is missing`,
+      });
+    }
+    for (const b of backups) {
+      const rec = await readVerifyRecord(s.vmUuid, b.id);
+      if (rec && !rec.ok) {
+        alerts.push({
+          vmUuid: s.vmUuid,
+          vmName: s.vmName,
+          severity: 'error',
+          kind: 'verify-failed',
+          message: `Verification failed for the backup of ${new Date(b.createdAt).toISOString()}: ${rec.summary}`,
+        });
+      }
+    }
+  }
+  return alerts;
 }
 
 // ─── Retention ────────────────────────────────────────────────────────────────

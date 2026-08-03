@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  node:
+    name: Typecheck, test, build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # `npm ci` needs the lockfile to be in step with the manifests, which is
+      # itself worth failing on.
+      - run: npm ci
+
+      # Typechecks the tests too, via tsconfig.test.json — the build config
+      # deliberately excludes them so they never reach dist/.
+      - name: Typecheck backend (including tests)
+        run: npm --workspace @virtpilot/backend run typecheck
+
+      - name: Typecheck frontend
+        run: npm --workspace @virtpilot/frontend run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build both packages
+        run: npm run build
+
+      # The build must not carry test files into the shipped output.
+      - name: No test files in the build output
+        run: |
+          leaked=$(find packages/*/dist -name '*.test.js' | wc -l)
+          if [ "$leaked" -ne 0 ]; then
+            echo "::error::${leaked} test file(s) leaked into dist/"
+            find packages/*/dist -name '*.test.js'
+            exit 1
+          fi
+
+  shell:
+    name: Shell scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: for f in bootstrap.sh install.sh update.sh uninstall.sh scripts/*.sh; do bash -n "$f"; done
+
+      # Deliberately the DEFAULT severity, not -S warning. The bug that made
+      # install.sh execute fragments of its own comments as root was SC2006,
+      # which is only reported at "style" — a warning-level gate would have
+      # sailed straight past it.
+      - name: ShellCheck (default severity)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --version
+          shellcheck bootstrap.sh install.sh update.sh uninstall.sh scripts/*.sh
+
+  versions:
+    name: Version consistency
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # CLAUDE.md requires four locations to move together on every release,
+      # one of which is what the dashboard shows the operator.
+      - run: ./scripts/check-versions.sh

@@ -1407,7 +1407,10 @@ vmsRouter.get('/:uuid/stats', requireUuidParam, async (req, res) => {
 
 // Per-VM persistent metrics history (SQLite-backed)
 vmsRouter.get('/:uuid/metrics', requireUuidParam, (req, res) => {
-  const range = req.query.range === '24h' ? '24h' : '1h';
+  // Long ranges are served from the hourly rollup; anything unrecognised
+  // falls back to the live view rather than erroring.
+  const requested = String(req.query.range ?? '');
+  const range = (['1h', '24h', '7d', '30d'].includes(requested) ? requested : '1h') as vmMetricsService.MetricsRange;
   try {
     const history = vmMetricsService.getVmMetricsHistory(req.params.uuid, range);
     res.json({ range, history });

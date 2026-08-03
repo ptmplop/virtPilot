@@ -13,6 +13,8 @@ import {
   computeNextRunAt,
   getBackupsInProgress,
   getIncrementalStatus,
+  verifyBackup,
+  getBackupAlerts,
   DEFAULT_FULL_EVERY,
   MAX_FULL_EVERY,
   type BackupFrequency,
@@ -66,9 +68,6 @@ function requireUuidParam(req: Request, res: Response, next: NextFunction): void
   }
 }
 
-// Resolve a friendly name for a VM identified by UUID. Used when the route
-// caller hasn't supplied one — schedules carry the name in the body, so this
-// is mostly the fallback for orphaned-VM display.
 // A restore can be refused for reasons that are entirely the caller's to fix —
 // the VM is still running, the backup is incomplete, the chain is broken. Those
 // are 4xx outcomes the UI acts on, not server faults, and reporting them as 500
@@ -89,6 +88,9 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// Resolve a friendly name for a VM identified by UUID. Used when the route
+// caller hasn't supplied one — schedules carry the name in the body, so this
+// is mostly the fallback for orphaned-VM display.
 async function resolveVmName(vmUuid: string): Promise<string> {
   try {
     const info = await getVmInfo(vmUuid);
@@ -116,6 +118,17 @@ backupsRouter.get('/', async (_req, res) => {
 
 backupsRouter.get('/running', (_req, res) => {
   res.json({ running: getBackupsInProgress() });
+});
+
+// ─── Alerts ───────────────────────────────────────────────────────────────────
+// Registered before the /:vmUuid wildcard so "alerts" isn't captured as a UUID.
+
+backupsRouter.get('/alerts', async (_req, res) => {
+  try {
+    res.json({ alerts: await getBackupAlerts() });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // ─── Schedules ────────────────────────────────────────────────────────────────
@@ -260,6 +273,24 @@ backupsRouter.delete('/:vmUuid/:backupId', requireUuidParam, validateBackupId, a
       return res.status(409).json({ error: err.message, requiresCascade: true });
     }
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Verify backup ────────────────────────────────────────────────────────────
+
+// Proves a backup is restorable rather than merely present: walks the whole
+// chain and runs qemu-img check over every image it depends on. Nothing else
+// reads those files between the day they are written and the day they are
+// needed.
+backupsRouter.post('/:vmUuid/:backupId/verify', requireUuidParam, validateBackupId, async (req, res) => {
+  try {
+    const { vmUuid, backupId } = req.params;
+    const result = await verifyBackup(vmUuid, backupId);
+    // A failed verification is a successful *check* — the request did what was
+    // asked. The caller reads `ok`.
+    res.json({ result });
+  } catch (err: unknown) {
+    res.status(restoreFailureStatus(err)).json({ error: errorMessage(err) });
   }
 });
 

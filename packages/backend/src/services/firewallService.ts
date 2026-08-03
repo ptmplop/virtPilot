@@ -85,16 +85,33 @@ export function validateFirewallConfig(cfg: FirewallConfig): void {
     if (rule.action !== 'allow' && rule.action !== 'drop') {
       throw new ValidationError('action', rule.action, `${where}: must be allow or drop`);
     }
-    const protocol = validateProtocol(rule.protocol);
+    // The point of validating on save is telling the operator *which* rule is
+    // wrong, so the field validators' own messages get the rule's identity
+    // attached rather than surfacing bare.
+    const inRule = <T>(field: string, value: unknown, run: () => T): T => {
+      try {
+        return run();
+      } catch (err) {
+        throw new ValidationError(field, value, `${where}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+
+    const protocol = inRule('protocol', rule.protocol, () => validateProtocol(rule.protocol));
     if (rule.portRange !== undefined && rule.portRange !== '') {
       if (protocol !== 'tcp' && protocol !== 'udp') {
         throw new ValidationError('portRange', rule.portRange, `${where}: ports only apply to tcp or udp`);
       }
-      validatePortRange(rule.portRange);
+      inRule('portRange', rule.portRange, () => validatePortRange(rule.portRange!));
     }
-    if (rule.icmpType !== undefined && rule.icmpType !== '') validateIcmpType(rule.icmpType);
-    if (rule.source !== undefined && rule.source !== '') validateIpv4OrCidr(rule.source);
-    if (rule.destination !== undefined && rule.destination !== '') validateIpv4OrCidr(rule.destination);
+    if (rule.icmpType !== undefined && rule.icmpType !== '') {
+      inRule('icmpType', rule.icmpType, () => validateIcmpType(rule.icmpType!));
+    }
+    if (rule.source !== undefined && rule.source !== '') {
+      inRule('source', rule.source, () => validateIpv4OrCidr(rule.source!));
+    }
+    if (rule.destination !== undefined && rule.destination !== '') {
+      inRule('destination', rule.destination, () => validateIpv4OrCidr(rule.destination!));
+    }
   }
   for (const key of ['defaultInbound', 'defaultOutbound'] as const) {
     if (cfg[key] !== 'allow' && cfg[key] !== 'drop') {

@@ -105,6 +105,26 @@ Version increment rules:
 - **Minor** (x.N.0) — meaningful new features or notable UX additions
 - **Major** (N.0.0) — breaking changes or major rewrites
 
+## Tests and CI
+
+```bash
+npm test                                        # vitest, backend only
+npm --workspace @virtpilot/backend run typecheck # typechecks tests too
+./scripts/check-versions.sh                      # the four-location version rule
+shellcheck bootstrap.sh install.sh update.sh uninstall.sh scripts/*.sh
+```
+
+- Tests live beside their subject as `*.test.ts` and cover **pure logic only** —
+  validators, XML generation, rule building, schedule arithmetic, chain
+  resolution. Anything that shells out to `virsh`/`qemu-img` is proved on real
+  hardware via [QA.md](QA.md) instead; mocking libvirt would test the mock.
+- `tsconfig.json` excludes `*.test.ts` so tests never reach `dist/`;
+  `tsconfig.test.json` is what typechecks them. CI fails if a test file appears
+  in the build output.
+- **ShellCheck runs at default severity, not `-S warning`.** The bug that had
+  `install.sh` executing fragments of its own comments as root was SC2006,
+  reported only at "style" — a warning-level gate sails straight past it.
+
 ## Conventions
 
 - British English in UI copy

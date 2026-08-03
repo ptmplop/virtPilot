@@ -8,6 +8,8 @@ import type {
   BackupScheduleMode,
   BackupVmSummary,
   BackupFrequency,
+  BackupAlert,
+  BackupVerifyResult,
   IncrementalStatus,
 } from '@/types';
 
@@ -40,6 +42,36 @@ export function useVmBackups(vmUuid: string) {
     },
     enabled: !!vmUuid,
     refetchInterval: 15_000,
+  });
+}
+
+// Backups that have quietly stopped working are the failure mode that matters,
+// so this is polled rather than waiting for someone to open a VM's page.
+export function useBackupAlerts() {
+  return useQuery({
+    queryKey: ['backups', 'alerts'] as const,
+    queryFn: async () => {
+      const { data } = await api.get<{ alerts: BackupAlert[] }>('/api/backups/alerts');
+      return data.alerts;
+    },
+    refetchInterval: 60_000,
+  });
+}
+
+export function useVerifyBackup(vmUuid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (backupId: string) => {
+      // Reads every image in the chain, so it can take a while on a big backup.
+      const { data } = await api.post<{ result: BackupVerifyResult }>(
+        `/api/backups/${vmUuid}/${backupId}/verify`, undefined, { timeout: 0 },
+      );
+      return data.result;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.vm(vmUuid) });
+      qc.invalidateQueries({ queryKey: ['backups', 'alerts'] });
+    },
   });
 }
 

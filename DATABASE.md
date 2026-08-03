@@ -77,10 +77,24 @@ Per-VM time-series samples written by the metrics sampler at 30-second cadence.
 
 - Primary key: `(vm_name, ts)`
 - Index: `idx_vm_metrics_ts` on `ts` (for the prune sweep)
-- Retention: 24 hours, pruned every ~30 minutes (60 sampler ticks)
+- Retention: 36 hours, pruned every ~30 minutes (60 sampler ticks). Older data
+  lives on in the hourly rollup below rather than being discarded.
 - Range queries downsample on read: `1h` returns raw 30s samples
   (~120 points); `24h` aggregates into 5-minute buckets via SQL `AVG`
-  (~288 points).
+  (~288 points). `7d` and `30d` read the rollup instead.
+
+### `vm_metrics_hourly` / `system_metrics_hourly`
+
+Hourly rollups of the two raw tables, same columns with `ts` truncated to the
+hour. Written by the samplers' prune cycle, which folds every *completed* hour
+into them (`INSERT OR REPLACE`, so a re-run is harmless) before deleting raw
+rows past their retention.
+
+The split exists because 30-second samples are the right resolution for "what
+is this VM doing now" and hopeless as a retention policy — keeping them for a
+month is millions of rows. Raw is kept 36 hours (slightly beyond the 24h view
+it serves, so the chart's left edge is never empty if a rollup runs late);
+hourly is kept 90 days and serves the `7d` and `30d` ranges.
 
 ## Lifecycle hooks
 

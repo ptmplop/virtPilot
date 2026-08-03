@@ -114,6 +114,44 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    // Hourly rollups. Raw samples are written every 30s, which is the right
+    // resolution for "what is this VM doing now" and hopeless as a retention
+    // policy — 24h was the ceiling precisely because keeping 30s points for
+    // longer means millions of rows. Completed hours are folded into these
+    // tables and kept for months, so the dashboard can answer "is this host
+    // running out of headroom" without the raw table growing without bound.
+    //
+    // Same columns as the raw tables, with `ts` truncated to the hour.
+    version: 5,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE vm_metrics_hourly (
+          vm_uuid        TEXT    NOT NULL,
+          ts             INTEGER NOT NULL,
+          cpu_percent    REAL    NOT NULL,
+          mem_used_mb    INTEGER NOT NULL,
+          mem_total_mb   INTEGER NOT NULL,
+          disk_read_bps  REAL    NOT NULL,
+          disk_write_bps REAL    NOT NULL,
+          net_rx_bps     REAL    NOT NULL,
+          net_tx_bps     REAL    NOT NULL,
+          PRIMARY KEY (vm_uuid, ts)
+        );
+        CREATE INDEX idx_vm_metrics_hourly_ts ON vm_metrics_hourly (ts);
+        CREATE TABLE system_metrics_hourly (
+          ts             INTEGER PRIMARY KEY,
+          cpu_percent    REAL    NOT NULL,
+          mem_used_mb    INTEGER NOT NULL,
+          mem_total_mb   INTEGER NOT NULL,
+          disk_read_bps  REAL    NOT NULL,
+          disk_write_bps REAL    NOT NULL,
+          net_rx_bps     REAL    NOT NULL,
+          net_tx_bps     REAL    NOT NULL
+        );
+      `);
+    },
+  },
 ];
 
 function runMigrations(db: Db): void {

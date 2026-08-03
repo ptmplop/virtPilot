@@ -13,6 +13,19 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.8.0',
+    date: '2026-08-03',
+    changes: [
+      { type: 'added', text: 'Backups can now be verified, not just taken. A backup used to be read only on the day you needed it — and an incremental is only as good as every backup beneath it. Verify walks the whole chain, confirms each image is present and runs qemu-img check over every one. The result is kept with the backup, so the list shows what was last proved good and when.' },
+      { type: 'added', text: 'Backups that stop working now say so. A failed scheduled run previously left nothing but a line in journalctl. The outcome is recorded on the schedule itself, and the Backups page carries a banner for anything needing attention: a run that failed, one overdue and not firing, a chain with a missing link, or a backup whose last verification failed.' },
+      { type: 'added', text: 'Metrics go back further than a day. Completed hours are folded into an hourly rollup kept for 90 days, so 7d and 30d ranges join Live/1h/24h on the dashboard and each VM’s Metrics tab. The short ranges still read raw 30-second samples — those are simply no longer the only thing stored, which is what capped history at 24 hours.' },
+      { type: 'added', text: 'A test suite and CI: 157 unit tests over the logic that has actually broken before — input validation, the SSRF guard, domain-XML generation and escaping, firewall rule validation, backup scheduling, backup-chain resolution, and the clone/restore XML rewriting. CI also runs shellcheck over the installer scripts and checks that the four places a version must be bumped agree.' },
+      { type: 'fixed', text: 'The self-upgrade can finally carry its own migrations. update.sh runs from the copy already on disk — the previous release’s — so a release could never ship a fix that had to run during its own upgrade; that is what let 2.6.0 lock operators out. Once the working tree has moved, the update now hands off to the update.sh it just pulled. This release is still upgraded by the old script; from the next one onward a fix can travel with the upgrade that needs it.' },
+      { type: 'fixed', text: 'Cloning or restoring into a new VM carried over the source’s cached backing-file chain. libvirt records that chain in the VM definition and the copy’s disks are standalone, so the new VM described a chain its files did not have — the same stale-cache condition that makes qemu refuse to open a disk. Found by the new tests.' },
+      { type: 'fixed', text: 'Invalid firewall rules now name which rule is at fault rather than reporting a bad value with no indication of where it came from.' },
+    ],
+  },
+  {
     version: '2.7.1',
     date: '2026-08-03',
     changes: [
