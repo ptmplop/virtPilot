@@ -574,10 +574,35 @@ Deployed onto the same host, upgraded in place from 2.7.1.
   stale-cache condition that makes qemu refuse to open a disk outright.
 - Firewall validation reported a bad value without saying which rule it came from.
 
-**Not yet exercised**
+**The update.sh hand-off, tested for real (v2.8.0 → v2.8.1)**
 
-- The `update.sh` hand-off (this release is still upgraded by the old script, by design) — to be
-  tested on the next upgrade.
+The host was put cleanly on 2.8.0 — so the `update.sh` on disk had the hand-off but not yet the
+`-f` fix, exactly what a real 2.8.0 install looks like — and 2.8.1 was published. The dashboard
+upgrade then produced:
+
+```
+[✓] Updated ad4e805 → bde4acb
+[→] Handing off to the updated update.sh…
+[→] Building VirtPilot...
+[✓] Build complete
+[✓] VirtPilot restarted successfully
+```
+
+The hand-off fired exactly once (no loop), the second pass rebuilt rather than taking the
+"already up to date" exit, and git, `package.json`, `dist/.version`, the API and the built bundle
+all landed on 2.8.1 together. Running VMs were untouched.
+
+**A bug this test found — fixed in 2.8.1**
+
+Staging it surfaced something real. `update.sh` switched the working tree onto `origin/main`
+*before* hard-resetting, and that switch refuses whenever a tracked file has local modifications —
+which is precisely the drift the reset exists to clear, and `npm install` rewriting
+`package-lock.json` is enough to cause it. Worse, the failure was silent: output went to
+`/dev/null` and `set -e` exited without a word, so the dashboard's update simply stopped after
+"Pulling latest changes…". The checkout is now forced and a genuine failure reports itself.
+
+**Not exercised**
+
 - The `schedule-overdue` alert: it only fires when the scheduler *isn't* running, which cannot be
   staged without stopping the service mid-test.
 
