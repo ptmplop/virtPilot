@@ -718,14 +718,46 @@ suspicion that its per-VM `virsh` fan-out was a bottleneck did not survive measu
 `000` from nginx during a heavy multi-guest phase did not recur across repeated probes and left
 nothing in either nginx's or the service's log.
 
+**Section 13 — self-upgrade (run after v2.7.0 and v2.7.1 were published)**
+
+Both upgrades were driven through `GET /api/system/upgrade`, the SSE endpoint the dashboard's
+**Update** button calls, with the JWT in the `Authorization` header.
+
+- **2.6.1 → 2.7.0**, the path a real existing install takes. The clone was reset to `v2.6.1` and
+  rebuilt first so the upgrade ran the *previous* version's `update.sh` — which is what actually
+  happens, and the reason a migration can never cover its own release. It recovered from the
+  detached HEAD `bootstrap.sh` leaves behind ("switching back to main"), pulled a6b0ff0 → 9cf6483,
+  verified apt packages, ran `npm ci`, rebuilt both packages and restarted the service. Version,
+  `dist/.version` and the sidebar string in the built bundle all moved to 2.7.0 together, and the
+  update card went to `updateAvailable: false`.
+- **2.7.0 → 2.7.1** likewise.
+- **Running VMs were untouched**: the qemu process kept its original start time straight through,
+  and the guest's serial console still answered afterwards. The service restarts, the guests do not.
+- **Operator state survived**: login worked immediately (JWT secret and password hash preserved),
+  and VMs, networks, templates, storage directories and backups were all intact. The upgrade is
+  recorded in the activity log as `system.virtpilot.upgrade`.
+- The SSE stream ends early — the service restart closes it — so the browser falls back to polling
+  for the new version, which is what it is designed to do.
+
+**One fragility found while rolling the host between versions (fixed in 2.7.1)**
+
+Rolling back with `git reset --hard` leaves untracked files behind, so a `git clean -fd` is the
+natural follow-up — and that deleted `/usr/local/virtpilot/.ssh/`, the keypair VirtPilot injects
+into every VM it builds. The backend silently generates a new one, so new VMs keep working while
+every VM created earlier keeps the old key in its `authorized_keys` and can never be reached from
+the SSH tab again; only the serial console gets you back in. Nothing VirtPilot ships runs
+`git clean` (`update.sh` uses `git reset --hard`), so no install can have hit this unaided — but
+the keypair is now git-ignored, which is enough for `git clean -fd` to spare it. Verified: after
+the fix `git clean -nd` no longer lists it, and the key survived the 2.7.1 upgrade unchanged.
+
 **Not testable on this host (environmental, not defects)**
 
 - **Host-device passthrough** — the box is itself a VM with no IOMMU groups, so VFIO cannot bind.
 - **Bridged and existing-bridge networking** — a single /32 public IP and no second NIC. Only the
   managed NAT network was exercised.
 - **Nested guests run under TCG**, so nothing here says anything about KVM-accelerated performance.
-- **Section 13, in-dashboard self-upgrade** — needs a published GitHub release newer than the
-  installed build.
+(Section 13, the self-upgrade, was blocked at first for want of a published release and is
+covered above now that v2.7.0 and v2.7.1 exist.)
 - Saving a firewall rule with an out-of-range port (`portRange: "99999"`) is accepted with 200;
   validation only happens at apply time, so an invalid rule can be persisted and fail later.
 - Snapshot deletion against a *stopped* VM failed once with a truncated `qemu-img commit` error;
