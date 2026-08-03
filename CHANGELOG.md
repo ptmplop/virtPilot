@@ -3,6 +3,14 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.1] — 2026-08-03
+
+### Fixed
+
+- **`git clean` inside the install directory could permanently break the SSH tab for every existing VM.** The service account's home is the install directory itself, so the SSH keypair VirtPilot injects into every VM it builds lives at `/usr/local/virtpilot/.ssh/`. That path was untracked but not ignored, so a plain `git clean -fd` — the obvious thing to reach for when a clone gets wedged — deleted it. The backend then quietly generates a fresh keypair, so newly created VMs keep working while every VM created before that moment still has the old key in its `authorized_keys` and can never be reached from the SSH tab again. The serial console is the only way back in.
+
+  Nothing VirtPilot ships has ever run `git clean` — `update.sh` uses `git reset --hard`, which leaves the directory alone — so no install can have hit this on its own. The keypair is now git-ignored, which is enough for `git clean -fd` to spare it.
+
 ## [2.7.0] — 2026-08-03
 
 Backups become incremental, restores become whole-machine, and VMs can be cloned.

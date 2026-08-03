@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.7.1',
+    date: '2026-08-03',
+    changes: [
+      { type: 'fixed', text: 'Running "git clean" inside the install directory could permanently break the SSH tab for every existing VM. The service account’s home is the install directory, so the SSH keypair VirtPilot injects into every VM it builds lives at /usr/local/virtpilot/.ssh/ — untracked but not ignored, so a plain "git clean -fd" deleted it. The backend then quietly generates a fresh keypair, so new VMs keep working while every VM created earlier still holds the old key and can never be reached from the SSH tab again; the serial console is the only way back in. Nothing VirtPilot ships runs git clean (update.sh uses git reset --hard), so no install can have hit this on its own. The keypair is now git-ignored.' },
+    ],
+  },
+  {
     version: '2.7.0',
     date: '2026-08-03',
     changes: [

@@ -11,6 +11,15 @@ packages/frontend/dist/
 .env.*.local
 packages/backend/.env
 
+# The service account's home IS the install directory, so its SSH keypair lives
+# here. Ignoring it is not about committing secrets — it is about `git clean`.
+# A plain `git clean -fd`, the obvious thing to run when a clone gets wedged,
+# would otherwise delete the key that every VM ever created has in its
+# authorized_keys. The backend silently generates a fresh one, so new VMs work
+# and every existing VM's SSH tab is broken for good, with no way back except
+# the serial console. Ignored files are spared unless someone adds -x.
+.ssh/
+
 # TypeScript incremental build cache
 *.tsbuildinfo
 
