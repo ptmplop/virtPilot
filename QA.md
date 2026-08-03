@@ -30,6 +30,10 @@ Each section ends with a "Cleanup" so the next section starts from a known state
 11. [Networks](#11-networks) — NAT, bridged, port forwards
 12. [Negative tests](#12-negative-tests) — bad inputs, racy edges, refused operations
 13. [Self-upgrade](#13-self-upgrade) — in-dashboard update flow
+14. [Incremental backups](#14-incremental-backups) — checkpoints, chains, retention, chain-aware delete
+15. [Backup consistency mechanism](#15-backup-consistency-mechanism) — which copy tier ran, and the freeze window
+16. [Restore into a new VM](#16-restore-into-a-new-vm) — rebuild a whole machine from a backup
+17. [Clone](#17-clone) — independent copy of a running or stopped VM
 
 ---
 
@@ -334,9 +338,474 @@ Settings → System → Check for updates. Initiate. Watch the SSE stream. Verif
 
 ---
 
+## 14. Incremental backups
+
+Requires a **running** VM on a host where `virsh domcapabilities | grep "<backup"`
+reports `supported='yes'`.
+
+### 14.1 First full records a checkpoint
+
+```bash
+curl -sk -X POST "$URL/api/backups/$VM" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"kind":"full"}' | jq '.backup | {id,kind,method,consistency}'
+ssh root@$HOST "virsh checkpoint-list $VM --name"
+```
+Expect `kind: "full"`, `method: "libvirt-backup"`, and one `vpbk-<backup-id>` checkpoint.
+
+### 14.2 Incremental is genuinely a delta
+
+Write a known file inside the guest, then:
+```bash
+curl -sk -X POST "$URL/api/backups/$VM" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"kind":"incremental"}' | jq '.backup | {id,kind,parentBackupId}'
+ssh root@$HOST "du -sh /var/lib/virtpilot/backups/$VM/*/"
+```
+The incremental directory must be **dramatically smaller** than the full. Confirm
+the backing pointer is relative:
+```bash
+ssh root@$HOST "qemu-img info /var/lib/virtpilot/backups/$VM/<inc-id>/disk.qcow2 | grep -i backing"
+```
+Expect `backing file: ../<full-id>/disk.qcow2`.
+
+### 14.3 Chain restores as one image
+
+Restore the incremental into a new VM (Section 16) and confirm the file written
+in 14.2 is present in the guest, *and* that files written before the full backup
+are still there. This is the test that proves the chain is being read end to end
+rather than the delta alone.
+
+### 14.4 Incremental with no parent falls back to full
+
+Delete every backup for a VM, then ask for an incremental. Expect `kind: "full"`
+and a `notes` entry explaining the fallback. The API must return 200 — a schedule
+must never skip a run.
+
+### 14.5 Incremental against a stopped VM falls back to full
+
+Stop the VM, request `kind=incremental`. Expect `kind: "full"`,
+`method: "offline-convert"`, and a note naming the reason.
+
+### 14.6 Deleting a parent is refused
+
+```bash
+curl -sk -X DELETE "$URL/api/backups/$VM/<full-id>" -H "Authorization: Bearer $TOKEN" -w '\n%{http_code}\n'
+```
+Expect **409** and `requiresCascade: true`. Then:
+```bash
+curl -sk -X DELETE "$URL/api/backups/$VM/<full-id>?cascade=true" -H "Authorization: Bearer $TOKEN"
+```
+Expect 200, and both the full and its incrementals gone from disk.
+
+### 14.7 Retention keeps a parent alive
+
+Set a 1-day retention, backdate the full backup's `createdAt` in its manifest,
+leave the incremental recent, and trigger retention (create another backup).
+The expired full must **survive**, because the incremental still needs it.
+
+### 14.8 Chain-broken detection
+
+Manually `rm -rf` a full backup's directory, then list backups. Its incrementals
+must come back with `chainBroken: true`, the UI must show a "Chain broken" badge,
+and Restore must be disabled. Attempting a restore via the API must 500 with a
+message about a missing ancestor, **not** produce a corrupt disk.
+
+### 14.9 Stale checkpoint sweep
+
+Delete a backup directory by hand, then take a new backup. The orphaned
+`vpbk-` checkpoint must be gone from `virsh checkpoint-list`.
+
+### Cleanup
+
+Delete all test backups; confirm `virsh checkpoint-list $VM --name` is empty.
+
+---
+
+## 15. Backup consistency mechanism
+
+### 15.1 Guest agent present → app-consistent, short freeze
+
+With `qemu-guest-agent` running in the guest, start a backup of a large disk and
+watch the guest's I/O. The freeze must last **under a second**, not the duration
+of the copy. Verify with a clock loop inside the guest:
+```bash
+# in the guest, while the backup runs
+while true; do date +%s.%N >> /tmp/tick; sleep 0.1; done
+```
+No gap longer than ~1s. The backup's `consistency` must be `app-consistent`.
+
+**Regression guard:** before 2.7 this gap was the entire copy duration.
+
+### 15.2 No guest agent → crash-consistent, still no stall
+
+Stop `qemu-guest-agent` in the guest and repeat. Expect
+`consistency: "crash-consistent"`, `method: "libvirt-backup"`, and a note saying
+the guest agent was unavailable. The guest must still not stall.
+
+### 15.3 Offline backup
+
+Stop the VM, back it up. Expect `method: "offline-convert"`,
+`consistency: "offline"`.
+
+### 15.4 Compression
+
+Enable compression in Settings, take a full backup of a running VM. The image
+must be measurably smaller than uncompressed, and `qemu-img info` should not
+error. Incrementals are never compressed by design — confirm an incremental
+taken with compression on still restores.
+
+---
+
+## 16. Restore into a new VM
+
+### 16.1 Happy path
+
+```bash
+curl -sk -X POST "$URL/api/backups/$VM/<backup-id>/restore-as-new" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"restored-01","start":true}' | jq
+```
+Verify:
+- New VM appears with a **different UUID** and **different MAC addresses**
+  (`virsh domiflist` on both).
+- Disks land under the chosen storage dir, `vm_disk_locations` has rows.
+- A UEFI source produces its own `<uuid>-nvram.fd` — not the original's path
+  (`virsh dumpxml restored-01 | grep nvram`).
+- VNC port does not clash: both VMs run simultaneously.
+- The guest boots with `restored-01` as its hostname (cloud-init re-ran because
+  instance-id changed).
+
+### 16.2 Source VM deleted
+
+Delete the original VM entirely, then restore-as-new from its orphaned backup.
+Must succeed — this is the whole point of the feature.
+
+### 16.3 Static-IP network allocates a fresh address
+
+With the source on a static bridge network, the restored VM must get a
+**different** free IP, recorded in `ip-allocations.json`, and the response must
+carry a warning naming both addresses.
+
+### 16.4 Name collision
+
+Restore-as-new using an existing VM's name. Expect **409**, and no orphaned
+disks left behind (`ls` the storage dir).
+
+### 16.5 Rollback on failure
+
+Force a failure mid-provision (e.g. fill the storage dir, or point at a
+storage dir the service cannot write). Expect no leftover disks, no leftover IP
+allocation, no half-defined domain.
+
+---
+
+## 17. Clone
+
+### 17.1 Clone a stopped VM
+
+Expect `method: offline-convert` behaviour, a fully independent disk
+(`qemu-img info` on the clone shows **no backing file** pointing at the source),
+new UUID/MACs/NVRAM, and both VMs bootable at once.
+
+### 17.2 Clone a running VM
+
+The source must stay running throughout and must not stall (same clock-loop
+check as 15.1). Response `consistency` is `app-consistent` with a guest agent,
+`crash-consistent` without.
+
+### 17.3 Clone leaves no checkpoint behind
+
+```bash
+ssh root@$HOST "virsh checkpoint-list <source-vm> --name"
+```
+Must be unchanged by the clone — checkpoints belong to the backup engine only.
+
+### 17.4 Identity regeneration off
+
+Clone with `regenerateCloudInit: false`. The clone keeps the original hostname
+and credentials; confirm the dialog warned about the duplicated static IP.
+
+### 17.5 Concurrent clone refused
+
+Fire two clones of the same source at once. The second must return **409**, not
+corrupt the first.
+
+### 17.6 Attached ISO carried over, seed not
+
+A source with an ISO on `sdb` and a cloud-init seed on `sda`: the clone keeps the
+ISO and gets its **own** seed (or an ejected `sda` if the source had no cloud-init).
+`virsh dumpxml` on the clone must contain no reference to the source's UUID.
+
+---
+
 ## Findings log
 
 Append per-run findings here. Format: `### YYYY-MM-DD — vX.Y.Z (host)` then bullet list.
+
+### 2026-08-03 — v2.7.0 (adm241 / 62.238.37.117, clean Ubuntu 24.04) — IN PROGRESS
+
+Full-product pass on a **fresh install**: real `bootstrap.sh` one-liner, then 2.7.0 overlaid.
+Host has **no nested virtualisation** (`kvm_amd` won't load), so guests run under TCG software
+emulation — everything works, boots are just slow. Single /32 IP and no pre-existing bridge, so
+only the managed NAT network is exercised; bridged/existing-bridge networking is untested here.
+
+**Bugs found and fixed**
+
+- **(fixed) `install.sh` executed its own comments as root.** The systemd-unit heredoc is unquoted
+  (it has to expand `${INSTALL_DIR}`), and two comment lines contained backticks. Every install ran
+  `unable to change to root gid`, `apt upgrade` and `sudo systemd-run` as root, printed three
+  confusing errors, and wrote a unit file with the comments blanked out. Backticks removed and a
+  warning left in place. `apt upgrade` aborted at its prompt, so no package was actually touched.
+- **(fixed) Backing up a VM with an active snapshot recorded the overlay's filename.** The backup
+  image was named `<vm>-vda-snap1.qcow2` instead of `disk.qcow2`, so restoring it later wrote a
+  stray file beside the real disk and the VM carried on booting the untouched original — a restore
+  that reported success and changed nothing. Backups now resolve the VM's own disk by walking the
+  backing chain to the first link VirtPilot tracks in `vm_disk_locations` (which stops one link
+  short of the shared template). Restore additionally refuses when the VM is booting from an
+  overlay, rather than writing a file nothing will read.
+- **(fixed) A backup permanently disabled snapshots for that VM.** 2.7.0 created a checkpoint on
+  *every* backup of a running VM. A checkpoint pins a dirty bitmap inside the qcow2, and libvirt
+  then refuses **all** block operations — `snapshot-create`, `blockcommit`, revert — with
+  "cannot perform block operations while checkpoint exists". Checkpoints are now only created when
+  incrementals are actually opted into (`kind: incremental`/`auto`, i.e. the Incremental button or
+  an incremental-mode schedule). A plain full backup leaves no checkpoint and snapshots keep
+  working. Snapshot creation also now fails with an explanatory message instead of raw virsh output.
+- **(fixed) Restoring over a VM that had checkpoints left it unbootable.** Replacing the image
+  invalidates the bitmaps libvirt still believes in; the checkpoint then cannot be deleted and qemu
+  refuses to open the disk ("Failed to get write lock"). Restore now clears the VM's checkpoints
+  *before* touching the images, while libvirt can still remove them cleanly.
+- **(fixed) Malformed request bodies returned 500.** A multipart upload posted with a JSON
+  content-type — or any truncated body — reached the global error handler as an "Unhandled error"
+  stack and a 500. body-parser failures are now 400 (413 for oversize).
+- **(fixed) Un-ticking a storage directory's "default" checkbox silently did nothing.** The server
+  only ever moves a default, never clears one (correct — every purpose must always have exactly one),
+  but the dialog let you untick it and reported success. The checkbox is now disabled with an
+  explanation once the directory holds the flag.
+
+**Verified on the clean install**
+
+- `bootstrap.sh` → `install.sh` end to end: apt deps, Node 20, libvirtd, storage tree, nginx on
+  :3001 with a self-signed cert, backend on 127.0.0.1:3002, sudoers, systemd unit, default NAT
+  network `myNet` (10.0.1.0/24, bridge `vp0`). Re-running `install.sh` preserved the password hash
+  and `JWT_SECRET`.
+- Auth: unauthenticated API 401, wrong password 401.
+- Storage dirs: seeded default, add, all eight invalid paths rejected with accurate messages,
+  `$`-in-path accepted, default shifting, delete.
+- Templates/ISOs: URL download, multipart upload, rename (meta.json), move between dirs.
+  **SSRF guard rejected all six vectors** — link-local, loopback, IPv4-mapped IPv6, RFC1918,
+  `file://`, and `localhost`.
+- VM lifecycle under TCG: create from template (UEFI + NVRAM), start, cloud-init applied hostname
+  and SSH key, DHCP lease from the managed NAT network, **guest reached the internet through NAT**,
+  add second disk, resize vda 2→3 GB, `vm_disk_locations` rows correct.
+- Port forward: created with a DHCP reservation, DNAT rule correctly scoped to `-i eth0`, matching
+  FORWARD ACCEPT rule.
+- Backups on a clean install: full 198 MB, **incremental 403 KB**, chain metadata correct,
+  checkpoints created, `crash-consistent` correctly reported (Alpine has no guest agent).
+- Restore over the VM, restore-into-a-new-VM, and clone all succeeded.
+
+**Bugs found and fixed (continued)**
+
+- **(fixed) A restore left the VM unbootable via a stale backing chain.** libvirt caches each disk's
+  chain in `<backingStore>` inside the persistent XML. Replacing an image out-of-band leaves that
+  cache describing a chain the file no longer has — on the test VM, *vda*'s cached backing pointed
+  at *vdb*'s image, so qemu opened that file twice and refused to start the domain with
+  `Failed to get "write" lock`. Restore now strips the cached chain and re-defines, so libvirt
+  re-probes from the images.
+- **(fixed) A deny-all firewall locked the operator out of their own firewall.** Applying rules
+  resolved the VM's IP from its static allocation or the host ARP cache. A VM on a managed NAT
+  network has no static allocation, and a deny-all inbound policy is precisely what stops ARP
+  resolving — so the next apply, including the one undoing the policy, failed with "Could not
+  resolve VM IP". Resolution now also consults libvirt's DHCP leases, which are unaffected by guest
+  reachability. Verified by flushing the host ARP cache under a deny-all policy: apply still succeeds.
+- **(fixed) Status codes.** Snapshot creation blocked by checkpoints returned 500 (now 409);
+  deleting a template or ISO that does not exist returned 500 (now 404).
+
+**Verified (continued)**
+
+- **Full clean-slate regression on a fresh VM**, end to end: full backup leaves no checkpoint →
+  snapshot create and delete both work → requesting an incremental opts in to a checkpoint and takes
+  a full with an explanatory note → the next run is a true incremental (861 KB) → snapshot is now
+  refused with the explanatory message → restore clears the checkpoints, refreshes the backing chain
+  and the VM **boots** → and the guest proves the rollback: the marker written before the backup is
+  present, the one written after it is gone.
+- Section 6: a VM created on a non-default storage dir puts its disk on that mount while NVRAM,
+  `name.txt` and the cloud-init seed stay on the system root — and it boots from the non-default mount.
+- Section 7: moving a VM disk is refused while the VM runs (409), and the three-phase move relocates
+  the file, rewrites the domain XML, updates `vm_disk_locations`, cleans up the source folder, and
+  the VM starts from its new home.
+- Section 8: missing-file detection flags `fileMissing`, start fails with a clear libvirt error, and
+  the flag clears when the file returns.
+- Firewall chains are created and torn down correctly; NIC bandwidth shaping applies and produces an
+  htb qdisc.
+- Section 12 negative tests: duplicate VM name 409, invalid name 400, no networks 400, malformed
+  UUID 400, deleting a storage dir still holding disks 400 (with the disk count), traversal in a
+  backup id 404.
+- Activity log recorded 61 entries across 18 event types; the metrics DB held 18 per-VM and 122
+  host samples; 9 host devices enumerated; APT reported 71 upgradable packages.
+- **2FA, full lifecycle**: enrolment returns a secret and a QR data URL; enabling makes login return
+  `requiresTotp` with a `tempToken` and no session token; a wrong code is refused; a correct code
+  issues a working session token; **replaying that code is refused**; a forged `tempToken` is
+  refused; and a *session* token cannot be passed off as a `tempToken` (the `pending2fa` claim is
+  checked). Disabling restores password-only login.
+- **WebSocket upgrade auth** on `/ws/console`, `/ws/ssh` and `/ws/vnc`: 101 with the token in
+  `Sec-WebSocket-Protocol`, **401 with no token, and 401 for a token in the query string** — the 2.6
+  hardening holds on all three endpoints.
+
+**Bugs found and fixed (continued)**
+
+- **(fixed) Port forwarding never worked on a managed NAT network.** The DNAT rule was correct and
+  counted hits, but the companion `FORWARD ... -j ACCEPT` was **appended**, landing below libvirt's
+  own jumps — and the chain they lead to ends with
+  `-o <bridge> -j REJECT --reject-with icmp-port-unreachable`. The packet was rejected before our
+  ACCEPT was ever consulted, so an external client got "connection refused" while the DNAT counter
+  ticked up. The rule is now **inserted** at the head of FORWARD. Verified from an external client:
+  before the fix, connection refused; after, the connection reaches the guest's sshd.
+- **(fixed) A snapshot taken while the VM was stopped could never be deleted.** libvirt only applies
+  dynamic ownership when there is a qemu process to label for, so an overlay created for a shut-off
+  domain keeps `root:root 0600` — which the service account cannot chmod. Deleting the snapshot then
+  runs `qemu-img commit` as `libvirt-qemu` and fails with "Permission denied", leaving an
+  undeletable snapshot and a VM permanently running off the overlay. Overlays are now pre-created by
+  the service at 0660 and handed to libvirt with `--reuse-external` (the same approach as the backup
+  targets), and a failed snapshot cleans up the files it made.
+- **(fixed) Invalid firewall rules were accepted at save time.** A rule with an out-of-range port
+  saved with 200 and only failed later at apply, after the operator had left the page believing it
+  was in force. Rule sets are now validated on save and rejected with a 400 naming the offending
+  rule.
+
+**Verified (continued)**
+
+- **Port forward end to end from an external client**, after deleting and recreating the forward
+  through the API so the fix was genuinely exercised.
+- **Offline snapshot create + delete**: the overlay is `virtpilot:virtpilot 0660`, the delete commits
+  it away, the domain returns to its base disk, the overlay file is removed and the VM starts.
+- VM operations: autostart on/off, boot-order read and write, CD-ROM attach and detach, CPU/RAM edit
+  (correctly refused while running, applied when stopped), and rename — which updates the domain,
+  `name.txt` and the metadata record, and renames back cleanly.
+- Firewall validation: out-of-range port, reversed range, ports on ICMP, bad direction, bad action,
+  malformed source CIDR and an invalid default policy are all rejected with 400 and a specific
+  message; a valid rule set saves, applies and installs its chains.
+- Activity log clearing (84 entries → 0); `maxLogs` clamps to its 10–10,000 bounds.
+- The IP allowlist round-trips, and **refuses an allowlist that would exclude the caller's own IP**
+  rather than locking the operator out.
+
+- **(fixed) The firewall and port forwarding fought over FORWARD, and the winner depended on the
+  order you configured them in.** Both insert at the head of the chain, so configuring the firewall
+  first left a later port forward sitting *above* it — quietly punching a hole through a deny-all
+  inbound policy — while configuring the forward first let the firewall shadow it. Measured both
+  ways: identical settings, opposite security outcomes. The per-VM firewall is the policy and a port
+  forward is only address translation, so the firewall now always wins: adding a forward re-asserts
+  the VM's firewall jumps at the head. Verified that both orders now produce identical rule ordering,
+  that a deny-all policy blocks a forwarded port, and that adding an explicit allow rule for the
+  forwarded port makes it reachable from an external client again.
+
+**Verified (final)**
+
+- **All three WebSocket endpoints driven for real**, not just handshaked: `/ws/console` returned the
+  guest's serial login prompt through `virsh console`, `/ws/ssh` gave an interactive shell where
+  `hostname; id` ran inside the guest, and `/ws/vnc` returned qemu's `RFB 003.008` banner.
+- All nine starter template-set URLs return 200 — no repeat of the dead-mirror problem that shipped
+  in an earlier release.
+- Host devices enumerate (7 PCI, 2 USB).
+
+**Final end-to-end regression on a fresh VM**, run after all thirteen fixes were in place: create from
+template → boot under TCG with cloud-init → snapshot create and delete → full backup (named
+`disk.qcow2`, no checkpoint left behind) → incremental chain → clone → restore-into-a-new-VM →
+restore over the original. The rollback was proved with a marker file: written *before* the backup,
+changed *after* it, and back to its original contents once the VM restarted. `<backingStore>` count
+after the restore: 0.
+
+**Measured, not assumed**: `GET /api/vms` with two running guests returns in **0.55 s** — an earlier
+suspicion that its per-VM `virsh` fan-out was a bottleneck did not survive measurement. A transient
+`000` from nginx during a heavy multi-guest phase did not recur across repeated probes and left
+nothing in either nginx's or the service's log.
+
+**Not testable on this host (environmental, not defects)**
+
+- **Host-device passthrough** — the box is itself a VM with no IOMMU groups, so VFIO cannot bind.
+- **Bridged and existing-bridge networking** — a single /32 public IP and no second NIC. Only the
+  managed NAT network was exercised.
+- **Nested guests run under TCG**, so nothing here says anything about KVM-accelerated performance.
+- **Section 13, in-dashboard self-upgrade** — needs a published GitHub release newer than the
+  installed build.
+- Saving a firewall rule with an out-of-range port (`portRange: "99999"`) is accepted with 200;
+  validation only happens at apply time, so an invalid rule can be persisted and fail later.
+- Snapshot deletion against a *stopped* VM failed once with a truncated `qemu-img commit` error;
+  the running-VM path (blockcommit) works.
+- Section 13 (in-dashboard self-upgrade) needs a published release newer than the installed build.
+
+### 2026-08-03 — v2.7.0 (slc-gateway, isolated instance)
+
+Sections 14–17 run against a throwaway Debian 13 guest (UEFI, static IP, guest
+agent installed) on a second VirtPilot instance with its own `STORAGE_ROOT` and
+port. The production install on the same host was untouched throughout.
+
+**Method note.** Do not point a second backend at a shared host without first
+checking `port-forwards.json`. `portForwardService.applyAllRules()` strips
+*every* `virtpilot-`-tagged nat PREROUTING rule at boot and re-adds only those in
+its own storage root — a second instance would silently delete the first's port
+forwards. This host had none, so the QA instance was safe.
+
+**Bugs found and fixed in this release**
+
+- **(fixed) libvirt push-mode backups produced images nothing could read back.**
+  A target file libvirt creates itself has no previous owner to remember, so the
+  security manager labels it `root:root 0600` when the job releases it. The
+  backup reported success, then every later `qemu-img` call — the rebase that
+  chains an incremental, the convert that flattens a chain on restore — failed
+  with "Permission denied". Both incremental backups *and* restores of any
+  push-mode backup were broken. Targets are now pre-created by the service at
+  mode 0660 and handed to `backup-begin --reuse-external`, which also lets the
+  incremental's backing pointer be set at creation rather than patched in after.
+- **(fixed) A restore refused for a legible reason returned HTTP 500.** Broken
+  chain, VM still running, name already taken and corrupt backup all reported as
+  server faults. They are 4xx now (409/422/400), which is what the dashboard
+  needs to tell the operator what to do.
+- **(fixed) `virsh undefine` was not asked to drop checkpoint metadata.** Deleting
+  a VM that had been backed up incrementally worked in the default path only
+  because removing its storage takes the checkpoints with it; a "keep the
+  storage" delete could be refused. `--checkpoints-metadata` is now passed, with
+  a fallback for libvirt older than 5.6.
+
+**Verified**
+
+- Freeze window: **0.074 s** maximum guest stall across an 8 s backup that copied
+  1.4 GB, measured with a 10 Hz clock loop inside the guest doing continuous
+  writes. Pre-2.7 this gap was the whole copy duration. Regression guard for 15.1.
+- Incremental really is a delta: 4.1 MB against a 1.4 GB full, with
+  `backing file: ../<parent-id>/disk.qcow2` — relative, so the tree is relocatable.
+- **Chain integrity, end to end.** A 3-link chain (full → inc → inc) restored into
+  a new VM produced a guest containing all three generation markers *and* exact
+  md5 matches for a 200 MB and a 30 MB random payload written at different points
+  in the chain. The restored disk is standalone.
+- Restore-as-new after the source VM was **deleted outright** rebuilt a working
+  machine, new UUID/MAC/NVRAM/VNC port, fresh IP (10.0.0.3 while the source kept
+  10.0.0.2), warning returned naming both.
+- Clone of a running VM: `app-consistent`, standalone disk, zero references to
+  the source UUID in the clone's XML, source's checkpoint list unchanged, second
+  concurrent clone refused with 409. Clone keeps a shared ISO on `sdb` and gets
+  its own cloud-init seed.
+- Fallbacks all take a full backup and say why rather than failing: no parent yet,
+  VM stopped (`offline-convert`), guest agent stopped (`crash-consistent`).
+- Chain safety: deleting a parent → 409 with `requiresCascade` and the dependents
+  listed; `?cascade=true` removes the subtree; retention kept an expired full that
+  still had a live incremental on it; a hand-deleted full marked its descendants
+  `chainBroken` and their restore was refused rather than producing a corrupt disk;
+  a stale checkpoint whose backup directory was removed was swept on the next run.
+- Compression: 636 MB vs 1.4 GB uncompressed, still via `libvirt-backup`.
+- Overwrite restore rolled the guest back correctly — a file written after the
+  backup was gone, files inside it present.
+- Name collisions on both clone and restore-as-new left no orphaned disks.
+- Zero stack traces in the service journal across the entire run.
+
+**Not covered**
+
+- Multi-disk VMs (extra `vdb`) through the incremental path — single-disk only.
+- Backups to a `BACKUP_ROOT` on a separate filesystem or NFS mount.
+- A host where `domcapabilities` reports `<backup supported='no'/>`, so the
+  `snapshot-convert` tier (2) was never exercised on real hardware; only its
+  building blocks (external snapshot + blockcommit) are shared with the existing
+  snapshot code, which this host does exercise.
+- Schedules firing on their own timer — the scheduler path was tested by calling
+  `createBackup` with the same options the scheduler passes, not by waiting.
 
 ### 2026-05-05 — v2.3.0 (62.238.0.136, clean install)
 

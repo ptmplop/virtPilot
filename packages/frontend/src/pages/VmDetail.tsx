@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
-  Copy, Cpu, Disc, Download, Eye, EyeOff, FolderInput, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
+  Copy, CopyPlus, Cpu, Disc, Download, Eye, EyeOff, FolderInput, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
   Power, PowerOff, RotateCcw, Server, Shield, Terminal, Trash2, Usb, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,6 +13,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { StorageDirSelect } from '@/components/StorageDirSelect';
 import { MoveDialog } from '@/components/MoveDialog';
+import { CloneVmDialog } from '@/components/CloneVmDialog';
 import { useMoveVmDisk } from '@/hooks/useVmDisks';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -74,6 +75,7 @@ export function VmDetailPage() {
 
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [cloneOpen, setCloneOpen] = useState(false);
   const rename = useRenameVm(uuid!);
 
   const handleRenameStart = () => {
@@ -264,8 +266,23 @@ export function VmDetailPage() {
               >
                 <Terminal size={13} /> Console
               </Button>
+              <Tooltip label="Clone this VM into a new machine">
+                <Button size="sm" variant="secondary" onClick={() => setCloneOpen(true)}>
+                  <CopyPlus size={13} /> Clone
+                </Button>
+              </Tooltip>
             </div>
           </div>
+
+          {cloneOpen && (
+            <CloneVmDialog
+              open
+              vmUuid={uuid!}
+              vmName={vm.name}
+              vmStatus={vm.status}
+              onClose={() => setCloneOpen(false)}
+            />
+          )}
 
           {/* Tab bar */}
           <div className="mb-7 flex items-center gap-1 border-b border-border">

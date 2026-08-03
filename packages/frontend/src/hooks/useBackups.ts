@@ -3,9 +3,12 @@ import { api } from '@/lib/api';
 import type {
   BackupEntry,
   BackupInProgress,
+  BackupKindRequest,
   BackupSchedule,
+  BackupScheduleMode,
   BackupVmSummary,
   BackupFrequency,
+  IncrementalStatus,
 } from '@/types';
 
 const KEYS = {
@@ -28,7 +31,11 @@ export function useVmBackups(vmUuid: string) {
   return useQuery({
     queryKey: KEYS.vm(vmUuid),
     queryFn: async () => {
-      const { data } = await api.get<{ backups: BackupEntry[]; schedule: BackupSchedule | null }>(`/api/backups/${vmUuid}`);
+      const { data } = await api.get<{
+        backups: BackupEntry[];
+        schedule: BackupSchedule | null;
+        incremental: IncrementalStatus;
+      }>(`/api/backups/${vmUuid}`);
       return data;
     },
     enabled: !!vmUuid,
@@ -50,8 +57,8 @@ export function useRunningBackups() {
 export function useCreateBackup(vmUuid: string, vmName: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const { data } = await api.post<{ backup: BackupEntry }>(`/api/backups/${vmUuid}`, undefined, { timeout: 0 });
+    mutationFn: async (kind: BackupKindRequest = 'full') => {
+      const { data } = await api.post<{ backup: BackupEntry }>(`/api/backups/${vmUuid}`, { kind }, { timeout: 0 });
       return data.backup;
     },
     onMutate: () => {
@@ -74,8 +81,8 @@ export function useCreateBackup(vmUuid: string, vmName: string) {
 export function useDeleteBackup(vmUuid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (backupId: string) => {
-      await api.delete(`/api/backups/${vmUuid}/${backupId}`);
+    mutationFn: async ({ backupId, cascade }: { backupId: string; cascade?: boolean }) => {
+      await api.delete(`/api/backups/${vmUuid}/${backupId}${cascade ? '?cascade=true' : ''}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEYS.vm(vmUuid) });
@@ -96,6 +103,33 @@ export function useRestoreBackup(vmUuid: string) {
   });
 }
 
+export interface RestoreAsNewInput {
+  backupId: string;
+  name: string;
+  storageDirId?: string;
+  regenerateCloudInit?: boolean;
+  password?: string;
+  start?: boolean;
+}
+
+export function useRestoreBackupAsNewVm(vmUuid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ backupId, ...body }: RestoreAsNewInput) => {
+      const { data } = await api.post<{ uuid: string; name: string; warnings: string[] }>(
+        `/api/backups/${vmUuid}/${backupId}/restore-as-new`,
+        body,
+        { timeout: 0 },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['vms'] });
+      qc.invalidateQueries({ queryKey: KEYS.summaries });
+    },
+  });
+}
+
 export function useSaveSchedule(vmUuid: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -107,6 +141,8 @@ export function useSaveSchedule(vmUuid: string) {
       dayOfMonth?: number;
       retentionDays?: number | null;
       enabled?: boolean;
+      mode?: BackupScheduleMode;
+      fullEvery?: number;
     }) => {
       const { data } = await api.put<{ schedule: BackupSchedule }>(`/api/backups/schedules/${vmUuid}`, schedule);
       return data.schedule;

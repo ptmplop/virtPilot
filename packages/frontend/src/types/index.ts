@@ -274,9 +274,13 @@ export interface BackupDiskEntry {
   format: 'qcow2';
   sizeBytes: number;
   originalPath: string;
+  backingFilename?: string;
 }
 
 export type BackupConsistency = 'app-consistent' | 'offline' | 'crash-consistent';
+export type BackupKind = 'full' | 'incremental';
+export type BackupKindRequest = BackupKind | 'auto';
+export type BackupCopyMethod = 'libvirt-backup' | 'snapshot-convert' | 'direct-convert' | 'offline-convert';
 
 export interface BackupEntry {
   id: string;
@@ -290,6 +294,23 @@ export interface BackupEntry {
   vmStateAtBackup: string;
   retentionDays: number;
   disks: BackupDiskEntry[];
+  kind: BackupKind;
+  parentBackupId?: string;
+  method?: BackupCopyMethod;
+  compressed?: boolean;
+  notes?: string[];
+  /** An ancestor this backup needs is missing — not restorable. */
+  chainBroken: boolean;
+  /** Another backup builds on this one, so deleting it alone is refused. */
+  hasDependents: boolean;
+  /** On-disk size of this backup plus every ancestor it needs. */
+  chainSizeBytes: number;
+}
+
+export interface IncrementalStatus {
+  supported: boolean;
+  chainLength: number;
+  canChain: boolean;
 }
 
 export interface BackupVmSummary {
@@ -314,7 +335,12 @@ export interface BackupSchedule {
   enabled: boolean;
   lastRunAt: string | null;
   nextRunAt: string | null;
+  mode?: BackupScheduleMode;
+  /** Incremental mode: take a fresh full backup once the chain reaches this length. */
+  fullEvery?: number;
 }
+
+export type BackupScheduleMode = 'full' | 'incremental';
 
 export interface VmDiskFile {
   vmUuid: string;

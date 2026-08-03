@@ -271,6 +271,27 @@ export async function createBlankDisk(
   return diskPath;
 }
 
+/**
+ * Reserves the path a VM disk will live at, without creating the image.
+ *
+ * Used by the clone and restore-into-a-new-VM flows, where the image is written
+ * by something other than a fresh `qemu-img create` — a libvirt backup job, or
+ * a chain-flattening convert. Recording the location up front means a failure
+ * part-way still leaves `deleteVmDir` able to find and remove the debris.
+ */
+export async function prepareVmDiskPath(
+  vmUuidRaw: string,
+  filenameRaw: string,
+  storageDirId: string | undefined,
+): Promise<string> {
+  const vmUuid = validateVmUuid(vmUuidRaw);
+  const filename = validateFilename(path.basename(filenameRaw));
+  const dir = await resolveVmDiskDir(storageDirId);
+  const folder = await ensureVmDiskFolder(dir, vmUuid);
+  await storageDirService.recordDiskLocation(vmUuid, filename, dir.id);
+  return path.join(folder, filename);
+}
+
 // Walk every recorded disk location for the VM, delete the file, and clean up
 // any now-empty per-VM folders + the system-root vmDir (NVRAM, name.txt).
 export async function deleteVmDir(vmUuid: string): Promise<void> {

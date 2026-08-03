@@ -393,7 +393,9 @@ templatesRouter.patch('/:filename', async (req, res) => {
     await storageService.setTemplateDisplayName(filename, name.trim());
     res.json({ ok: true });
   } catch (err: unknown) {
-    res.status(500).json({ error: String(err) });
+    // "not found in any storage dir" is a missing resource, not a server fault.
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(/not found/i.test(message) ? 404 : 500).json({ error: message });
   }
 });
 
@@ -410,6 +412,8 @@ templatesRouter.delete('/:filename', async (req, res) => {
     }
     res.json({ ok: true });
   } catch (err: unknown) {
-    res.status(500).json({ error: String(err) });
+    // "not found in any storage dir" is a missing resource, not a server fault.
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(/not found/i.test(message) ? 404 : 500).json({ error: message });
   }
 });

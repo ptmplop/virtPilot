@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import * as storageDirService from './storageDirService.js';
 import { listVmMetas } from './vmMetaService.js';
+import { listNetworks } from './networkService.js';
 import { getRecentVmCpu } from './vmMetricsService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
@@ -324,6 +325,59 @@ export async function getVmInterfaceIps(nameOrId: string): Promise<Record<string
   return {};
 }
 
+/**
+ * Best-effort resolution of a VM's primary IPv4 address.
+ *
+ * Deliberately consults libvirt's DHCP leases, not just ARP. A VM on a managed
+ * NAT network has no static address recorded, so ARP was the only source — and
+ * ARP entries expire. Applying a deny-all inbound firewall therefore starved
+ * the very lookup the *next* firewall apply depends on, leaving the operator
+ * unable to change the rules back. A lease is bookkeeping libvirt owns; it
+ * survives the guest being unreachable.
+ */
+export async function resolveVmIp(nameOrId: string): Promise<string | null> {
+  const id = validateVmName(nameOrId);
+
+  // 1. A statically-allocated address is authoritative and free to read.
+  try {
+    const metas = await listVmMetas();
+    const meta = metas.find((m) => m.uuid === id.toLowerCase());
+    const staticIp = meta?.networks?.find((n) => n.isPrimary)?.ip;
+    if (staticIp) return staticIp;
+  } catch { /* fall through */ }
+
+  // 2. Ask the guest, then the host's ARP cache.
+  for (const source of ['agent', 'lease', 'arp'] as const) {
+    try {
+      const out = await virsh(['domifaddr', id, '--source', source]);
+      const match = out.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
+      if (match) return match[1];
+    } catch { /* try the next source */ }
+  }
+
+  // 3. The lease table of whichever managed network the VM's NICs sit on.
+  //    `domifaddr --source lease` does not always find it; the per-network
+  //    listing does.
+  try {
+    const nics = await getVmNics(id);
+    const macs = new Set(nics.map((n) => n.mac.toLowerCase()));
+    const networks = await listNetworks();
+    for (const net of networks) {
+      if (!net.libvirtName) continue;
+      const out = await virsh(['net-dhcp-leases', net.libvirtName]).catch(() => '');
+      for (const line of out.split('\n')) {
+        const parts = line.trim().split(/\s+/);
+        const mac = parts.find((p) => /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(p));
+        if (!mac || !macs.has(mac.toLowerCase())) continue;
+        const ip = parts.find((p) => /^\d{1,3}(\.\d{1,3}){3}\/\d+$/.test(p));
+        if (ip) return ip.split('/')[0];
+      }
+    }
+  } catch { /* give up */ }
+
+  return null;
+}
+
 // ─── Mutating operations ──────────────────────────────────────────────────────
 
 // Sends a guest-ping via QEMU guest agent. Returns false if agent is absent or
@@ -376,7 +430,18 @@ export async function deleteVm(nameOrId: string, deleteStorage = false): Promise
   try { await virsh(['destroy', name], trace); } catch { /* already stopped */ }
   const flags = ['--snapshots-metadata', '--nvram', '--tpm'];
   if (deleteStorage) flags.push('--remove-all-storage');
-  await virsh(['undefine', name, ...flags], trace);
+
+  // Incremental backups leave checkpoints on the domain, and libvirt refuses to
+  // undefine a domain that still has checkpoint metadata unless told to drop it
+  // — most visibly on a "keep the storage" delete, where nothing else clears
+  // them. The flag arrived in libvirt 5.6, so fall back for older hosts rather
+  // than making delete fail outright there.
+  try {
+    await virsh(['undefine', name, ...flags, '--checkpoints-metadata'], trace);
+  } catch (err) {
+    if (!/unsupported option|unrecognized option|command 'undefine' doesn't support/i.test(String(err))) throw err;
+    await virsh(['undefine', name, ...flags], trace);
+  }
   return formatTrace(trace);
 }
 
@@ -741,7 +806,7 @@ async function getSnapshotSizeBytes(
 
 const SNAPSHOT_TIMEOUT = 3 * 60_000;
 
-async function fsFreeze(nameOrId: string): Promise<boolean> {
+export async function fsFreeze(nameOrId: string): Promise<boolean> {
   try {
     await virsh(
       ['qemu-agent-command', validateVmName(nameOrId), '{"execute":"guest-fsfreeze-freeze"}', '--timeout', '5'],
@@ -754,7 +819,7 @@ async function fsFreeze(nameOrId: string): Promise<boolean> {
   }
 }
 
-async function fsThaw(nameOrId: string): Promise<void> {
+export async function fsThaw(nameOrId: string): Promise<void> {
   try {
     await virsh(
       ['qemu-agent-command', validateVmName(nameOrId), '{"execute":"guest-fsfreeze-thaw"}', '--timeout', '5'],
@@ -779,14 +844,34 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
   }
   const uefi = await isUefiVm(name);
 
+  // libvirt blocks every block operation on a disk carrying a dirty bitmap, so
+  // a VM with backup checkpoints cannot be snapshotted. Say so plainly instead
+  // of surfacing "Operation not supported: cannot perform block operations
+  // while checkpoint exists" from virsh.
+  const checkpoints = await virsh(['checkpoint-list', name, '--name']).catch(() => '');
+  if (checkpoints.trim()) {
+    throw new Error(
+      'This VM has incremental-backup checkpoints, and libvirt will not allow snapshots while any exist. ' +
+      'Delete this VM\'s backups (or switch its backup schedule to full backups) and try again.',
+    );
+  }
+
   const frozen = await fsFreeze(name);
 
-  // External snapshot overlays land owned `virtpilot:virtpilot` mode 0600,
-  // so the libvirt-qemu user can't later read them when we run qemu-img
-  // commit / info / resize via sudo. Bumping the new overlay to 0660 keeps
-  // virtpilot ownership but lets libvirt-qemu (a member of the `virtpilot`
-  // group) read and write — both directions of the qcow2-chain operations
-  // then succeed.
+  // Overlay ownership is the whole game here.
+  //
+  // When libvirt creates the overlay itself for a *running* domain, dynamic
+  // ownership labels it for the qemu user and everything downstream works. For
+  // a **stopped** domain there is no qemu process to label for, so the file
+  // keeps libvirt's own `root:root 0600` — and the service account cannot
+  // chmod what it does not own. Committing that snapshot away later runs
+  // `qemu-img commit` as libvirt-qemu and dies with "Permission denied",
+  // leaving a snapshot that can never be deleted and a VM permanently running
+  // off the overlay.
+  //
+  // So create the overlays ourselves at 0660 and hand them to libvirt with
+  // `--reuse-external`. libvirt-qemu is in the `virtpilot` group, so both ends
+  // of every later qcow2-chain operation can read and write them.
   const overlayPaths: string[] = [];
 
   try {
@@ -798,10 +883,13 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
       }
       const args = ['snapshot-create-as', name, snap];
       if (description) args.push('--description', description);
-      args.push('--disk-only', '--atomic');
+      args.push('--disk-only', '--atomic', '--reuse-external');
       for (const d of persistent) {
         const dir = path.dirname(d.source);
         const overlay = path.join(dir, `${name}-${d.target}-${snap}.qcow2`);
+        await fs.unlink(overlay).catch(() => { /* no leftover from a failed attempt */ });
+        await run('qemu-img', ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', d.source, overlay], { timeout: 60_000, trace });
+        await fs.chmod(overlay, 0o660).catch(() => { /* best-effort */ });
         args.push('--diskspec', `${d.target},file=${overlay},snapshot=external`);
         overlayPaths.push(overlay);
       }
@@ -817,13 +905,19 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
       args.push('--atomic');
       await virsh(args, trace, SNAPSHOT_TIMEOUT);
     }
+  } catch (err) {
+    // A failed snapshot must not leave the overlays we pre-created lying around
+    // — a later attempt with the same name would then find them and reuse a
+    // stale image.
+    for (const overlay of overlayPaths) await fs.unlink(overlay).catch(() => {});
+    throw err;
   } finally {
     if (frozen) await fsThaw(name);
   }
 
-  // Best-effort chmod — only fires for external snapshots where we know the
-  // overlay paths up front. Any commit/resize on the overlay later relies on
-  // libvirt-qemu being able to read+write the file.
+  // Re-assert the mode: libvirt may have relabelled the overlay while starting
+  // to use it. Best-effort — if it re-chowned the file we no longer own it,
+  // but in that case it belongs to the qemu user and is already usable.
   for (const overlay of overlayPaths) {
     await fs.chmod(overlay, 0o660).catch(() => { /* file may have been re-chowned by libvirt */ });
   }
@@ -1014,6 +1108,158 @@ export async function exportSnapshotAsTemplate(vmName: string, snapshotName: str
     );
   }
   return formatTrace(trace);
+}
+
+/**
+ * Drops libvirt's cached view of each disk's backing chain and re-defines the
+ * domain, so the chain is re-probed from the images on next start.
+ *
+ * libvirt records the chain it found in `<backingStore>` elements inside the
+ * persistent XML. Anything that replaces an image out-of-band — a restore, a
+ * disk swapped by hand — leaves that cache describing a chain the file no
+ * longer has. The consequences are not subtle: a stale entry pointing at
+ * another disk on the same VM makes qemu open that file twice and refuse to
+ * start the domain at all with `Failed to get "write" lock`.
+ */
+export async function refreshDomainBackingChain(nameOrId: string): Promise<void> {
+  const name = validateVmName(nameOrId);
+  const xml = await virsh(['dumpxml', name, '--inactive']);
+  // Both forms: <backingStore/> (explicitly "no backing") and the container
+  // form holding the cached chain.
+  const stripped = xml.replace(/[ \t]*<backingStore\b[^>]*(?:\/>|>[\s\S]*?<\/backingStore>)\n?/g, '');
+  if (stripped === xml) return;
+  await defineFromXml(stripped, name);
+}
+
+// ─── Transient backup snapshots ───────────────────────────────────────────────
+
+// Used to obtain a *static* copy of a running VM's disks without stalling the
+// guest for the duration of the copy. The domain is pivoted onto a throwaway
+// overlay (milliseconds, optionally quiesced), the now-frozen base files are
+// copied at leisure, then the overlay is committed back and deleted.
+//
+// This is the fallback for hosts whose libvirt/qemu lack push-mode backup
+// support; where `libvirtBackupService.isBackupSupported()` is true, that path
+// is better still — qemu does copy-before-write internally with no overlay to
+// commit, and it can produce incrementals.
+
+const BACKUP_COMMIT_TIMEOUT = 60 * 60_000;
+
+export interface TransientSnapshotDisk {
+  target: string;
+  /** The image the domain was using before the snapshot — static while the overlay is live. */
+  base: string;
+  /** The overlay the domain writes to until the snapshot is committed. */
+  overlay: string;
+}
+
+export interface TransientSnapshotResult {
+  name: string;
+  disks: TransientSnapshotDisk[];
+  /** True when the guest agent froze filesystems as part of taking the snapshot. */
+  quiesced: boolean;
+}
+
+export async function createTransientDiskSnapshot(
+  nameOrId: string,
+  snapshotName: string,
+  trace?: TraceEntry[],
+): Promise<TransientSnapshotResult> {
+  const name = validateVmName(nameOrId);
+  const snap = validateSnapshotName(snapshotName);
+
+  const allDisks = await getVmDisks(name);
+  const persistent = allDisks.filter((d) => d.type === 'disk' && d.source && /\.qcow2$/i.test(d.source));
+  if (persistent.length === 0) throw new Error('No qcow2 disks found to snapshot');
+
+  const planned: TransientSnapshotDisk[] = persistent.map((d) => ({
+    target: d.target,
+    base: d.source,
+    overlay: path.join(path.dirname(d.source), `${name}-${d.target}-${snap}.qcow2`),
+  }));
+
+  const buildArgs = (quiesce: boolean): string[] => {
+    // --no-metadata: this snapshot is an implementation detail of the copy, not
+    // something the operator should find (or be able to revert to) in the
+    // snapshot list. The `-vpbk-` marker in the overlay filename is what
+    // identifies it if the process dies between snapshot and commit.
+    const args = ['snapshot-create-as', name, snap, '--disk-only', '--atomic', '--no-metadata'];
+    if (quiesce) args.push('--quiesce');
+    for (const d of planned) {
+      args.push('--diskspec', `${d.target},file=${d.overlay},snapshot=external`);
+    }
+    for (const d of allDisks) {
+      if (!planned.find((p) => p.target === d.target)) args.push('--diskspec', `${d.target},snapshot=no`);
+    }
+    return args;
+  };
+
+  // Quiescing needs a live guest agent. Attempt it, but a guest without the
+  // agent must still get a (crash-consistent) copy rather than an error.
+  let quiesced = false;
+  const agentUp = await checkGuestAgent(name);
+  if (agentUp) {
+    try {
+      await virsh(buildArgs(true), trace, SNAPSHOT_TIMEOUT);
+      quiesced = true;
+    } catch {
+      quiesced = false;
+    }
+  }
+  if (!quiesced) {
+    await virsh(buildArgs(false), trace, SNAPSHOT_TIMEOUT);
+  }
+
+  // External overlays land virtpilot:virtpilot 0600, which blocks libvirt-qemu
+  // (running qemu-img via sudo) from reading them during the later commit.
+  for (const d of planned) {
+    await fs.chmod(d.overlay, 0o660).catch(() => { /* libvirt may have re-chowned it already */ });
+  }
+
+  return { name: snap, disks: planned, quiesced };
+}
+
+/**
+ * Folds each transient overlay back into its base and points the domain at the
+ * base again, then removes the overlay. Safe to call whether or not the VM is
+ * still running — a guest that shut down mid-copy takes the offline path.
+ */
+export async function commitTransientDiskSnapshot(
+  nameOrId: string,
+  snapshot: TransientSnapshotResult,
+  trace?: TraceEntry[],
+): Promise<void> {
+  const name = validateVmName(nameOrId);
+  const stateOut = await virsh(['domstate', name]);
+  const running = parseStatus(stateOut) === 'running';
+
+  for (const d of snapshot.disks) {
+    // An overlay that never materialised (snapshot half-failed) has nothing to
+    // commit; skip it rather than failing the whole cleanup.
+    try {
+      await fs.access(d.overlay);
+    } catch {
+      continue;
+    }
+
+    if (running) {
+      await virsh(
+        ['blockcommit', name, d.target, '--active', '--pivot', '--wait', '--verbose', '--top', d.overlay, '--base', d.base],
+        trace,
+        BACKUP_COMMIT_TIMEOUT,
+      );
+    } else {
+      await qemuImg(['commit', '-d', d.overlay], { timeout: BACKUP_COMMIT_TIMEOUT, trace });
+      const domXml = await getVmXml(name);
+      const updated = domXml.replace(sourceFileRegex(d.overlay), replaceFileAttr(d.base));
+      if (updated === domXml) {
+        throw new Error(`Failed to point ${d.target} back at ${d.base} after committing the backup overlay`);
+      }
+      await defineFromXml(updated, name);
+    }
+
+    await fs.unlink(d.overlay).catch(() => { /* blockcommit --pivot may have removed it */ });
+  }
 }
 
 // ─── Autostart ────────────────────────────────────────────────────────────────

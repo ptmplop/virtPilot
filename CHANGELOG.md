@@ -3,6 +3,64 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.0] — 2026-08-03
+
+Backups become incremental, restores become whole-machine, and VMs can be cloned.
+
+### Added
+
+- **Incremental backups.** A backup can now copy only the blocks that changed since the previous one, using libvirt checkpoints and qemu's persistent dirty bitmaps. Each incremental is a qcow2 whose backing file points at its parent, so a chain reads as one complete image — restoring any link rebuilds the whole thing automatically, and the Backups page shows both the link's own size and what the full chain costs.
+
+  Schedules gain a **backup type**: *always full*, or *incremental with a fresh full every N backups*. Capping the chain is deliberate — a long chain is slow to restore and puts every backup after a damaged link at risk. A scheduled run that cannot produce an incremental (the VM was off, the previous checkpoint is gone, the host does not support it) takes a full backup instead of being skipped, and records why on the backup.
+
+  Deleting a backup that later incrementals are built on is refused rather than silently orphaning them; the dialog offers to remove the whole subtree instead. Retention follows the same rule — an expired full backup with a live incremental on top of it survives until that incremental expires too.
+
+- **Restore into a new VM.** Restoring no longer only means overwriting the VM the backup came from. The backup already stored the domain definition, NICs and cloud-init metadata, so it can now rebuild the entire machine: new UUID, new MAC addresses, a fresh IP where the original had a static one, its own NVRAM, and a regenerated cloud-init seed so the guest boots with the new name as its hostname. This works even when the original VM has been deleted.
+
+- **Clone a VM.** One action produces a complete, independent copy — new identity throughout, disks copied in full rather than layered on the original. A running VM does not have to be shut down first: the copy is taken through the same point-in-time machinery as a backup.
+
+### Changed
+
+- **Backing up a running VM no longer freezes its filesystems for the length of the copy.** The guest agent was asked to freeze before the copy started and thaw only once every disk had finished — up to an hour of stalled I/O on a large disk, long enough to trip guest watchdogs and hang every application on the machine.
+
+  Where the host supports it, backups now use libvirt's push-mode backup API: qemu takes the point-in-time internally and copies in the background, so the freeze lasts only as long as it takes the job to start. Where it doesn't, the VM is pivoted onto a throwaway overlay for the duration of the copy and committed back afterwards. Both are measured in milliseconds of guest impact rather than minutes, and both are recorded on the backup so you can see which ran.
+
+  The old behaviour is still available as a last resort if neither mechanism works, but it now copies the live disk *without* a long freeze and marks the result crash-consistent, rather than stalling the guest to reach the same outcome.
+
+- **The backup manifest no longer stores the guest password in plain text.** It is encrypted with the same key as `vm-metadata.json`. Manifests written by earlier versions are read as before.
+
+- README no longer claims incremental backups it did not have. It does now.
+
+### Fixed
+
+- **A port forward could silently punch a hole through a deny-all firewall.** The per-VM firewall and port forwarding both wrote to the same iptables chain, and whichever was configured last ended up on top — so setting the firewall first and adding a forward afterwards left the forward bypassing the policy entirely, while the opposite order blocked it. Identical settings, opposite security outcomes. The firewall is now always evaluated first: a forwarded port on a VM with a deny-all inbound policy needs an explicit allow rule, which is visible and fixable.
+
+- **Port forwarding never actually worked on a managed NAT network.** The DNAT rule was right, but the `FORWARD ... ACCEPT` that lets the translated packet through was appended below libvirt's own rules — and libvirt's chain ends by rejecting forwarded traffic to the guest bridge. Connections were refused before VirtPilot's rule was ever consulted, while the DNAT counter ticked up as if all was well. The rule is now inserted ahead of libvirt's.
+
+- **A snapshot taken while the VM was shut down could never be deleted.** libvirt only hands an overlay to the qemu user when there is a running qemu to hand it to, so a snapshot of a stopped VM left a file the service account could neither read nor change permissions on. Deleting it failed with "Permission denied", and the VM was left running off an overlay it could not get rid of. Overlays are now created by VirtPilot itself with the right ownership.
+
+- **Applying a deny-all firewall could lock you out of your own firewall.** Rules are applied against the VM's IP address, which was resolved from the host's ARP cache — and a deny-all inbound policy is precisely what stops that resolving. The next apply, including the one undoing the policy, failed with "Could not resolve VM IP". DHCP leases are now consulted too, which the guest's reachability cannot affect.
+
+- **Restoring a backup could leave the VM unable to start.** libvirt caches each disk's backing-file chain in the VM's definition; replacing the image out-of-band left that cache describing a chain the file no longer had, and qemu then refused to open the disk at all. Restore now clears the cache so libvirt re-reads it from the images.
+
+- **Invalid firewall rules were accepted and only failed later.** A rule with an out-of-range port saved successfully and blew up at apply time, after you had left the page. Rule sets are validated when saved, and rejected with a message naming the rule at fault.
+
+- **`install.sh` ran fragments of its own comments as root.** Two comment lines inside the systemd-unit template contained backticks, which the shell executed while writing the file — printing three confusing errors on every install and blanking those comments out of the installed unit.
+
+- **Deleting a VM without deleting its storage could be refused once it had been backed up.** libvirt will not undefine a domain that still carries checkpoint metadata unless told to drop it, and nothing else clears it when the disks are being kept. `virsh undefine` is now asked to remove it, with a fallback for libvirt older than 5.6.
+
+- Un-ticking a storage directory's "use as default" checkbox appeared to work but never could — every purpose must always have exactly one default. The checkbox is now disabled once the directory holds the flag, with an explanation.
+
+- Malformed request bodies returned "Internal server error" instead of a 400, and filled the log with stack traces. Several operations that were refused for legible reasons — restoring onto a running VM, snapshotting a VM with backup checkpoints, deleting a template that does not exist — reported themselves as server faults rather than 4xx.
+
+- A restore refused for a reason the operator can act on — the VM is still running, the name is taken, the backup's chain is incomplete — now returns the matching 4xx status instead of reporting a server error.
+
+### Upgrade notes
+
+- Existing backups keep working untouched and are treated as full backups. The first backup taken after upgrading also records a checkpoint, which is what makes the *next* one able to be incremental — so incremental backups become available one run after the upgrade, not immediately.
+- Incremental backups require a running VM and a host whose `virsh domcapabilities` reports `<backup supported='yes'/>` (libvirt 6.0+ with a qemu that has `blockdev-backup` — anything on Ubuntu 22.04 or newer). The Backups page says which of these is missing when the Incremental button is unavailable.
+- Cloning and restore-into-a-new-VM carry over attached ISOs but not the source's cloud-init seed, and turning off "give the clone its own identity" will duplicate a static IP — the dialog says so.
+
 ## [2.6.1] — 2026-07-27
 
 ### Fixed

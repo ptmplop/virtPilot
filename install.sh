@@ -560,8 +560,10 @@ SupplementaryGroups=libvirt kvm systemd-journal
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 # CapabilityBoundingSet is deliberately NOT pinned. A bounding set tighter
 # than the caps sudo needs (CAP_SETUID, CAP_SETGID, CAP_AUDIT_WRITE) breaks
-# every sudo invocation with `unable to change to root gid` + audit plugin
+# every sudo invocation with "unable to change to root gid" + audit plugin
 # init failure, including the (libvirt-qemu) qemu-img path used by backups.
+# NB: this heredoc is unquoted (it has to expand ${INSTALL_DIR} and friends),
+# so never use backticks in these comments — the shell runs them as commands.
 # The blast-radius argument is illusory here — the service already has sudo
 # rights to apt-get/systemctl per /etc/sudoers.d/virtpilot, which is strictly
 # more powerful than any cap a hostile exec could gain. The real isolation
@@ -577,7 +579,7 @@ SyslogIdentifier=virtpilot
 
 # Hardening — limits the blast radius if the backend is ever exploited. We
 # deliberately do NOT set NoNewPrivileges here: the in-app self-upgrade and
-# `apt upgrade` flows shell out to `sudo systemd-run` / `sudo apt-get`, and
+# "apt upgrade" flows shell out to "sudo systemd-run" / "sudo apt-get", and
 # the kernel's no_new_privs bit makes sudo refuse to elevate even with the
 # NOPASSWD rules in /etc/sudoers.d/virtpilot. The other hardening below all
 # stays in force.

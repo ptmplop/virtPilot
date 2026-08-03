@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { virsh, qemuImg } from '../services/safeExec.js';
-import { validateVmName, validateVmUuid, validateFilename, validateNicModel, validatePositiveInt } from '../lib/validate.js';
+import { validateVmName, validateVmUuid, validateFilename, validateNicModel, validatePositiveInt, ValidationError } from '../lib/validate.js';
 import * as vmService from '../services/vmService.js';
 import * as deviceService from '../services/deviceService.js';
 import * as storageService from '../services/storageService.js';
@@ -14,6 +14,7 @@ import * as storageDirService from '../services/storageDirService.js';
 import * as networkService from '../services/networkService.js';
 import * as vmMetaService from '../services/vmMetaService.js';
 import * as vmMetricsService from '../services/vmMetricsService.js';
+import * as vmDeriveService from '../services/vmDeriveService.js';
 import * as portForwardService from '../services/portForwardService.js';
 import * as firewallService from '../services/firewallService.js';
 import * as logService from '../services/logService.js';
@@ -507,6 +508,83 @@ vmsRouter.post('/', async (req, res) => {
   }
 });
 
+// Clone a VM into a brand-new machine.
+//
+// The copy is taken through the same consistency machinery as a backup, so a
+// running source VM does not have to be shut down first — and never has its
+// filesystems frozen for the duration of the copy.
+vmsRouter.post('/:uuid/clone', requireUuidParam, async (req, res) => {
+  const start = Date.now();
+  const { uuid } = req.params;
+  const { name, storageDirId, regenerateCloudInit, password, start: startAfter } = req.body as {
+    name?: unknown;
+    storageDirId?: unknown;
+    regenerateCloudInit?: unknown;
+    password?: unknown;
+    start?: unknown;
+  };
+
+  if (typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  try {
+    validateVmName(name.trim());
+  } catch {
+    return res.status(400).json({ error: 'VM name must start with a letter or number, be at most 63 characters, and contain only letters, numbers, dots, hyphens and underscores' });
+  }
+  if (storageDirId !== undefined && typeof storageDirId !== 'string') {
+    return res.status(400).json({ error: 'storageDirId must be a string' });
+  }
+  if (password !== undefined && typeof password !== 'string') {
+    return res.status(400).json({ error: 'password must be a string' });
+  }
+
+  const log = await logSubject(uuid);
+  try {
+    const result = await vmDeriveService.cloneVm({
+      sourceUuid: uuid,
+      newName: name.trim(),
+      storageDirId: storageDirId as string | undefined,
+      regenerateCloudInit: regenerateCloudInit !== false,
+      password: password as string | undefined,
+    });
+
+    if (startAfter === true) {
+      try {
+        await vmService.startVm(result.uuid);
+      } catch (err: unknown) {
+        result.warnings.push(`The clone was created but would not start: ${String(err)}`);
+      }
+    }
+
+    void logService.appendLog({
+      type: 'vm.clone',
+      ...log,
+      status: 'success',
+      output: [`Cloned to "${result.name}" (${result.uuid}, ${result.consistency})`, ...result.warnings, result.output]
+        .filter(Boolean)
+        .join('\n'),
+      durationMs: Date.now() - start,
+    });
+    res.status(201).json({
+      uuid: result.uuid,
+      name: result.name,
+      consistency: result.consistency,
+      warnings: result.warnings,
+    });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.clone', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
+    // A clone refused for a reason the operator can fix — the name is taken, a
+    // clone is already running, the network is full — is a 4xx, not a fault.
+    const message = String(err instanceof Error ? err.message : err);
+    const status = /already exists|already running|no free IP/.test(message) ? 409
+      : /no disks to clone|both named/.test(message) ? 422
+      : /not flagged for|not found/.test(message) ? 400
+      : 500;
+    res.status(status).json({ error: message });
+  }
+});
+
 // Rename VM. Storage paths, firewall chains, metrics rows, port-forwards,
 // and IP allocations are all keyed on UUID — none of them need rewriting.
 // Rename touches just the libvirt domain `<name>` element, the vmMeta record,
@@ -914,7 +992,10 @@ vmsRouter.post('/:uuid/snapshots', requireUuidParam, async (req, res) => {
     res.json({ ok: true });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.snapshot.create', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
-    res.status(500).json({ error: String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    // A VM carrying backup checkpoints genuinely can't be snapshotted — that's
+    // a conflict the operator resolves, not a server fault.
+    res.status(/checkpoints|already exists/i.test(message) ? 409 : 500).json({ error: message });
   }
 });
 
@@ -1048,6 +1129,9 @@ vmsRouter.put('/:uuid/firewall', requireUuidParam, async (req, res) => {
     await firewallService.saveFirewallConfig(req.params.uuid, cfg);
     res.json({ ok: true });
   } catch (err: unknown) {
+    // A rule that could never be applied is a bad request, and saying so at
+    // save time beats letting the operator walk away thinking it took effect.
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -1057,19 +1141,11 @@ vmsRouter.post('/:uuid/firewall/apply', requireUuidParam, async (req, res) => {
   const { uuid } = req.params;
   const log = await logSubject(uuid);
   try {
-    let ip: string | null = null;
-    const meta = await vmMetaService.getVmMeta(uuid);
-    if (meta?.networks) {
-      const primary = meta.networks.find((n) => n.isPrimary);
-      ip = primary?.ip ?? null;
-    }
-    if (!ip) {
-      try {
-        const stdout = await virsh(['domifaddr', validateVmUuid(uuid), '--source', 'arp']);
-        const match = stdout.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
-        if (match) ip = match[1];
-      } catch { /* VM not running */ }
-    }
+    // Consults DHCP leases as well as ARP: on a managed NAT network there is no
+    // static address to fall back on, and a deny-all inbound policy applied a
+    // moment ago is exactly what stops ARP resolving — which used to leave the
+    // operator unable to apply any further rules, including the ones undoing it.
+    const ip = await vmService.resolveVmIp(uuid);
     if (!ip) return res.status(400).json({ error: 'Could not resolve VM IP — ensure the VM is running' });
     const cfg = await firewallService.getFirewallConfig(uuid);
     await firewallService.applyFirewallRules(uuid, ip, cfg);

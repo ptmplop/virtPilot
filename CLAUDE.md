@@ -66,6 +66,20 @@ usermod -aG libvirt $USER
 - Networking: bridged only; bridge must pre-exist on host
 - NAT bridge names: `vp0`, `vp1`, ... (libvirt network names: `virtpilot-{uuid8}`)
 - Firewall iptables chains: `VP-IN-{vmName}`, `VP-OUT-{vmName}`
+- Copying a VM's disks (backup **and** clone) goes through `services/diskCopyService.ts`, which
+  picks the best of four tiers and reports which one ran. Never call `qemu-img convert` on a
+  running VM's disk directly, and never wrap a copy in a guest fsfreeze — the freeze must only
+  span the *start* of the copy, not its duration
+- Incremental backups are libvirt checkpoints + qemu dirty bitmaps (`services/libvirtBackupService.ts`).
+  Checkpoints are named `vpbk-{backupId}`; a checkpoint with no complete backup behind it is swept by
+  `reconcileCheckpoints`. Incrementals are qcow2 files backed by `../{parentBackupId}/{filename}` —
+  always a *relative* path, so the backup tree stays relocatable
+- Building a new VM from an existing one (clone, restore-into-a-new-VM) shares
+  `services/vmDeriveService.ts`. Anything a host enforces uniqueness on must be re-keyed there:
+  name, UUID, MAC addresses, NVRAM path, disk paths, VNC port, tap device names
+- **Startup side effect to know about**: `portForwardService.applyAllRules()` strips *every*
+  `virtpilot-`-tagged nat PREROUTING rule on boot and re-adds only those in its own
+  `port-forwards.json`. Two backends sharing a host but not a `STORAGE_ROOT` will fight over them
 
 ## Before every commit — mandatory version bump
 

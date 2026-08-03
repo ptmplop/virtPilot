@@ -10,11 +10,11 @@ VirtPilot does not run a control plane, an agent, or a database of truth. VM sta
 
 ## Features
 
-- **VMs** — create from cloud images with cloud-init, BIOS or UEFI (OVMF + swtpm), live console via `xterm.js` over a WebSocket-backed `virsh console`
+- **VMs** — create from cloud images with cloud-init, BIOS or UEFI (OVMF + swtpm), live console via `xterm.js` over a WebSocket-backed `virsh console`; clone any VM into an independent copy without shutting it down
 - **Templates & ISOs** — qcow2 backing chain (overlay per VM), upload custom ISOs, convert a running snapshot back into a template
 - **Networking** — bridged interfaces (host bridge required) and managed NAT bridges (`vp0`, `vp1`, …); per-NIC bandwidth shaping via Linux `tc`; per-VM iptables firewall chains
 - **Snapshots** — internal and external (disk-only and live with RAM); size column shows on-disk cost
-- **Backups** — full and incremental, locally or to a configurable `BACKUP_ROOT` (e.g. NFS mount)
+- **Backups** — full and incremental (libvirt checkpoints + qemu dirty bitmaps), scheduled or on demand, locally or to a configurable `BACKUP_ROOT` (e.g. NFS mount). Restore over the original VM, or rebuild the whole machine as a new one. See [Backups](#backups)
 - **Metrics** — Live / 1h / 24h history per VM; CPU, memory, disk, network; survives backend restarts
 - **Auth** — single-password login + optional TOTP; JWT in `httpOnly` cookie
 - **Self-upgrade** — Dashboard polls GitHub Releases and runs `update.sh` in a transient systemd unit; live build output streamed back to the browser
@@ -81,6 +81,64 @@ sudo bash update.sh --force # rebuild even when up to date
 ```
 
 ---
+
+## Backups
+
+### Full and incremental
+
+A **full** backup copies every allocated block of each disk into
+`${BACKUP_ROOT}/<vm-uuid>/<backup-id>/`. An **incremental** copies only what
+changed since the previous backup, and is stored as a qcow2 whose backing file
+points at its parent (`../<parent-id>/disk.qcow2`). A chain therefore reads as
+one complete image — restoring any link flattens the whole chain automatically.
+
+Incrementals need three things:
+
+| Requirement | Why |
+|---|---|
+| The VM is running | libvirt cannot read a dirty bitmap from a stopped domain |
+| `virsh domcapabilities` reports `<backup supported='yes'/>` | needs libvirt ≥ 6.0 and a qemu with `blockdev-backup` — Ubuntu 22.04+ |
+| The previous backup recorded a checkpoint | the bitmap lives in the qcow2, and the checkpoint is what names it |
+
+When any of these is missing, the run takes a **full** backup instead and records
+why on the backup — a schedule never silently skips.
+
+Schedules choose between *always full* and *incremental with a fresh full every
+N backups*. Capping the chain length is deliberate: a long chain is slower to
+restore, and every link after a damaged one is lost with it.
+
+### Chain safety
+
+- Deleting a backup that later incrementals build on is **refused**. The dialog
+  offers to delete the whole subtree instead.
+- Retention obeys the same rule: an expired full backup that still has a live
+  incremental on top of it is kept until that incremental expires too.
+- A backup whose ancestors have gone missing is marked **chain broken** and
+  cannot be restored — rather than handing back a silently corrupt disk.
+
+### How the copy is taken
+
+Backing up a *running* VM never freezes its filesystems for the length of the
+copy. Four mechanisms, best first; each backup records which one ran.
+
+| Method | When | Guest impact |
+|---|---|---|
+| `libvirt-backup` | running host with backup support | freeze lasts as long as the job takes to start (ms) |
+| `snapshot-convert` | running, no backup support | pivots onto a throwaway overlay, commits it back |
+| `direct-convert` | running, both of the above failed | none, but crash-consistent |
+| `offline-convert` | VM is off | none |
+
+Only `libvirt-backup` can produce incrementals.
+
+### Restoring
+
+- **Roll back** — replaces the source VM's disks. The VM must be stopped.
+- **New VM** — rebuilds the entire machine from the backup's stored domain
+  definition: new UUID, new MAC addresses, a fresh IP where the original held a
+  static one, its own NVRAM, and a regenerated cloud-init seed so the guest
+  boots under the new name. Works even if the original VM has been deleted.
+
+Both flatten any incremental chain, so the restored VM gets one standalone image.
 
 ## Host requirements
 

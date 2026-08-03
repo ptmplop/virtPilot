@@ -88,6 +88,34 @@ export function useCreateVm() {
   });
 }
 
+export interface CloneVmInput {
+  name: string;
+  storageDirId?: string;
+  regenerateCloudInit?: boolean;
+  password?: string;
+  start?: boolean;
+}
+
+export interface CloneVmResult {
+  uuid: string;
+  name: string;
+  consistency: string;
+  warnings: string[];
+}
+
+// Cloning a large disk takes as long as a backup does, so the request opts out
+// of the client's default 30s timeout.
+export function useCloneVm(uuid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CloneVmInput) => {
+      const { data } = await api.post<CloneVmResult>(`/api/vms/${uuid}/clone`, input, { timeout: 0 });
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.vms }),
+  });
+}
+
 export function useDeleteVm() {
   const qc = useQueryClient();
   return useMutation({

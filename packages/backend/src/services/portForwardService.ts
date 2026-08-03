@@ -4,7 +4,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { getNetwork, parseCidr, enumerateUsableIps } from './networkService.js';
-import { tokeniseIptablesRule } from './firewallService.js';
+import { tokeniseIptablesRule, reassertForwardJumps } from './firewallService.js';
 import { run, runSafe, virsh } from './safeExec.js';
 import {
   validateVmUuid,
@@ -269,7 +269,18 @@ async function natRuleArgs(fwd: PortForward, op: '-A' | '-D' | '-C'): Promise<st
   ];
 }
 
-function forwardRuleArgs(fwd: PortForward, op: '-A' | '-D' | '-C'): string[] {
+/**
+ * The FORWARD ACCEPT that lets the DNAT'd packet actually reach the guest.
+ *
+ * Must be *inserted*, never appended. libvirt puts its own jumps at the top of
+ * FORWARD, and the chain they lead to ends with
+ * `-o <bridge> -j REJECT --reject-with icmp-port-unreachable`. An appended rule
+ * sits below that, so the packet is rejected before it is ever consulted — the
+ * DNAT rule counts hits, nothing reaches the guest, and the caller sees
+ * "connection refused". Every port forward onto a managed NAT network was dead
+ * on arrival because of it.
+ */
+function forwardRuleArgs(fwd: PortForward, op: '-I' | '-D' | '-C'): string[] {
   const proto = validateProtocol(fwd.protocol);
   if (proto !== 'tcp' && proto !== 'udp') throw new Error('Only tcp/udp supported');
   const vmPort = validatePort(fwd.vmPort);
@@ -299,7 +310,13 @@ async function addIptablesRules(fwd: PortForward): Promise<void> {
     runSafe('iptables', forwardRuleArgs(fwd, '-C')).then((r) => r !== null),
   ]);
   if (!natExists) await run('iptables', await natRuleArgs(fwd, '-A'));
-  if (!fwdExists) await run('iptables', forwardRuleArgs(fwd, '-A'));
+  if (!fwdExists) await run('iptables', forwardRuleArgs(fwd, '-I'));
+
+  // Our ACCEPT went in at the head of FORWARD, which would place it above this
+  // VM's firewall chain. The firewall is the policy — put its jumps back on
+  // top so the outcome doesn't depend on the order the operator happened to
+  // configure the two features in.
+  await reassertForwardJumps(fwd.vmUuid, fwd.vmIp).catch(() => { /* no firewall configured */ });
 }
 
 // Belt and braces: delete every PREROUTING rule still carrying this forward's

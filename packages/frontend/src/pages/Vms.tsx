@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
+  CopyPlus,
   Cpu,
   MemoryStick,
   Plus,
@@ -19,6 +20,7 @@ import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { CloneVmDialog } from '@/components/CloneVmDialog';
 import { useVms, useDeleteVm, useVmAction } from '@/hooks/useVms';
 import { formatMemory } from '@/lib/format';
 import { cn } from '@/lib/cn';
@@ -250,6 +252,7 @@ function StatusBadge({ status }: { status: VmStatus }) {
 
 function VmRow({ vm }: { vm: VmSummary }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [cloneOpen, setCloneOpen] = useState(false);
   const [flash, setFlash] = useState<'success' | 'error' | null>(null);
   const deleteVm = useDeleteVm();
   const action = useVmAction(vm.id);
@@ -407,6 +410,14 @@ function VmRow({ vm }: { vm: VmSummary }) {
               <Terminal className="h-3.5 w-3.5" />
             </a>
           </Tooltip>
+          <Tooltip label="Clone VM">
+            <ActionBtn
+              onClick={() => setCloneOpen(true)}
+              className="hover:bg-muted hover:text-foreground"
+            >
+              <CopyPlus className="h-3.5 w-3.5" />
+            </ActionBtn>
+          </Tooltip>
           <Tooltip label="Delete VM">
             <ActionBtn
               onClick={() => setDeleteOpen(true)}
@@ -425,6 +436,16 @@ function VmRow({ vm }: { vm: VmSummary }) {
         onClose={() => setDeleteOpen(false)}
         onConfirm={handleDelete}
       />
+
+      {cloneOpen && (
+        <CloneVmDialog
+          open
+          vmUuid={vm.id}
+          vmName={vm.name}
+          vmStatus={vm.status}
+          onClose={() => setCloneOpen(false)}
+        />
+      )}
     </>
   );
 }

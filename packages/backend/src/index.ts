@@ -192,6 +192,22 @@ app.get('*', (_req, res) => {
 // forwards it) becomes a 500 instead of a hung socket. The stack goes to the
 // journal, never to the client.
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  // A body the client sent in the wrong shape is the client's fault, not ours.
+  // body-parser raises these before any route runs, so without this every
+  // malformed request — a multipart upload posted as JSON, a truncated body —
+  // came back as a 500 "Internal server error" and filled the journal with
+  // "Unhandled error" stacks that look like a crash.
+  const e = err as { type?: string; status?: number; statusCode?: number };
+  const badBody = err instanceof SyntaxError && (e.status === 400 || e.statusCode === 400) && 'body' in (err as object);
+  if (badBody || e.type === 'entity.parse.failed' || e.type === 'entity.too.large') {
+    if (res.headersSent) return;
+    const tooLarge = e.type === 'entity.too.large';
+    res.status(tooLarge ? 413 : 400).json({
+      error: tooLarge ? 'Request body is too large' : 'Request body could not be parsed',
+    });
+    return;
+  }
+
   console.error('[express] Unhandled error:', err instanceof Error ? err.stack ?? err.message : err);
   if (res.headersSent) return;
   res.status(500).json({ error: 'Internal server error' });

@@ -9,6 +9,7 @@ import {
   validatePortRange,
   validateProtocol,
   validateIcmpType,
+  ValidationError,
 } from '../lib/validate.js';
 
 export interface FirewallRule {
@@ -68,7 +69,42 @@ export async function getFirewallConfig(vmUuid: string): Promise<FirewallConfig>
   }
 }
 
+/**
+ * Rejects a rule set that could not be applied.
+ *
+ * Validation used to happen only at apply time, so a rule with an out-of-range
+ * port saved happily with a 200 and only blew up later — by which point the
+ * operator had left the page believing it was in force.
+ */
+export function validateFirewallConfig(cfg: FirewallConfig): void {
+  for (const [i, rule] of cfg.rules.entries()) {
+    const where = `rule ${i + 1}${rule.description ? ` (${rule.description})` : ''}`;
+    if (rule.direction !== 'inbound' && rule.direction !== 'outbound') {
+      throw new ValidationError('direction', rule.direction, `${where}: must be inbound or outbound`);
+    }
+    if (rule.action !== 'allow' && rule.action !== 'drop') {
+      throw new ValidationError('action', rule.action, `${where}: must be allow or drop`);
+    }
+    const protocol = validateProtocol(rule.protocol);
+    if (rule.portRange !== undefined && rule.portRange !== '') {
+      if (protocol !== 'tcp' && protocol !== 'udp') {
+        throw new ValidationError('portRange', rule.portRange, `${where}: ports only apply to tcp or udp`);
+      }
+      validatePortRange(rule.portRange);
+    }
+    if (rule.icmpType !== undefined && rule.icmpType !== '') validateIcmpType(rule.icmpType);
+    if (rule.source !== undefined && rule.source !== '') validateIpv4OrCidr(rule.source);
+    if (rule.destination !== undefined && rule.destination !== '') validateIpv4OrCidr(rule.destination);
+  }
+  for (const key of ['defaultInbound', 'defaultOutbound'] as const) {
+    if (cfg[key] !== 'allow' && cfg[key] !== 'drop') {
+      throw new ValidationError(key, cfg[key], 'must be allow or drop');
+    }
+  }
+}
+
 export async function saveFirewallConfig(vmUuid: string, cfg: FirewallConfig): Promise<void> {
+  validateFirewallConfig(cfg);
   const withIds = cfg.rules.map((r) => ({ ...r, id: r.id || randomUUID() }));
   await fs.writeFile(
     firewallPath(vmUuid),
@@ -142,6 +178,33 @@ async function removeForwardJumps(chains: readonly string[]): Promise<void> {
     if (jump === -1 || !chains.includes(tokens[jump + 1])) continue;
     await iptablesSafe(['-D', ...tokens.slice(1)]);
   }
+}
+
+/**
+ * Puts this VM's firewall jumps back at the head of FORWARD.
+ *
+ * Both the firewall and the port-forward service insert into FORWARD, so
+ * whichever ran last used to end up on top — and the two orders gave opposite
+ * security outcomes. Configure the firewall first and a later port forward sat
+ * *above* it, quietly punching a hole through a deny-all inbound policy;
+ * configure the forward first and the firewall shadowed it instead.
+ *
+ * The per-VM firewall is the policy and a port forward is only address
+ * translation, so the firewall wins: the port-forward service calls this after
+ * installing a rule. A forward onto a VM with a deny-all policy therefore needs
+ * a matching allow rule, which is visible and fixable — unlike a firewall that
+ * silently is not in force.
+ *
+ * No-op when the VM has no firewall chains, i.e. no policy has been applied.
+ */
+export async function reassertForwardJumps(vmUuid: string, vmIpRaw: string): Promise<void> {
+  const vmIp = validateIpv4(vmIpRaw);
+  const inC = inChain(vmUuid);
+  const outC = outChain(vmUuid);
+  if ((await iptablesSafe(['-S', inC])) === null) return;
+  await removeForwardJumps([inC, outC]);
+  await iptablesSafe(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
+  await iptablesSafe(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
 }
 
 async function destroyChains(chains: readonly string[]): Promise<void> {

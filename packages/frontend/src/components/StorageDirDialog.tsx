@@ -4,6 +4,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useCreateStorageDir, useUpdateStorageDir } from '@/hooks/useStorageDirs';
+import { cn } from '@/lib/cn';
 import type { StorageDir, StorageDirPurpose } from '@/types';
 
 interface Props {
@@ -170,36 +171,40 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
         <div className="space-y-2">
           <label className="text-xs font-medium text-foreground">Use as default for</label>
           <div className="flex flex-wrap gap-3">
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
-              <input
-                type="checkbox"
-                checked={setDefaultTemplates}
-                onChange={(e) => setSetDefaultTemplates(e.target.checked)}
-                disabled={!purposes.has('templates')}
-              />
-              Templates
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
-              <input
-                type="checkbox"
-                checked={setDefaultIsos}
-                onChange={(e) => setSetDefaultIsos(e.target.checked)}
-                disabled={!purposes.has('isos')}
-              />
-              ISOs
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
-              <input
-                type="checkbox"
-                checked={setDefaultVmDisks}
-                onChange={(e) => setSetDefaultVmDisks(e.target.checked)}
-                disabled={!purposes.has('vmDisks')}
-              />
-              VM disks
-            </label>
+            {([
+              { key: 'templates', label: 'Templates', checked: setDefaultTemplates, set: setSetDefaultTemplates, already: !!editing?.isDefaultTemplates },
+              { key: 'isos', label: 'ISOs', checked: setDefaultIsos, set: setSetDefaultIsos, already: !!editing?.isDefaultIsos },
+              { key: 'vmDisks', label: 'VM disks', checked: setDefaultVmDisks, set: setSetDefaultVmDisks, already: !!editing?.isDefaultVmDisks },
+            ] as const).map((d) => {
+              // Every purpose must always have exactly one default, or uploads
+              // and VM creation lose their fallback location. A default is
+              // therefore moved, never cleared — so once this directory holds
+              // the flag, the only way off it is to give it to another
+              // directory. Leaving the box tickable made un-ticking look like
+              // it worked while the server correctly ignored it.
+              const locked = d.already;
+              return (
+                <label
+                  key={d.key}
+                  title={locked ? `This is the default. To change it, make another directory the ${d.label.toLowerCase()} default.` : undefined}
+                  className={cn(
+                    'flex items-center gap-2 text-xs text-foreground',
+                    locked || !purposes.has(d.key) ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={d.checked}
+                    onChange={(e) => d.set(e.target.checked)}
+                    disabled={locked || !purposes.has(d.key)}
+                  />
+                  {d.label}
+                </label>
+              );
+            })}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            The default for a purpose is pre-selected when uploading or creating a VM. Tick to make this directory the default; it'll replace whatever currently holds that flag.
+            The default for a purpose is pre-selected when uploading or creating a VM. Tick to make this directory the default; it'll replace whatever currently holds that flag. A directory that already holds a default can't give it up directly — assign it to another directory instead.
           </p>
         </div>
       </div>

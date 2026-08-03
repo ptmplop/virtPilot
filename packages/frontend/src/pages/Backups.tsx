@@ -10,11 +10,13 @@ import {
   Database,
   HardDrive,
   Info,
+  Layers,
   Play,
   Power,
   Server,
   ShieldAlert,
   Trash2,
+  Unlink,
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,20 +26,33 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Tooltip } from '@/components/ui/Tooltip';
 import {
   useBackupSummaries,
   useVmBackups,
   useCreateBackup,
   useDeleteBackup,
   useRestoreBackup,
+  useRestoreBackupAsNewVm,
   useSaveSchedule,
   useDeleteSchedule,
   useRunningBackups,
 } from '@/hooks/useBackups';
 import { Spinner } from '@/components/ui/Spinner';
+import { StorageDirSelect } from '@/components/StorageDirSelect';
 import { useVms } from '@/hooks/useVms';
 import { cn } from '@/lib/cn';
-import type { BackupConsistency, BackupEntry, BackupFrequency, BackupInProgress, BackupSchedule, BackupVmSummary } from '@/types';
+import type {
+  BackupConsistency,
+  BackupEntry,
+  BackupFrequency,
+  BackupInProgress,
+  BackupKindRequest,
+  BackupSchedule,
+  BackupScheduleMode,
+  BackupVmSummary,
+  IncrementalStatus,
+} from '@/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -66,6 +81,11 @@ function formatRelative(iso: string): string {
 
 function frequencyLabel(f: BackupFrequency): string {
   return { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' }[f];
+}
+
+function apiError(e: unknown): string {
+  const err = e as { response?: { data?: { error?: string } }; message?: string };
+  return String(err.response?.data?.error ?? err.message ?? e);
 }
 
 // ─── Page router ──────────────────────────────────────────────────────────────
@@ -320,12 +340,15 @@ function SummaryRow({
   // has to stay reachable or the space can never be freed.
   const orphaned = summary.vmExists === false;
 
+  // Honour the VM's own policy: a VM set up for incremental backups should get
+  // an incremental from this button too, not silently a full one.
+  const kind: BackupKindRequest = summary.schedule?.mode === 'incremental' ? 'auto' : 'full';
+
   function handleBackupNow() {
-    toast.promise(createBackup.mutateAsync(), {
+    toast.promise(createBackup.mutateAsync(kind), {
       loading: 'Creating backup…',
-      success: 'Backup created',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      error: (e: any) => `Backup failed: ${String(e.response?.data?.error ?? e.message)}`,
+      success: (b) => `${b.kind === 'incremental' ? 'Incremental' : 'Full'} backup created`,
+      error: (e) => `Backup failed: ${apiError(e)}`,
     });
   }
 
@@ -390,6 +413,7 @@ function SummaryRow({
             <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
               <CalendarClock size={9} />
               {frequencyLabel(summary.schedule.frequency)}
+              {summary.schedule.mode === 'incremental' && <span className="opacity-70">· Inc</span>}
             </span>
           ) : (
             <span className="text-xs text-muted-foreground/50">None</span>
@@ -474,19 +498,25 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
   const runningEntry: BackupInProgress | undefined = runningBackups.find((r) => r.vmUuid === vmUuid);
   const busy = !!runningEntry || createBackup.isPending;
 
-  function handleBackupNow() {
-    toast.promise(createBackup.mutateAsync(), {
-      loading: 'Creating backup…',
-      success: 'Backup created',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      error: (e: any) => `Backup failed: ${String(e.response?.data?.error ?? e.message)}`,
+  function handleBackupNow(kind: BackupKindRequest) {
+    toast.promise(createBackup.mutateAsync(kind), {
+      loading: kind === 'full' ? 'Creating full backup…' : 'Creating incremental backup…',
+      success: (b) => `${b.kind === 'incremental' ? 'Incremental' : 'Full'} backup created`,
+      error: (e) => `Backup failed: ${apiError(e)}`,
     });
   }
 
   const backups = data?.backups ?? [];
   const schedule = data?.schedule ?? null;
+  const incremental: IncrementalStatus = data?.incremental ?? { supported: false, chainLength: 0, canChain: false };
   const totalSize = backups.reduce((n, b) => n + b.sizeBytes, 0);
   const lastBackupAt = backups[0]?.createdAt ?? null;
+
+  const incrementalHint = !incremental.supported
+    ? 'This host\'s libvirt/qemu cannot do incremental backups'
+    : !incremental.canChain
+      ? 'Take a full backup first — an incremental needs a checkpoint to measure changes from'
+      : 'Copy only the blocks that changed since the last backup';
 
   return (
     <Layout>
@@ -520,11 +550,22 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
               <CalendarClock size={14} className="mr-1.5" />
               {schedule ? 'Edit Schedule' : 'Set Schedule'}
             </Button>
-            <Button size="sm" onClick={handleBackupNow} disabled={busy}>
+            <Tooltip label={incrementalHint}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleBackupNow('incremental')}
+                disabled={busy || !incremental.supported || !incremental.canChain}
+              >
+                <Layers size={13} className="mr-1.5" />
+                Incremental
+              </Button>
+            </Tooltip>
+            <Button size="sm" onClick={() => handleBackupNow('full')} disabled={busy}>
               {busy ? (
                 <><Spinner className="mr-1.5 h-3.5 w-3.5" />Backing up…</>
               ) : (
-                <><Play size={13} className="mr-1.5" />Back Up Now</>
+                <><Play size={13} className="mr-1.5" />Full Backup</>
               )}
             </Button>
           </div>
@@ -542,6 +583,22 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
             iconClass={schedule?.enabled ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground'}
           />
         </div>
+
+        {/* Chain banner */}
+        {incremental.chainLength > 0 && (
+          <div className="flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10">
+              <Layers size={14} className="text-violet-400" />
+            </div>
+            <p className="flex-1 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">
+                {incremental.chainLength} incremental{incremental.chainLength !== 1 ? 's' : ''}
+              </span>{' '}
+              currently sit on top of the most recent full backup. Restoring any of them rebuilds the whole chain
+              automatically; the full backup underneath cannot be deleted while they exist.
+            </p>
+          </div>
+        )}
 
         {/* Schedule banner */}
         {schedule && <ScheduleBanner schedule={schedule} vmUuid={vmUuid} onEdit={() => setScheduleOpen(true)} />}
@@ -642,6 +699,9 @@ function ScheduleBanner({
           <p className="mt-0.5 text-xs text-muted-foreground">
             {schedule.nextRunAt && `Next run: ${formatDate(schedule.nextRunAt)}`}
             {schedule.retentionDays != null && ` · Keep ${schedule.retentionDays} days`}
+            {schedule.mode === 'incremental'
+              ? ` · Incremental, full every ${schedule.fullEvery ?? 7}`
+              : ' · Always full'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -768,11 +828,44 @@ function BackupRow({
       className="grid items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/40"
       style={{ gridTemplateColumns: BACKUP_COLS, animationDelay: `${index * 20}ms` }}
     >
-      {/* Date */}
-      <span className="text-sm font-medium text-foreground">{formatDate(backup.createdAt)}</span>
+      {/* Date + kind */}
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">{formatDate(backup.createdAt)}</span>
+          {backup.kind === 'incremental' ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-1.5 py-px text-[10px] font-semibold text-violet-400">
+              <Layers size={8} />Incremental
+            </span>
+          ) : (
+            <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-1.5 py-px text-[10px] font-semibold text-muted-foreground">
+              Full
+            </span>
+          )}
+          {backup.chainBroken && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-1.5 py-px text-[10px] font-semibold text-destructive">
+              <Unlink size={8} />Chain broken
+            </span>
+          )}
+        </div>
+        {backup.chainBroken && (
+          <p className="mt-1 text-[11px] leading-snug text-destructive">
+            A backup this one builds on is missing — it can no longer be restored.
+          </p>
+        )}
+        {!backup.chainBroken && backup.notes?.length ? (
+          <p className="mt-1 text-[11px] leading-snug text-amber-400">{backup.notes.join(' ')}</p>
+        ) : null}
+      </div>
 
-      {/* Size */}
-      <span className="font-mono text-sm text-muted-foreground">{formatBytes(backup.sizeBytes)}</span>
+      {/* Size — for an incremental, its own delta plus what the full chain costs */}
+      <span className="font-mono text-sm text-muted-foreground">
+        {formatBytes(backup.sizeBytes)}
+        {backup.kind === 'incremental' && backup.chainSizeBytes > backup.sizeBytes && (
+          <span className="block text-[10px] text-muted-foreground/60">
+            {formatBytes(backup.chainSizeBytes)} chain
+          </span>
+        )}
+      </span>
 
       {/* Disks */}
       <span className="font-mono text-sm text-muted-foreground">
@@ -814,7 +907,13 @@ function BackupRow({
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-1">
-        <Button variant="ghost" size="sm" onClick={onRestore} className="h-7 gap-1 px-2 text-xs">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onRestore}
+          disabled={backup.chainBroken}
+          className="h-7 gap-1 px-2 text-xs"
+        >
           <ArchiveRestore size={12} />Restore
         </Button>
         <Button variant="ghost" size="sm" onClick={onDelete} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
@@ -847,6 +946,8 @@ function ScheduleDialog({
   const [retentionDays, setRetentionDays] = useState(
     existing?.retentionDays != null ? String(existing.retentionDays) : ''
   );
+  const [mode, setMode] = useState<BackupScheduleMode>(existing?.mode ?? 'full');
+  const [fullEvery, setFullEvery] = useState(String(existing?.fullEvery ?? 7));
 
   function handleSave() {
     toast.promise(
@@ -858,8 +959,10 @@ function ScheduleDialog({
         dayOfMonth: parseInt(dayOfMonth),
         retentionDays: retentionDays === '' ? null : parseInt(retentionDays),
         enabled: true,
+        mode,
+        fullEvery: parseInt(fullEvery) || 7,
       }).then(onClose),
-      { loading: 'Saving schedule…', success: 'Schedule saved', error: 'Failed to save schedule' }
+      { loading: 'Saving schedule…', success: 'Schedule saved', error: (e) => `Failed to save schedule: ${apiError(e)}` }
     );
   }
 
@@ -943,6 +1046,31 @@ function ScheduleDialog({
             onChange={(e) => setRetentionDays(e.target.value)}
           />
         </div>
+
+        <div className="border-t border-border/60 pt-4">
+          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Backup type</label>
+          <Select value={mode} onChange={(e) => setMode(e.target.value as BackupScheduleMode)}>
+            <option value="full">Always full — a complete copy every run</option>
+            <option value="incremental">Incremental — copy only what changed</option>
+          </Select>
+          {mode === 'incremental' && (
+            <div className="mt-3 space-y-2">
+              <Input
+                label="Take a fresh full backup every"
+                type="number"
+                min={1}
+                max={60}
+                value={fullEvery}
+                onChange={(e) => setFullEvery(e.target.value)}
+              />
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Counted in backups, not days. Capping the chain keeps restores quick and limits how much a single
+                damaged link can cost. A run that cannot produce an incremental — the VM was off, or the host does
+                not support it — falls back to a full backup rather than being skipped.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </Dialog>
   );
@@ -960,11 +1088,16 @@ function DeleteBackupDialog({
   onClose: () => void;
 }) {
   const deleteBackup = useDeleteBackup(vmUuid);
+  const [cascade, setCascade] = useState(false);
 
   function handleDelete() {
     toast.promise(
-      deleteBackup.mutateAsync(backup.id).then(onClose),
-      { loading: 'Deleting backup…', success: 'Backup deleted', error: 'Failed to delete backup' }
+      deleteBackup.mutateAsync({ backupId: backup.id, cascade }).then(onClose),
+      {
+        loading: 'Deleting backup…',
+        success: cascade ? 'Backup and its incrementals deleted' : 'Backup deleted',
+        error: (e) => `Failed to delete backup: ${apiError(e)}`,
+      }
     );
   }
 
@@ -978,19 +1111,50 @@ function DeleteBackupDialog({
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleteBackup.isPending}>Delete</Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={handleDelete}
+            disabled={deleteBackup.isPending || (backup.hasDependents && !cascade)}
+          >
+            Delete
+          </Button>
         </>
       }
     >
-      <p className="text-sm text-muted-foreground">
-        Delete backup from <span className="font-medium text-foreground">{formatDate(backup.createdAt)}</span>?{' '}
-        ({formatBytes(backup.sizeBytes)})
-      </p>
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Delete backup from <span className="font-medium text-foreground">{formatDate(backup.createdAt)}</span>?{' '}
+          ({formatBytes(backup.sizeBytes)})
+        </p>
+
+        {/* Deleting a link mid-chain silently corrupts every incremental above
+            it, so the destructive option has to be asked for explicitly. */}
+        {backup.hasDependents && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+            <p className="text-xs text-amber-400">
+              Later incremental backups are built on top of this one. Deleting it on its own would leave them
+              unrestorable, so it is only possible together with them.
+            </p>
+            <label className="mt-2 flex items-start gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={cascade}
+                onChange={(e) => setCascade(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>Also delete every backup built on this one</span>
+            </label>
+          </div>
+        )}
+      </div>
     </Dialog>
   );
 }
 
 // ─── Restore dialog ───────────────────────────────────────────────────────────
+
+type RestoreMode = 'overwrite' | 'new';
 
 function RestoreDialog({
   backup,
@@ -1003,15 +1167,47 @@ function RestoreDialog({
   vmName: string;
   onClose: () => void;
 }) {
+  const navigate = useNavigate();
   const restoreBackup = useRestoreBackup(vmUuid);
+  const restoreAsNew = useRestoreBackupAsNewVm(vmUuid);
+  const [mode, setMode] = useState<RestoreMode>('overwrite');
+  const [newName, setNewName] = useState(`${vmName}-restored`);
+  const [storageDirId, setStorageDirId] = useState('');
+  const [startAfter, setStartAfter] = useState(false);
+
+  const pending = restoreBackup.isPending || restoreAsNew.isPending;
 
   function handleRestore() {
+    if (mode === 'overwrite') {
+      toast.promise(
+        restoreBackup.mutateAsync({ backupId: backup.id }).then(onClose),
+        {
+          loading: 'Restoring…',
+          success: 'Restore complete — VM disks replaced',
+          error: (e) => `Restore failed: ${apiError(e)}`,
+        }
+      );
+      return;
+    }
+
     toast.promise(
-      restoreBackup.mutateAsync({ backupId: backup.id }).then(onClose),
+      restoreAsNew
+        .mutateAsync({
+          backupId: backup.id,
+          name: newName.trim(),
+          storageDirId: storageDirId || undefined,
+          start: startAfter,
+        })
+        .then((created) => {
+          onClose();
+          created.warnings.forEach((w) => toast.warning(w));
+          navigate(`/vms/${created.uuid}`);
+          return created;
+        }),
       {
-        loading: 'Restoring…',
-        success: 'Restore complete — VM disks replaced',
-        error: (e: any) => `Restore failed: ${String(e.response?.data?.error ?? e.message)}`,
+        loading: 'Rebuilding VM from backup…',
+        success: (created) => `Created "${created.name}" from this backup`,
+        error: (e) => `Restore failed: ${apiError(e)}`,
       }
     );
   }
@@ -1021,26 +1217,101 @@ function RestoreDialog({
       open
       onClose={onClose}
       title="Restore Backup"
-      description={`Backup from ${formatDate(backup.createdAt)}`}
+      description={`${backup.kind === 'incremental' ? 'Incremental backup' : 'Full backup'} from ${formatDate(backup.createdAt)}`}
       size="sm"
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
           <Button
-            variant="danger"
+            variant={mode === 'overwrite' ? 'danger' : 'primary'}
             size="sm"
             onClick={handleRestore}
-            disabled={restoreBackup.isPending}
+            disabled={pending || (mode === 'new' && !newName.trim())}
           >
-            <Zap size={13} className="mr-1.5" />Restore
+            <Zap size={13} className="mr-1.5" />
+            {mode === 'overwrite' ? 'Overwrite' : 'Create VM'}
           </Button>
         </>
       }
     >
-      <p className="text-sm text-muted-foreground">
-        Restoring will overwrite <strong className="text-foreground">{vmName}</strong>'s current disk(s).
-        The VM must be <strong className="text-foreground">stopped</strong> before restoring.
-      </p>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2">
+          <ModeCard
+            active={mode === 'overwrite'}
+            onClick={() => setMode('overwrite')}
+            icon={<ArchiveRestore size={14} />}
+            title="Roll back"
+            body={`Replace ${vmName}'s disks`}
+          />
+          <ModeCard
+            active={mode === 'new'}
+            onClick={() => setMode('new')}
+            icon={<Server size={14} />}
+            title="New VM"
+            body="Leave the original alone"
+          />
+        </div>
+
+        {mode === 'overwrite' ? (
+          <p className="text-sm text-muted-foreground">
+            Restoring will overwrite <strong className="text-foreground">{vmName}</strong>'s current disk(s).
+            The VM must be <strong className="text-foreground">stopped</strong> before restoring.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Builds a complete new machine from this backup — its own UUID, MAC addresses and IP. Works even if
+              the original VM has been deleted.
+            </p>
+            <Input
+              label="New VM name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="restored-vm"
+            />
+            <StorageDirSelect purpose="vmDisks" value={storageDirId} onChange={setStorageDirId} />
+            <label className="flex items-center gap-2 text-xs text-foreground">
+              <input type="checkbox" checked={startAfter} onChange={(e) => setStartAfter(e.target.checked)} />
+              <span>Start the VM once it is created</span>
+            </label>
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              cloud-init runs again on first boot so the guest picks up the new hostname and network settings.
+              Attached ISOs are carried over; the original's cloud-init seed is not.
+            </p>
+          </div>
+        )}
+      </div>
     </Dialog>
+  );
+}
+
+function ModeCard({
+  active,
+  onClick,
+  icon,
+  title,
+  body,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-lg border px-3 py-2.5 text-left transition-colors',
+        active ? 'border-primary bg-primary/10' : 'border-border bg-card hover:bg-muted/40',
+      )}
+    >
+      <span className={cn('flex items-center gap-1.5 text-xs font-semibold', active ? 'text-primary' : 'text-foreground')}>
+        {icon}
+        {title}
+      </span>
+      <span className="mt-0.5 block text-[11px] text-muted-foreground">{body}</span>
+    </button>
   );
 }

@@ -66,8 +66,15 @@ async function runScheduledBackup(vmUuid: string, schedule: BackupSchedule): Pro
       triggerType: 'scheduled',
       scheduleFrequency: schedule.frequency,
       retentionDaysOverride: schedule.retentionDays,
+      // `auto` lets the engine take an incremental when the chain is healthy
+      // and silently fall back to a full when it isn't — a schedule must never
+      // skip a run just because an incremental wasn't possible.
+      kind: schedule.mode === 'incremental' ? 'auto' : 'full',
+      fullEvery: schedule.fullEvery,
     });
   } catch (err) {
+    // createBackup already writes a failure entry to the activity log, which is
+    // what the operator actually sees; this is for journalctl.
     console.error(`[backup-scheduler] Scheduled backup failed for ${vmUuid}:`, err);
   }
 }
