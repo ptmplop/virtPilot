@@ -541,6 +541,32 @@ ISO and gets its **own** seed (or an ejected `sda` if the source had no cloud-in
 
 Append per-run findings here. Format: `### YYYY-MM-DD — vX.Y.Z (host)` then bullet list.
 
+### 2026-08-04 — v2.8.2 (adm241) — the upgrade stream cut-off
+
+Reported from another host: the dashboard upgrade truncated its output right after `npm ci`, and a
+retry sat on "Backend restarted. Waiting for new version…" indefinitely.
+
+**Root cause, measured not guessed.** The endpoint polled the transient unit with
+`systemctl is-active` and treated a non-zero exit as "finished". Verified on the host: a running
+`Type=oneshot` unit reports `ActiveState=activating` and `is-active` **exits 3**, while
+`ExecMainStatus` is still 0. So the first poll — two seconds in — declared the upgrade complete,
+emitted `done: 0`, and killed the journal tail mid-build. The dashboard then began waiting for a new
+version before the build had started, and gave up 90s later.
+
+Both reported symptoms were this single bug. The upgrade itself ran correctly throughout.
+
+**Reproduced and fixed, back to back on the same host.**
+
+| | stream duration | what it showed |
+|---|---|---|
+| v2.8.1 (bug) | **3 s**, then `done: 0` | cut off as the build began |
+| v2.8.2 (fix) | **28 s** | npm ci, both builds, vite transform, chunks — ending only at the genuine restart |
+
+Afterwards: 2.8.2 running, all services active, VMs untouched, no errors.
+
+The same faulty probe also guarded "is an upgrade already running", so a retry could try to start a
+unit that already existed. Covered now by a unit test on the state classification.
+
 ### 2026-08-03 — v2.8.0 (adm241) — verification, alerting, metrics retention, CI
 
 Deployed onto the same host, upgraded in place from 2.7.1.
@@ -801,8 +827,8 @@ Both upgrades were driven through `GET /api/system/upgrade`, the SSE endpoint th
 - **Operator state survived**: login worked immediately (JWT secret and password hash preserved),
   and VMs, networks, templates, storage directories and backups were all intact. The upgrade is
   recorded in the activity log as `system.virtpilot.upgrade`.
-- The SSE stream ends early — the service restart closes it — so the browser falls back to polling
-  for the new version, which is what it is designed to do.
+- The SSE stream ended early. At the time this was put down to the service restart closing it;
+  that was wrong, and the real cause was found later — see the 2.8.2 entry.
 
 **One fragility found while rolling the host between versions (fixed in 2.7.1)**
 
