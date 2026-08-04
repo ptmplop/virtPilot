@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.8.2',
+    date: '2026-08-04',
+    changes: [
+      { type: 'fixed', text: 'The in-dashboard upgrade cut its own output off after a few seconds and then looked like it had hung. The endpoint watched the upgrade’s systemd unit with "systemctl is-active", which exits non-zero for any state other than exactly "active" — and the upgrade runs as a oneshot unit, which is "activating" for its entire life. The first poll read "not running", declared the upgrade finished about two seconds in, killed the live log part-way through npm ci, and reported the exit status of a process that had not exited. The dashboard then waited for a backend that was still building, and gave up 90 seconds later. The upgrade itself was running normally throughout.' },
+    ],
+  },
+  {
     version: '2.8.1',
     date: '2026-08-04',
     changes: [

@@ -972,7 +972,12 @@ function VirtPilotUpgradeModal({
   useEffect(() => {
     if (phase !== 'restarting') return;
     let cancelled = false;
-    const deadline = Date.now() + 90_000;
+    // Generous: this only starts once the upgrade unit has genuinely
+    // finished, and a slow host can still take a while to boot the new
+    // backend. It used to start ~60s early because the stream declared
+    // success on the poller's first tick, which is what made a healthy
+    // upgrade look like a hang.
+    const deadline = Date.now() + 180_000;
 
     const tick = async () => {
       if (cancelled) return;

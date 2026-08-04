@@ -22,6 +22,30 @@ const EXPECTED_REMOTE_PATTERNS = [
 ];
 const UPDATE_UNIT = 'virtpilot-update';
 
+/**
+ * systemd states that mean the unit has not finished.
+ *
+ * `systemctl is-active` cannot be used for this: it exits **3** for anything
+ * that isn't exactly `active`, and a `Type=oneshot` unit spends its entire run
+ * in `activating`. Treating a non-zero exit as "finished" made the upgrade
+ * endpoint declare victory about two seconds in, on the poller's first tick —
+ * killing the log stream mid-`npm ci` and reporting whatever `ExecMainStatus`
+ * happened to be (0, because nothing had exited yet).
+ */
+const RUNNING_STATES = new Set(['activating', 'active', 'deactivating', 'reloading']);
+
+/** Exported for tests — the classification is the whole bug. */
+export function isUnitRunningState(activeState: string): boolean {
+  return RUNNING_STATES.has(activeState.trim());
+}
+
+// `systemctl show` always exits 0 and prints the state, so the answer comes
+// from the output rather than the exit code.
+async function isUnitRunning(unit: string): Promise<boolean> {
+  const state = await runSafe('systemctl', ['show', '-p', 'ActiveState', '--value', `${unit}.service`]);
+  return state !== null && isUnitRunningState(state);
+}
+
 systemRouter.get('/info', async (_req, res) => {
   try {
     const [cpuRaw, loadRaw] = await Promise.all([
@@ -347,7 +371,7 @@ systemRouter.get('/upgrade', upgradeLimiter, async (req, res) => {
     timeout: 5_000,
   });
 
-  const isActive = (await runSafe('systemctl', ['is-active', `${UPDATE_UNIT}.service`])) !== null;
+  const isActive = await isUnitRunning(UPDATE_UNIT);
 
   const start = Date.now();
   if (!isActive) {
@@ -388,7 +412,7 @@ systemRouter.get('/upgrade', upgradeLimiter, async (req, res) => {
   // Poll the unit's state — when it goes inactive, emit `done` with exit code
   const poll = setInterval(async () => {
     if (closed) return;
-    const stillActive = (await runSafe('systemctl', ['is-active', `${UPDATE_UNIT}.service`])) !== null;
+    const stillActive = await isUnitRunning(UPDATE_UNIT);
     if (stillActive) return;
     clearInterval(poll);
     let exitCode = 0;

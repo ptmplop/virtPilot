@@ -3,6 +3,16 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.2] — 2026-08-04
+
+### Fixed
+
+- **The in-dashboard upgrade cut its own output off after a few seconds and then looked like it had hung.** The endpoint watched the upgrade's systemd unit with `systemctl is-active`, which exits non-zero for *any* state other than exactly `active` — and the upgrade runs as a `oneshot` unit, which is `activating` for its entire life. The very first poll therefore read "not running", declared the upgrade finished about two seconds in, killed the live log part-way through `npm ci`, and reported the exit status of a process that hadn't exited (0).
+
+  The dashboard then moved straight to "Backend restarted. Waiting for new version…" while the build had not yet started, and gave up 90 seconds later — often before the upgrade it was waiting for had actually finished. Both symptoms were the same bug: the upgrade itself was running normally the whole time.
+
+  The unit's state is now read with `systemctl show -p ActiveState`, which reports the state instead of encoding it in an exit code, and the dashboard waits longer now that it starts waiting at the right moment.
+
 ## [2.8.1] — 2026-08-04
 
 ### Fixed
