@@ -416,6 +416,24 @@ interface ManifestScan {
 }
 
 /**
+ * Whether a directory with no usable manifest is the backup being written right
+ * now, and so should not be reported as leftover data.
+ *
+ * Narrow on purpose. It answers only "is this junk?", and is never consulted
+ * about a directory that *does* hold a readable manifest — a backup that has
+ * finished writing its manifest is still registered as in progress for the rest
+ * of `_createBackupInner`, and hiding it there cost that backup its checkpoint.
+ * Only `incomplete` qualifies: a directory whose manifest cannot be read is a
+ * real problem whether or not a backup is running.
+ */
+export function isSuppressedInFlightDir(
+  dir: Pick<UnusableBackupDir, 'id' | 'why'>,
+  inFlightId: string | undefined,
+): boolean {
+  return dir.why === 'incomplete' && inFlightId !== undefined && dir.id === inFlightId;
+}
+
+/**
  * Reads every backup manifest under a VM, and reports the directories it could
  * not use rather than silently dropping them.
  *
@@ -440,11 +458,19 @@ async function scanManifests(vmUuid: string): Promise<ManifestScan> {
   // reporting it as leftover junk while its progress bar is on screen is both
   // alarming and wrong. The sweep already skips it; the alert and the size
   // totals have to as well.
+  //
+  // This ONLY suppresses the unusable classification, never a manifest — see
+  // the filter below. Skipping the directory outright was a genuine disaster:
+  // `reconcileCheckpoints` runs at the end of `_createBackupInner`, while the
+  // in-progress entry is still registered, so hiding the directory hid the
+  // manifest that had just been written — and reconcile then deleted the
+  // checkpoint that backup had just created as unreferenced. Every
+  // incremental-mode run destroyed its own checkpoint and left a manifest
+  // claiming otherwise, so no chain could ever form.
   const inFlightId = backupsInProgress.get(vmUuid)?.backupId;
 
   const results = await Promise.all(
-    subdirs.map(async (entry): Promise<BackupManifest | UnusableBackupDir | null> => {
-      if (entry === inFlightId) return null;
+    subdirs.map(async (entry): Promise<BackupManifest | UnusableBackupDir> => {
       const bdir = path.join(dir, entry);
       const describe = async (why: UnusableBackupDir['why'], detail?: string): Promise<UnusableBackupDir> => ({
         id: entry,
@@ -481,9 +507,14 @@ async function scanManifests(vmUuid: string): Promise<ManifestScan> {
   const manifests: BackupManifest[] = [];
   const unusable: UnusableBackupDir[] = [];
   for (const r of results) {
-    if (r === null) continue;
-    if ('why' in r) unusable.push(r);
-    else manifests.push(r);
+    if (!('why' in r)) {
+      // A readable manifest is always reported, in-flight or not. Everything
+      // downstream — the chain walk, retention, checkpoint reconciliation —
+      // depends on seeing every backup that exists.
+      manifests.push(r);
+    } else if (!isSuppressedInFlightDir(r, inFlightId)) {
+      unusable.push(r);
+    }
   }
   return { manifests, unusable };
 }

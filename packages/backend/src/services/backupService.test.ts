@@ -3,6 +3,7 @@ import {
   computeNextRunAt,
   assertSafeBackupDiskFilename,
   countConsecutiveNonChainingFulls,
+  isSuppressedInFlightDir,
   type BackupSchedule,
 } from './backupService.js';
 
@@ -151,5 +152,34 @@ describe('countConsecutiveNonChainingFulls', () => {
 
   it('reports zero for a VM with no backups', () => {
     expect(countConsecutiveNonChainingFulls([])).toBe(0);
+  });
+});
+
+// Guards the narrowest, most expensive mistake in the backup engine.
+//
+// A backup stays registered as "in progress" for the whole of
+// _createBackupInner — including the reconcileCheckpoints call at the end,
+// which runs *after* the manifest is written. Suppressing the whole directory
+// on that basis hid the fresh manifest from reconciliation, which then deleted
+// the checkpoint the backup had just created, so no incremental chain could
+// ever form. Suppression must therefore be limited to directories that hold
+// nothing usable yet.
+describe('isSuppressedInFlightDir', () => {
+  const IN_FLIGHT = '20260805T084407Z-7b6b1c';
+
+  it('suppresses the in-flight directory while it has no completion marker', () => {
+    expect(isSuppressedInFlightDir({ id: IN_FLIGHT, why: 'incomplete' }, IN_FLIGHT)).toBe(true);
+  });
+
+  it('never suppresses an unreadable manifest, even for the running backup', () => {
+    expect(isSuppressedInFlightDir({ id: IN_FLIGHT, why: 'unreadable' }, IN_FLIGHT)).toBe(false);
+  });
+
+  it('does not suppress other VMs\' abandoned directories', () => {
+    expect(isSuppressedInFlightDir({ id: '20260603T020043Z-a58f70', why: 'incomplete' }, IN_FLIGHT)).toBe(false);
+  });
+
+  it('suppresses nothing when no backup is running', () => {
+    expect(isSuppressedInFlightDir({ id: IN_FLIGHT, why: 'incomplete' }, undefined)).toBe(false);
   });
 });

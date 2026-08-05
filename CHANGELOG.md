@@ -3,6 +3,16 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.9.1] — 2026-08-05
+
+### Fixed
+
+- **Every incremental-mode backup in 2.9.0 destroyed the checkpoint it had just created, so no chain could form.** 2.9.0 stopped counting the backup currently being written as leftover data — correct in itself, but it did so by hiding that directory from *every* scan. Checkpoint reconciliation runs at the end of a backup, while the backup is still registered as in progress, so it could no longer see the manifest written moments earlier and deleted the brand-new checkpoint as unreferenced. The backup then recorded a manifest naming a checkpoint that no longer existed: the history showed it as "Chainable", the degraded-runs alert was blinded because it trusts that same field, and the next run found the checkpoint missing and took another full backup. Only the display suppression is applied now, and never to a directory that holds a readable manifest.
+
+- **A backup now confirms its checkpoint exists rather than assuming it.** The copy reported a checkpoint as created whenever one had been *asked* for, so anything that removed it afterwards went unnoticed and the manifest advertised a backup nothing could chain onto. libvirt is asked directly, and a missing checkpoint is recorded as a note on the backup.
+
+  If you ran 2.9.0, any backup it took in incremental mode carries a checkpoint name that is not in libvirt. Nothing is lost — those backups restore normally — but the next run will take a full backup and lay down a working checkpoint.
+
 ## [2.9.0] — 2026-08-05
 
 ### Changed

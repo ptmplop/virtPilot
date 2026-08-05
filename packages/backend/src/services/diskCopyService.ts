@@ -209,10 +209,25 @@ export async function copyVmDisks(opts: DiskCopyOptions): Promise<DiskCopyResult
       if (!frozen) {
         notes.push('Guest agent unavailable — the copy is crash-consistent rather than application-consistent.');
       }
+      // Ask libvirt whether the checkpoint is really there rather than assuming
+      // it because we passed the argument. The manifest's `checkpointName` is
+      // what every later run trusts to decide it can chain, so recording one
+      // that does not exist produces a backup advertised as chainable that
+      // nothing can chain onto — and hides the failure from the alert that
+      // exists to catch exactly this.
+      const checkpointCreated = opts.createCheckpoint
+        ? await libvirtBackup.checkpointExists(uuid, opts.createCheckpoint)
+        : false;
+      if (opts.createCheckpoint && !checkpointCreated) {
+        notes.push(
+          `The backup completed but no checkpoint was left behind (${opts.createCheckpoint} is not in libvirt), `
+          + 'so the next run cannot be an incremental.',
+        );
+      }
       return {
         method: 'libvirt-backup',
         consistent: frozen,
-        checkpointCreated: !!opts.createCheckpoint,
+        checkpointCreated,
         compressed: compress,
         notes,
       };
