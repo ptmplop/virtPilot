@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { computeNextRunAt, assertSafeBackupDiskFilename, type BackupSchedule } from './backupService.js';
+import {
+  computeNextRunAt,
+  assertSafeBackupDiskFilename,
+  countConsecutiveNonChainingFulls,
+  type BackupSchedule,
+} from './backupService.js';
 
 const schedule = (over: Partial<BackupSchedule> = {}): BackupSchedule => ({
   vmUuid: '3633a961-f385-4494-8df1-237787710c4f',
@@ -94,5 +99,57 @@ describe('assertSafeBackupDiskFilename', () => {
     ['a traversal that leaves no valid leaf', '../../etc/cron.d/x'],
   ])('rejects %s', (_l, name) => {
     expect(() => assertSafeBackupDiskFilename(name)).toThrow(/invalid disk filename/i);
+  });
+});
+
+// Drives the "this schedule says incremental but keeps taking fulls" alert.
+// Getting the boundary wrong in either direction is costly: one too eager and
+// every mode switch fires a false alarm on its own bootstrap run; one too lax
+// and a permanently degraded schedule stays invisible, which is the failure
+// this alert exists for. Input is newest-first, as listBackupsForVm returns.
+describe('countConsecutiveNonChainingFulls', () => {
+  /** A run that tried to chain and came back without a checkpoint. */
+  const degraded = { hasCheckpoint: false, chainRequested: true };
+  /** A run that tried to chain and succeeded — a working chain root. */
+  const chainable = { hasCheckpoint: true, chainRequested: true };
+  /** A plain full-mode backup, which never asked for a checkpoint. */
+  const plainFull = { hasCheckpoint: false, chainRequested: false };
+
+  it('counts nothing when the newest backup is chainable', () => {
+    expect(countConsecutiveNonChainingFulls([chainable, degraded, degraded])).toBe(0);
+  });
+
+  it('counts only up to the first chainable backup, ignoring older history', () => {
+    expect(countConsecutiveNonChainingFulls([degraded, degraded, chainable, degraded])).toBe(2);
+  });
+
+  // The expected bootstrap after switching a schedule to incremental: exactly
+  // one degraded run, which lays down the checkpoint the next run chains onto.
+  it('reports one for a single degraded run, below the alert threshold', () => {
+    expect(countConsecutiveNonChainingFulls([degraded, chainable])).toBe(1);
+  });
+
+  it('counts every backup when each one tried to chain and failed', () => {
+    expect(countConsecutiveNonChainingFulls([degraded, degraded, degraded])).toBe(3);
+  });
+
+  // The reason this counts chainRequested rather than checkpoints alone.
+  // Switching a long-standing full-mode schedule to incremental leaves a
+  // history of checkpoint-less fulls that were never meant to chain; counting
+  // those fired the alert the moment the setting was saved, before a single
+  // run had happened.
+  it('does not count full-mode history that never asked to chain', () => {
+    expect(countConsecutiveNonChainingFulls([plainFull, plainFull, plainFull])).toBe(0);
+    expect(countConsecutiveNonChainingFulls([degraded, plainFull, plainFull])).toBe(1);
+  });
+
+  // Manifests written before 2.9 carry no flag, so they read as chainRequested
+  // false and stop the count at the upgrade boundary rather than being guessed at.
+  it('stops at pre-2.9 backups rather than assuming they were degraded', () => {
+    expect(countConsecutiveNonChainingFulls([degraded, plainFull, degraded])).toBe(1);
+  });
+
+  it('reports zero for a VM with no backups', () => {
+    expect(countConsecutiveNonChainingFulls([])).toBe(0);
   });
 });

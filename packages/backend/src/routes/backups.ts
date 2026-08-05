@@ -8,7 +8,8 @@ import {
   deleteBackup,
   restoreBackup,
   getSchedule,
-  saveSchedule,
+  getScheduleForDisplay,
+  updateSchedule,
   deleteSchedule,
   computeNextRunAt,
   getBackupsInProgress,
@@ -165,33 +166,48 @@ backupsRouter.put('/schedules/:vmUuid', requireUuidParam, async (req, res) => {
     if (!isBackupFrequency(body.frequency)) {
       return res.status(400).json({ error: `frequency must be one of: ${BACKUP_FREQUENCIES.join(', ')}` });
     }
-    const existing = await getSchedule(vmUuid);
-    const vmName = existing?.vmName ?? await resolveVmName(vmUuid);
-    // Validate rather than clamp: Math.min/max pass NaN straight through
-    // (Math.min(23, Math.max(0, NaN)) is NaN), which poisons every date
-    // computed from the schedule.
-    const schedule: BackupSchedule = {
-      vmUuid,
-      vmName,
-      frequency: body.frequency,
-      hour: body.hour != null ? validateNonNegativeInt(body.hour, 23) : (existing?.hour ?? 2),
-      minute: body.minute != null ? validateNonNegativeInt(body.minute, 59) : (existing?.minute ?? 0),
-      dayOfWeek: body.dayOfWeek != null ? validateNonNegativeInt(body.dayOfWeek, 6) : (existing?.dayOfWeek ?? 1),
-      // Capped at 28 — day 29+ overflows on short months.
-      dayOfMonth: body.dayOfMonth != null ? validatePositiveInt(body.dayOfMonth, 28) : (existing?.dayOfMonth ?? 1),
-      retentionDays: body.retentionDays !== undefined ? body.retentionDays : (existing?.retentionDays ?? null),
-      enabled: body.enabled !== undefined ? body.enabled : true,
-      lastRunAt: existing?.lastRunAt ?? null,
-      nextRunAt: null,
-      mode: isScheduleMode(body.mode) ? body.mode : (existing?.mode ?? 'full'),
-      // Bounded rather than free-form: a chain of thousands of incrementals is
-      // slow to restore and loses everything if any one link is damaged.
-      fullEvery: body.fullEvery != null
-        ? validatePositiveInt(body.fullEvery, MAX_FULL_EVERY)
-        : (existing?.fullEvery ?? DEFAULT_FULL_EVERY),
-    };
-    schedule.nextRunAt = computeNextRunAt(schedule).toISOString();
-    await saveSchedule(schedule);
+    // Resolved before taking the lock: it can shell out to virsh, and the lock
+    // serialises every schedule write on the host.
+    const vmNameFallback = await resolveVmName(vmUuid);
+
+    // Built inside updateSchedule so the merge sees the stored value as it is
+    // at write time. Reading it separately first would let a scheduled run
+    // finishing in between be read back stale and then written over — which is
+    // precisely the lastRunAt/lastRunStatus/lastError this merge preserves.
+    const schedule = await updateSchedule(vmUuid, (existing): BackupSchedule => {
+      // Validate rather than clamp: Math.min/max pass NaN straight through
+      // (Math.min(23, Math.max(0, NaN)) is NaN), which poisons every date
+      // computed from the schedule.
+      const next: BackupSchedule = {
+        vmUuid,
+        vmName: existing?.vmName ?? vmNameFallback,
+        frequency: body.frequency as BackupFrequency,
+        hour: body.hour != null ? validateNonNegativeInt(body.hour, 23) : (existing?.hour ?? 2),
+        minute: body.minute != null ? validateNonNegativeInt(body.minute, 59) : (existing?.minute ?? 0),
+        dayOfWeek: body.dayOfWeek != null ? validateNonNegativeInt(body.dayOfWeek, 6) : (existing?.dayOfWeek ?? 1),
+        // Capped at 28 — day 29+ overflows on short months.
+        dayOfMonth: body.dayOfMonth != null ? validatePositiveInt(body.dayOfMonth, 28) : (existing?.dayOfMonth ?? 1),
+        retentionDays: body.retentionDays !== undefined ? body.retentionDays : (existing?.retentionDays ?? null),
+        enabled: body.enabled !== undefined ? body.enabled : true,
+        lastRunAt: existing?.lastRunAt ?? null,
+        nextRunAt: null,
+        // Carried over deliberately. These are the record of how the last run
+        // ended, not settings, and rebuilding the schedule without them meant
+        // that opening a failed schedule to investigate and pressing Save cleared
+        // the red "last scheduled backup failed" alert — hiding a backup that had
+        // still never succeeded until the next run failed, up to a month later.
+        ...(existing?.lastRunStatus ? { lastRunStatus: existing.lastRunStatus } : {}),
+        ...(existing?.lastError ? { lastError: existing.lastError } : {}),
+        mode: isScheduleMode(body.mode) ? body.mode : (existing?.mode ?? 'full'),
+        // Bounded rather than free-form: a chain of thousands of incrementals is
+        // slow to restore and loses everything if any one link is damaged.
+        fullEvery: body.fullEvery != null
+          ? validatePositiveInt(body.fullEvery, MAX_FULL_EVERY)
+          : (existing?.fullEvery ?? DEFAULT_FULL_EVERY),
+      };
+      next.nextRunAt = computeNextRunAt(next).toISOString();
+      return next;
+    });
     res.json({ schedule });
   } catch (err: unknown) {
     if (err instanceof ValidationError) {
@@ -216,7 +232,9 @@ backupsRouter.get('/:vmUuid', requireUuidParam, async (req, res) => {
   try {
     const { vmUuid } = req.params;
     const backups = await listBackupsForVm(vmUuid);
-    const schedule = await getSchedule(vmUuid);
+    // Display path: a schedule store that cannot be parsed must not take the
+    // whole backups page down with it — the backups themselves still list.
+    const schedule = await getScheduleForDisplay(vmUuid);
     const incremental = await getIncrementalStatus(vmUuid);
     res.json({ backups, schedule, incremental });
   } catch (err: unknown) {
@@ -233,7 +251,9 @@ backupsRouter.post('/:vmUuid', requireUuidParam, async (req, res) => {
     if (kind !== undefined && !isBackupKind(kind)) {
       return res.status(400).json({ error: `kind must be one of: ${BACKUP_KINDS.join(', ')}` });
     }
-    const schedule = await getSchedule(vmUuid);
+    // Only `fullEvery` is read from it, so a corrupt schedule store must not
+    // stop the operator taking a backup by hand.
+    const schedule = await getScheduleForDisplay(vmUuid);
     const backup = await createBackup(vmUuid, {
       triggerType: 'manual',
       kind: kind ?? 'full',

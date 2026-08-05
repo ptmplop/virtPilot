@@ -56,6 +56,16 @@ export interface BackupManifest {
   parentBackupId?: string;
   /** libvirt checkpoint created with this backup, enabling the next incremental. */
   checkpointName?: string;
+  /**
+   * The run asked to extend an incremental chain — i.e. it was an explicit
+   * incremental request or a schedule running in incremental mode.
+   *
+   * Recorded so a full backup that never *tried* to chain (the normal case for
+   * a full-mode schedule, and for every backup written before 2.9) can be told
+   * apart from one that tried and could not. Absent on older manifests, which
+   * are therefore never counted as degraded.
+   */
+  chainRequested?: boolean;
   method?: CopyMethod;
   compressed?: boolean;
   /** Operator-facing explanations of any fallback taken while copying. */
@@ -96,6 +106,14 @@ export interface BackupEntry {
   method?: CopyMethod;
   compressed?: boolean;
   notes?: string[];
+  /**
+   * This backup left a libvirt checkpoint behind, so the next run can chain an
+   * incremental onto it. Only ever true for a run taken with incremental
+   * backups switched on *and* copied by the libvirt push-mode tier.
+   */
+  hasCheckpoint: boolean;
+  /** This run tried to extend an incremental chain. See `BackupManifest.chainRequested`. */
+  chainRequested: boolean;
   /** An ancestor this backup's data depends on is missing — not restorable. */
   chainBroken: boolean;
   /** Another backup layers on top of this one, so it cannot be deleted alone. */
@@ -139,6 +157,14 @@ export interface BackupVmSummary {
   vmName: string;
   backupCount: number;
   totalSizeBytes: number;
+  /**
+   * Bytes held by backup directories with no usable manifest. Counted
+   * separately so `totalSizeBytes` still means "size of the backups you can
+   * actually restore", while the disk the operator has to account for is the
+   * sum of the two.
+   */
+  unusableSizeBytes: number;
+  unusableCount: number;
   lastBackupAt: string | null;
   schedule: BackupSchedule | null;
   // false when the VM has been deleted but its backup metadata directory remains.
@@ -228,7 +254,13 @@ export function decodeMetaFromManifest(raw: unknown): VmMeta | null {
 
 // ─── Concurrency guard ────────────────────────────────────────────────────────
 
-interface BackupInProgressEntry { vmName: string; startedAt: string; triggerType: BackupTrigger; }
+interface BackupInProgressEntry {
+  vmName: string;
+  startedAt: string;
+  triggerType: BackupTrigger;
+  /** Filled in once the id is minted, so scans can skip the directory in flight. */
+  backupId?: string;
+}
 const backupsInProgress = new Map<string, BackupInProgressEntry>();
 
 export function getBackupsInProgress(): Array<{ vmUuid: string; vmName: string; startedAt: string; triggerType: BackupTrigger }> {
@@ -239,17 +271,62 @@ export function getBackupsInProgress(): Array<{ vmUuid: string; vmName: string; 
 
 // ─── Schedule persistence ─────────────────────────────────────────────────────
 
+/**
+ * Reads the schedule store.
+ *
+ * Only a genuinely absent file counts as "no schedules". Anything else — a
+ * truncated write, a JSON syntax error, EACCES after a botched chown — throws.
+ * Swallowing those into `{}` was indistinguishable from an empty store, and the
+ * next `saveSchedule` would then persist that emptiness, permanently deleting
+ * every other VM's schedule while the scheduler silently stopped backing
+ * anything up. Callers that only display schedules use `readSchedulesForDisplay`.
+ */
 export async function readSchedules(): Promise<Record<string, BackupSchedule>> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(schedulesFile(), 'utf8');
-    return JSON.parse(raw);
-  } catch {
+    raw = await fs.readFile(schedulesFile(), 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return {};
+    throw new Error(`Could not read ${schedulesFile()}: ${String(err)}`);
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('expected a JSON object of vmUuid -> schedule');
+    }
+    return parsed as Record<string, BackupSchedule>;
+  } catch (err) {
+    throw new Error(`${schedulesFile()} is corrupt and was left untouched: ${String(err)}`);
+  }
+}
+
+/**
+ * The read-only variant, for pages that list schedules alongside other data.
+ * A corrupt store degrades those views to "no schedule" instead of 500-ing the
+ * whole backups page — but it is logged, and it can never reach a write path.
+ */
+export async function readSchedulesForDisplay(): Promise<Record<string, BackupSchedule>> {
+  try {
+    return await readSchedules();
+  } catch (err) {
+    console.error(`[backup] ${String(err)}`);
     return {};
   }
 }
 
 export async function writeSchedules(schedules: Record<string, BackupSchedule>): Promise<void> {
-  await fs.writeFile(schedulesFile(), JSON.stringify(schedules, null, 2), 'utf8');
+  // Write-then-rename: a plain writeFile truncates first, so a crash or a full
+  // filesystem mid-write leaves an unparseable store behind. rename(2) within
+  // one directory is atomic, so a reader sees either the old file or the new one.
+  const target = schedulesFile();
+  const tmp = `${target}.${process.pid}.tmp`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify(schedules, null, 2), 'utf8');
+    await fs.rename(tmp, target);
+  } catch (err) {
+    await fs.unlink(tmp).catch(() => {});
+    throw err;
+  }
 }
 
 export async function getSchedule(vmUuid: string): Promise<BackupSchedule | null> {
@@ -257,47 +334,189 @@ export async function getSchedule(vmUuid: string): Promise<BackupSchedule | null
   return all[vmUuid] ?? null;
 }
 
+/** Display-path lookup — a corrupt store reads as "no schedule" rather than an error. */
+export async function getScheduleForDisplay(vmUuid: string): Promise<BackupSchedule | null> {
+  return (await readSchedulesForDisplay())[vmUuid] ?? null;
+}
+
+// saveSchedule/deleteSchedule are read-modify-writes of one shared file, and the
+// scheduler fires every due VM concurrently (all schedules created through the
+// dialog default to 02:00, so several really do land in the same tick). Without
+// this, two writers both read the pre-update snapshot and the second silently
+// reverts the first — losing a freshly computed nextRunAt, or an operator's mode
+// change saved while a scheduler write was in flight.
+let scheduleWriteQueue: Promise<unknown> = Promise.resolve();
+
+function withScheduleLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = scheduleWriteQueue.then(fn, fn);
+  // Keep the chain alive after a rejection, but never leave it unhandled.
+  scheduleWriteQueue = run.catch(() => {});
+  return run;
+}
+
 export async function saveSchedule(schedule: BackupSchedule): Promise<void> {
-  const all = await readSchedules();
-  all[schedule.vmUuid] = schedule;
-  await writeSchedules(all);
+  await withScheduleLock(async () => {
+    const all = await readSchedules();
+    all[schedule.vmUuid] = schedule;
+    await writeSchedules(all);
+  });
+}
+
+/**
+ * Builds and stores a VM's schedule with the current stored value in hand,
+ * entirely inside the lock.
+ *
+ * `getSchedule` then `saveSchedule` looks equivalent but is not: the read
+ * happens outside the lock, so a scheduler write landing in between is read
+ * back stale and written over. That matters for the fields the caller is
+ * *preserving* rather than setting — `lastRunAt`, `lastRunStatus`, `lastError`
+ * — which is exactly what a run in flight is updating.
+ *
+ * The mutator receives null when no schedule exists yet.
+ */
+export async function updateSchedule(
+  vmUuid: string,
+  build: (current: BackupSchedule | null) => BackupSchedule,
+): Promise<BackupSchedule> {
+  return withScheduleLock(async () => {
+    const all = await readSchedules();
+    const next = build(all[vmUuid] ?? null);
+    all[vmUuid] = next;
+    await writeSchedules(all);
+    return next;
+  });
 }
 
 export async function deleteSchedule(vmUuid: string): Promise<void> {
-  const all = await readSchedules();
-  delete all[vmUuid];
-  await writeSchedules(all);
+  await withScheduleLock(async () => {
+    const all = await readSchedules();
+    delete all[vmUuid];
+    await writeSchedules(all);
+  });
 }
 
 // ─── Listing ──────────────────────────────────────────────────────────────────
 
-async function readManifests(vmUuid: string): Promise<BackupManifest[]> {
+/** A backup directory that carries no usable manifest, and why. */
+export interface UnusableBackupDir {
+  id: string;
+  /**
+   * `incomplete` — no `.complete` marker: a run that never finished.
+   * `unreadable` — marked complete, but the manifest could not be read or parsed.
+   */
+  why: 'incomplete' | 'unreadable';
+  detail?: string;
+  sizeBytes: number;
+  mtimeMs: number;
+}
+
+interface ManifestScan {
+  manifests: BackupManifest[];
+  unusable: UnusableBackupDir[];
+}
+
+/**
+ * Reads every backup manifest under a VM, and reports the directories it could
+ * not use rather than silently dropping them.
+ *
+ * The distinction matters because both retention and checkpoint reconciliation
+ * act destructively on the result. A manifest that is merely *unreadable* — a
+ * transient EIO, an NFS stall, a truncated file — used to be indistinguishable
+ * from a backup that does not exist, which made an incremental's parent look
+ * like a childless leaf and let retention delete it. The peel loop then
+ * cascaded, so one bad read could take the whole chain.
+ */
+async function scanManifests(vmUuid: string): Promise<ManifestScan> {
   const dir = vmBackupDir(vmUuid);
   let subdirs: string[];
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     subdirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
-    return [];
+    return { manifests: [], unusable: [] };
   }
 
+  // The backup this VM is copying right now has no `.complete` marker yet, and
+  // reporting it as leftover junk while its progress bar is on screen is both
+  // alarming and wrong. The sweep already skips it; the alert and the size
+  // totals have to as well.
+  const inFlightId = backupsInProgress.get(vmUuid)?.backupId;
+
   const results = await Promise.all(
-    subdirs.map(async (entry): Promise<BackupManifest | null> => {
+    subdirs.map(async (entry): Promise<BackupManifest | UnusableBackupDir | null> => {
+      if (entry === inFlightId) return null;
       const bdir = path.join(dir, entry);
+      const describe = async (why: UnusableBackupDir['why'], detail?: string): Promise<UnusableBackupDir> => ({
+        id: entry,
+        why,
+        detail,
+        sizeBytes: await dirSizeBytes(bdir),
+        // The newest timestamp anywhere in the directory, not the directory's
+        // own. A directory's mtime only moves when an entry is created or
+        // removed, and a push-mode backup creates all its target files up front
+        // and then writes into them for hours — so the directory alone can look
+        // untouched since the job started while qemu is still filling it.
+        mtimeMs: await newestMtimeMs(bdir),
+      });
+
       try {
         await fs.access(path.join(bdir, '.complete'));
+      } catch (err) {
+        // Only a genuinely absent marker means "never finished". A permissions
+        // or I/O error on the probe says nothing about the backup, and letting
+        // it read as `incomplete` would put a complete backup in front of the
+        // sweep's rm -rf.
+        if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return describe('incomplete');
+        return describe('unreadable', `could not check the completion marker: ${String(err).slice(0, 160)}`);
+      }
+      try {
         const raw = await fs.readFile(path.join(bdir, 'manifest.json'), 'utf8');
         return JSON.parse(raw) as BackupManifest;
-      } catch {
-        return null; // incomplete or corrupt — skip
+      } catch (err) {
+        return describe('unreadable', String(err).slice(0, 200));
       }
     }),
   );
-  return results.filter((m): m is BackupManifest => m !== null);
+
+  const manifests: BackupManifest[] = [];
+  const unusable: UnusableBackupDir[] = [];
+  for (const r of results) {
+    if (r === null) continue;
+    if ('why' in r) unusable.push(r);
+    else manifests.push(r);
+  }
+  return { manifests, unusable };
+}
+
+async function readManifests(vmUuid: string): Promise<BackupManifest[]> {
+  return (await scanManifests(vmUuid)).manifests;
+}
+
+/**
+ * Backup directories carrying no usable manifest — leftovers from a run the
+ * backend died in the middle of, or a backup whose manifest has gone bad.
+ *
+ * Exported because nothing else in the product could see them: they are
+ * filtered out of every listing, so their bytes were absent from every size
+ * total VirtPilot reports while still occupying the disk.
+ */
+export async function listUnusableBackupDirs(vmUuid: string): Promise<UnusableBackupDir[]> {
+  return (await scanManifests(vmUuid)).unusable;
 }
 
 export async function listBackupsForVm(vmUuid: string): Promise<BackupEntry[]> {
-  const manifests = await readManifests(vmUuid);
+  return listBackupsFromScan(vmUuid, await scanManifests(vmUuid));
+}
+
+// Takes the scan rather than re-running it, because callers that need both the
+// backups and the unusable directories would otherwise walk the whole backup
+// tree twice per request — a readdir, a `.complete` probe, a manifest read and
+// a size walk per backup, on a page that polls every 30 seconds.
+function listBackupsFromScan(vmUuid: string, scan: ManifestScan): Promise<BackupEntry[]> {
+  return buildBackupEntries(vmUuid, scan.manifests);
+}
+
+async function buildBackupEntries(vmUuid: string, manifests: BackupManifest[]): Promise<BackupEntry[]> {
   const byId = new Map(manifests.map((m) => [m.id, m]));
 
   const sizes = new Map<string, number>();
@@ -354,6 +573,8 @@ export async function listBackupsForVm(vmUuid: string): Promise<BackupEntry[]> {
         method: m.method,
         compressed: m.compressed,
         notes: m.notes,
+        hasCheckpoint: !!m.checkpointName,
+        chainRequested: !!m.chainRequested,
         chainBroken: broken,
         hasDependents: dependents.has(m.id),
         chainSizeBytes: totalBytes,
@@ -382,7 +603,7 @@ export async function listAllVmBackupSummaries(): Promise<BackupVmSummary[]> {
     vmUuids = [];
   }
 
-  const schedules = await readSchedules();
+  const schedules = await readSchedulesForDisplay();
   // Also include VMs that have a schedule but no backup directory yet
   for (const uuid of Object.keys(schedules)) {
     if (!vmUuids.includes(uuid)) vmUuids.push(uuid);
@@ -390,7 +611,9 @@ export async function listAllVmBackupSummaries(): Promise<BackupVmSummary[]> {
 
   const summaries: BackupVmSummary[] = [];
   for (const vmUuid of vmUuids) {
-    const backups = await listBackupsForVm(vmUuid);
+    const scan = await scanManifests(vmUuid);
+    const backups = await listBackupsFromScan(vmUuid, scan);
+    const unusable = scan.unusable;
     const totalSizeBytes = backups.reduce((s, b) => s + b.sizeBytes, 0);
     const lastBackupAt = backups.length > 0 ? backups[0].createdAt : null;
     const vmExists = await getVmInfo(vmUuid).then(() => true).catch(() => false);
@@ -411,6 +634,8 @@ export async function listAllVmBackupSummaries(): Promise<BackupVmSummary[]> {
       vmName,
       backupCount: backups.length,
       totalSizeBytes,
+      unusableSizeBytes: unusable.reduce((s, u) => s + u.sizeBytes, 0),
+      unusableCount: unusable.length,
       lastBackupAt,
       schedule: schedules[vmUuid] ?? null,
       vmExists,
@@ -430,6 +655,14 @@ export interface IncrementalReadiness {
   chainLength: number;
   /** Why an incremental is not possible right now. */
   reason?: string;
+  /**
+   * There is nothing to chain onto because this VM has no backups at all.
+   *
+   * A flag rather than a comparison against `reason`: the previous version of
+   * this code tested `reason !== 'no full backup exists yet'`, and rewording
+   * that string silently made the branch it guarded unreachable.
+   */
+  firstBackup?: boolean;
 }
 
 /**
@@ -455,7 +688,9 @@ export async function assessIncrementalReadiness(vmUuid: string, running: boolea
   // The newest complete backup is the only valid parent: chaining onto an older
   // one would silently discard everything written since.
   const parent = backups.find((b) => !b.chainBroken);
-  if (!parent) return { ready: false, chainLength, reason: 'no full backup exists yet' };
+  if (!parent) {
+    return { ready: false, chainLength, firstBackup: true, reason: 'this is the first backup of this VM' };
+  }
   if (parent.id !== backups[0]?.id) {
     return { ready: false, chainLength, reason: 'the most recent backup is unreadable, so a new link would be built on a broken chain' };
   }
@@ -463,7 +698,17 @@ export async function assessIncrementalReadiness(vmUuid: string, running: boolea
   const manifest = await getBackupManifest(vmUuid, parent.id);
   const checkpoint = manifest?.checkpointName;
   if (!checkpoint) {
-    return { ready: false, chainLength, reason: 'the previous backup did not record a checkpoint' };
+    // Says what is missing and why it is missing. A backup only carries a
+    // checkpoint when it was itself taken with incremental backups switched on,
+    // so a perfectly good full backup legitimately has none — and the previous
+    // wording ("the previous backup did not record a checkpoint") read as a
+    // fault in that backup instead of a consequence of the mode setting.
+    return {
+      ready: false,
+      chainLength,
+      reason: 'the previous backup carries no checkpoint to measure changes against '
+        + '(only backups taken with incremental backups switched on record one)',
+    };
   }
   if (!(await libvirtBackup.checkpointExists(vmUuid, checkpoint))) {
     return { ready: false, chainLength, reason: `checkpoint "${checkpoint}" no longer exists in libvirt` };
@@ -586,6 +831,11 @@ async function _createBackupInner(
   const compress = settings.backup.compression;
 
   const id = backupId();
+  // Published before the directory exists, so no scan can ever see the
+  // directory without also knowing a backup is being written into it.
+  const inProgress = backupsInProgress.get(vmUuid);
+  if (inProgress) inProgress.backupId = id;
+
   const bdir = backupDir(vmUuid, id);
   await fs.mkdir(bdir, { recursive: true });
   // The copy runs as libvirt-qemu (either qemu-img via sudo, or the qemu
@@ -614,6 +864,10 @@ async function _createBackupInner(
 
   const running = vmInfo.status === 'running';
   const notes: string[] = [];
+  // Flipped the moment the backup becomes restorable on disk, so the error
+  // path can tell "the copy failed, clean up after it" from "the copy worked
+  // and something afterwards went wrong".
+  let succeeded = false;
 
   try {
     const allDisks = await getVmDisks(vmUuid);
@@ -642,13 +896,20 @@ async function _createBackupInner(
     let parentBackupId: string | undefined;
     let incrementalFrom: string | undefined;
 
+    // Set when this run degraded to a full, so the note can be finalised after
+    // the copy — only then is it known whether a checkpoint was actually laid
+    // down, which is the difference between "this is the expected first run"
+    // and "incrementals are silently not working".
+    let degradedReason: string | undefined;
+
     if (requested !== 'full') {
       const readiness = await assessIncrementalReadiness(vmUuid, running);
       if (!readiness.ready) {
-        // `auto` degrades quietly by design; an explicit request says why.
-        const why = `Incremental not possible — ${readiness.reason}. Took a full backup instead.`;
-        if (requested === 'incremental') notes.push(why);
-        else if (readiness.chainLength > 0 || readiness.reason !== 'no full backup exists yet') notes.push(why);
+        // A schedule's very first run has nothing to chain onto and never did;
+        // saying so would be noise. Every other cause is worth recording.
+        if (requested === 'incremental' || !readiness.firstBackup) {
+          degradedReason = readiness.reason;
+        }
       } else if (readiness.chainLength >= fullEvery) {
         notes.push(`Chain reached ${readiness.chainLength} incrementals (limit ${fullEvery}) — took a fresh full backup.`);
       } else {
@@ -721,6 +982,29 @@ async function _createBackupInner(
     }
     notes.push(...copy.result.notes);
 
+    // Now that the copy has run, say what actually happened. The old wording
+    // ("the previous backup did not record a checkpoint") named a symptom of
+    // yesterday's run and stopped there — it read as a fault in a backup that
+    // was perfectly good, and never mentioned that this run had already fixed
+    // it. Which of the two sentences applies is only knowable here.
+    if (degradedReason) {
+      let outcome: string;
+      if (copy.result.checkpointCreated) {
+        outcome = 'This run has recorded a checkpoint, so the next one can be a true incremental.';
+      } else if (!checkpointName) {
+        // No checkpoint was ever asked for, because the conditions for one were
+        // not met — the VM was off, or the host cannot do push-mode backups.
+        // Blaming the copy method here would be wrong: it was never involved.
+        outcome = 'No checkpoint was recorded, so the next run will be a full backup as well.';
+      } else {
+        // One was requested and the run still came back without it, which only
+        // happens when the copy dropped off the libvirt tier.
+        outcome = 'No checkpoint could be recorded, because the copy fell back to '
+          + `${copy.result.method} — so the next run will be a full backup as well.`;
+      }
+      notes.push(`Took a full backup — ${degradedReason}. ${outcome}`);
+    }
+
     const diskEntries: BackupDiskEntry[] = [];
     for (const spec of copySpecs) {
       const stat = await fs.stat(spec.destPath);
@@ -750,6 +1034,7 @@ async function _createBackupInner(
       kind,
       ...(parentBackupId ? { parentBackupId } : {}),
       ...(copy.result.checkpointCreated && checkpointName ? { checkpointName } : {}),
+      ...(wantsChain ? { chainRequested: true } : {}),
       method: copy.result.method,
       compressed: copy.result.compressed,
       ...(notes.length ? { notes } : {}),
@@ -770,6 +1055,13 @@ async function _createBackupInner(
     await fs.writeFile(path.join(bdir, 'manifest.json'), JSON.stringify(manifest, null, 2), { encoding: 'utf8', mode: 0o600 });
     await fs.writeFile(path.join(bdir, '.complete'), '', 'utf8');
 
+    // Past this line the backup is real and restorable, so nothing below may
+    // be allowed to reach the catch — its first act is to rm -rf this
+    // directory. A retention pass that threw on an unreadable settings file
+    // used to destroy a backup that had already fully succeeded, then sweep its
+    // checkpoint, so the *next* run degraded to a full as well.
+    succeeded = true;
+
     await appendLog({
       type: 'backup.create',
       subject: vmName,
@@ -781,7 +1073,11 @@ async function _createBackupInner(
       ].join('\n'),
     });
 
-    await applyRetention(vmUuid);
+    // Housekeeping, not part of the backup: a failure here must be reported,
+    // never allowed to invalidate the backup that just succeeded.
+    await applyRetention(vmUuid).catch((err: unknown) => {
+      console.warn(`[backup] Retention pass failed after ${id}: ${String(err)}`);
+    });
     // Only after the manifest is on disk, so the checkpoint we just created is
     // recognised as belonging to a real backup.
     await reconcileCheckpoints(vmUuid).catch(() => { /* best-effort tidy-up */ });
@@ -804,11 +1100,26 @@ async function _createBackupInner(
       method: copy.result.method,
       compressed: copy.result.compressed,
       notes: notes.length ? notes : undefined,
+      hasCheckpoint: !!manifest.checkpointName,
+      chainRequested: !!manifest.chainRequested,
       chainBroken: false,
       hasDependents: false,
       chainSizeBytes: sizeBytes,
     };
   } catch (err) {
+    if (succeeded) {
+      // The backup itself is fine — only the bookkeeping after it failed.
+      // Deleting it here would turn a good backup into a lost one.
+      console.error(`[backup] ${id} completed but post-backup bookkeeping failed: ${String(err)}`);
+      await appendLog({
+        type: 'backup.create',
+        subject: vmName,
+        subjectUuid: vmUuid,
+        status: 'error',
+        output: `Backup ${id} was written successfully, but the bookkeeping afterwards failed: ${String(err)}`,
+      });
+      throw err;
+    }
     await fs.rm(bdir, { recursive: true, force: true }).catch(() => {});
     // A checkpoint may have been created before the failure; without a manifest
     // referencing it, it would linger as a bitmap on the disk forever.
@@ -888,7 +1199,20 @@ export async function reconcileCheckpoints(vmUuid: string): Promise<void> {
   const ours = names.filter(libvirtBackup.isVirtpilotCheckpoint);
   if (ours.length === 0) return;
 
-  const manifests = await readManifests(vmUuid);
+  const { manifests, unusable } = await scanManifests(vmUuid);
+  // A manifest that could not be read is not evidence that its checkpoint is
+  // stale — dropping it on that basis costs the next incremental for no reason.
+  // Leaving a genuinely orphaned checkpoint until the next pass is the cheaper
+  // mistake of the two.
+  const unreadable = unusable.filter((u) => u.why === 'unreadable');
+  if (unreadable.length > 0) {
+    console.warn(
+      `[backup] Skipping checkpoint reconciliation for ${vmUuid}: `
+      + `${unreadable.length} manifest(s) could not be read (${unreadable.map((u) => u.id).join(', ')})`,
+    );
+    return;
+  }
+
   const live = new Set(manifests.map((m) => m.checkpointName).filter((n): n is string => !!n));
 
   for (const name of ours) {
@@ -1260,8 +1584,40 @@ export interface BackupAlert {
   vmUuid: string;
   vmName: string;
   severity: 'error' | 'warning';
-  kind: 'schedule-failed' | 'chain-broken' | 'schedule-overdue' | 'verify-failed';
+  kind: 'schedule-failed' | 'chain-broken' | 'schedule-overdue' | 'verify-failed' | 'incremental-degraded' | 'orphaned-data';
   message: string;
+}
+
+// One degraded run is the expected bootstrap after switching a schedule to
+// incremental, so it is not worth an alert. Two in a row means the libvirt
+// push-mode tier is failing every time and the schedule is quietly writing a
+// full backup every night while still reporting success.
+const DEGRADED_RUN_ALERT_THRESHOLD = 2;
+
+/**
+ * How many of the most recent backups *tried* to extend an incremental chain
+ * and came back without a checkpoint.
+ *
+ * Counted newest-first and stopped at the first backup that recorded one,
+ * because that backup is a working chain root — everything older is history.
+ *
+ * `chainRequested` is what keeps this honest. Counting every checkpoint-less
+ * backup instead would mean that switching a long-standing full-mode schedule
+ * to incremental raised the alert immediately, off the back of history that
+ * predates the setting and was never meant to chain. Backups written before
+ * 2.9 carry no flag and so are never counted, which stops the count at the
+ * upgrade boundary rather than misreading it.
+ */
+export function countConsecutiveNonChainingFulls(
+  backups: Pick<BackupEntry, 'hasCheckpoint' | 'chainRequested'>[],
+): number {
+  let n = 0;
+  for (const b of backups) {
+    if (b.hasCheckpoint) break;
+    if (!b.chainRequested) break;
+    n++;
+  }
+  return n;
 }
 
 // A schedule that should have fired this long ago is not merely late — either
@@ -1303,6 +1659,52 @@ export async function getBackupAlerts(): Promise<BackupAlert[]> {
     }
 
     const backups = await listBackupsForVm(s.vmUuid);
+
+    // A schedule set to incremental that keeps producing checkpoint-less fulls
+    // is the failure this product used to hide completely: every run still
+    // succeeds, so lastRunStatus stays 'success', the banner still says
+    // "Incremental", and the only trace is a note buried in one backup's row.
+    if (schedule?.mode === 'incremental') {
+      const degraded = countConsecutiveNonChainingFulls(backups);
+      if (degraded >= DEGRADED_RUN_ALERT_THRESHOLD) {
+        // Specifically the degradation note, not simply the last one — the copy
+        // tiers push their own notes afterwards, so quoting the tail could
+        // attach an unrelated consistency warning to this sentence.
+        const why = backups[0]?.notes?.find((n) => n.startsWith('Took a full backup —'));
+        alerts.push({
+          vmUuid: s.vmUuid,
+          vmName: s.vmName,
+          severity: 'warning',
+          kind: 'incremental-degraded',
+          message:
+            `This VM is scheduled for incremental backups, but the last ${degraded} runs each took a full backup `
+            + 'and recorded no checkpoint, so the next one cannot be incremental either'
+            + (why ? `: ${why}` : '.'),
+        });
+      }
+    }
+
+    if (s.unusableCount > 0) {
+      // Retention refuses to prune anything at all while a manifest is
+      // unreadable, so if that is what we are looking at, this alert is the
+      // only place the operator will ever learn that expiry has stopped — and
+      // which directory to look at to unblock it.
+      const unreadable = (await listUnusableBackupDirs(s.vmUuid)).filter((u) => u.why === 'unreadable');
+      alerts.push({
+        vmUuid: s.vmUuid,
+        vmName: s.vmName,
+        severity: 'warning',
+        kind: 'orphaned-data',
+        message: unreadable.length > 0
+          ? `${plural(unreadable.length, 'backup manifest')} cannot be read `
+            + `(${unreadable.map((u) => u.id).join(', ')}), so retention has stopped removing expired backups for `
+            + `this VM until ${unreadable.length === 1 ? 'that directory is' : 'those directories are'} repaired or deleted`
+          : `${plural(s.unusableCount, 'backup directory', 'backup directories')} `
+            + `${s.unusableCount === 1 ? 'holds' : 'hold'} ${formatBytes(s.unusableSizeBytes)} that no backup can use, `
+            + `left behind by ${s.unusableCount === 1 ? 'an interrupted run' : 'interrupted runs'}`,
+      });
+    }
+
     const broken = backups.filter((b) => b.chainBroken);
     if (broken.length > 0) {
       alerts.push({
@@ -1340,6 +1742,28 @@ export async function getBackupAlerts(): Promise<BackupAlert[]> {
 // until that incremental expires too. Deleting it on age alone would destroy
 // every incremental in the chain.
 export async function applyRetention(vmUuid: string): Promise<void> {
+  // An unreadable manifest is indistinguishable from a backup that does not
+  // exist, and the peel loop below reads absence as "nothing depends on this".
+  // One transient EIO on an incremental's manifest would make its parent look
+  // like a childless leaf, delete it, and cascade down the chain — leaving
+  // every backup above permanently unrestorable. Refuse to prune at all until
+  // the whole picture is readable.
+  // One scan, reused below — the pass used to walk the whole backup tree twice.
+  const scan = await scanManifests(vmUuid);
+  const unreadable = scan.unusable.filter((u) => u.why === 'unreadable');
+  if (unreadable.length > 0) {
+    // Surfaced to the operator by the 'orphaned-data' alert, which names the
+    // same directories and says retention has stopped — this is not the only
+    // trace.
+    throw new Error(
+      `Refusing to apply retention to ${vmUuid}: ${unreadable.length} backup manifest(s) could not be read `
+      + `(${unreadable.map((u) => `${u.id}: ${u.detail ?? 'no detail'}`).join('; ')})`,
+    );
+  }
+
+  // Deliberately strict: a corrupt schedule store must abort the pass rather
+  // than silently fall back to the global retention and delete backups the
+  // operator had asked to keep for longer.
   const settings = await getUserSettings();
   const schedules = await readSchedules();
   const schedule = schedules[vmUuid];
@@ -1347,7 +1771,7 @@ export async function applyRetention(vmUuid: string): Promise<void> {
     ? schedule.retentionDays
     : settings.backup.retentionDays;
 
-  const backups = await listBackupsForVm(vmUuid);
+  const backups = await listBackupsFromScan(vmUuid, scan);
   const childCount = new Map<string, number>();
   for (const b of backups) {
     if (b.parentBackupId) childCount.set(b.parentBackupId, (childCount.get(b.parentBackupId) ?? 0) + 1);
@@ -1389,11 +1813,105 @@ export async function applyRetentionAll(): Promise<void> {
     return;
   }
   for (const vmUuid of vmUuids) {
-    await applyRetention(vmUuid).catch(() => {});
+    await applyRetention(vmUuid).catch((err: unknown) => {
+      console.warn(`[backup] Retention pass failed for ${vmUuid}: ${String(err)}`);
+    });
+    await sweepAbandonedBackupDirs(vmUuid).catch((err: unknown) => {
+      console.warn(`[backup] Abandoned-directory sweep failed for ${vmUuid}: ${String(err)}`);
+    });
   }
 }
 
+// A backup run that the backend dies in the middle of — a restart, a
+// self-upgrade, an OOM kill — never reaches its own cleanup, so the directory
+// and its part-written multi-GB image stay on disk forever. Nothing listed
+// them, so their bytes were missing from every total the product showed while
+// still filling the volume.
+//
+// Generous, because deleting a *live* backup's directory would be far worse
+// than leaving a stale one: the longest copy the engine will wait for is 6
+// hours, so 24 hours is well past anything that could still be running, and a
+// VM with a backup in flight is skipped outright.
+const ABANDONED_BACKUP_AGE_MS = 24 * 60 * 60_000;
+
+export async function sweepAbandonedBackupDirs(vmUuid: string): Promise<string[]> {
+  if (backupsInProgress.has(vmUuid)) return [];
+
+  const cutoff = Date.now() - ABANDONED_BACKUP_AGE_MS;
+  const swept: string[] = [];
+  for (const dir of await listUnusableBackupDirs(vmUuid)) {
+    // Only ever the never-finished ones. A directory marked `.complete` whose
+    // manifest merely failed to read may be a perfectly good backup behind a
+    // transient I/O error, and is left for the operator to decide about.
+    if (dir.why !== 'incomplete') continue;
+    if (dir.mtimeMs === 0 || dir.mtimeMs > cutoff) continue;
+    await removeBackupFiles(vmUuid, dir.id);
+    swept.push(dir.id);
+  }
+
+  if (swept.length > 0) {
+    const vmName = await getVmInfo(vmUuid).then((i) => i.name).catch(() => vmUuid);
+    await appendLog({
+      type: 'backup.sweep',
+      subject: vmName,
+      subjectUuid: vmUuid,
+      status: 'success',
+      output: `Removed ${plural(swept.length, 'abandoned backup directory', 'abandoned backup directories')} `
+        + `left by an interrupted run: ${swept.join(', ')}`,
+    });
+  }
+  return swept;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Byte count for alert copy. Binary maths with decimal labels, deliberately —
+ * it matches the frontend's own formatBytes exactly, and an alert reading
+ * "37.4 GiB" beside a tile reading "37.4 GB" for the same directory invites the
+ * operator to think they are two different things.
+ */
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** "1 backup directory" / "3 backup directories" — no "(ies)" in operator copy. */
+function plural(n: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${n} ${n === 1 ? singular : pluralForm}`;
+}
+
+/**
+ * The most recent mtime of a directory or anything directly inside it.
+ *
+ * `stat(dir).mtimeMs` alone is not a liveness signal: it only moves when an
+ * entry is created, renamed or removed. A push-mode backup creates every target
+ * image up front and then has qemu write into those existing files for as long
+ * as the copy takes, so the directory looks frozen at job start throughout.
+ * Returns 0 when nothing can be stat'd, which every caller treats as "unknown,
+ * do not act".
+ */
+async function newestMtimeMs(dir: string): Promise<number> {
+  let newest = 0;
+  try {
+    newest = (await fs.stat(dir)).mtimeMs;
+  } catch {
+    return 0;
+  }
+  try {
+    for (const entry of await fs.readdir(dir)) {
+      const stat = await fs.stat(path.join(dir, entry)).catch(() => null);
+      if (stat && stat.mtimeMs > newest) newest = stat.mtimeMs;
+    }
+  } catch { /* the directory stat above is enough to go on */ }
+  return newest;
+}
 
 async function dirSizeBytes(dir: string): Promise<number> {
   let total = 0;

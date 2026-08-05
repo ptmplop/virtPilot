@@ -9,11 +9,21 @@ import {
 
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 
+// Retention and the abandoned-directory sweep used to run at startup and
+// nowhere else, so a host that simply stays up never reclaimed anything a
+// per-VM backup pass did not cover. Twelve hours is well inside the sweep's own
+// 24-hour age threshold, and the whole pass is a few readdirs per VM.
+const HOUSEKEEPING_INTERVAL_MS = 12 * 60 * 60_000;
+
 export function startBackupScheduler(): void {
   if (schedulerTimer) return;
-  // Run retention cleanup once on startup
   applyRetentionAll().catch(() => {});
   schedulerTimer = setInterval(tick, 60_000);
+  setInterval(() => {
+    applyRetentionAll().catch((err: unknown) => {
+      console.error('[backup-scheduler] Housekeeping pass failed:', err);
+    });
+  }, HOUSEKEEPING_INTERVAL_MS);
 }
 
 async function tick(): Promise<void> {

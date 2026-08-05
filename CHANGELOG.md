@@ -3,6 +3,48 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.9.0] — 2026-08-05
+
+### Changed
+
+- **"Incremental not possible — the previous backup did not record a checkpoint" now explains itself.** Switching a schedule to incremental made the very next run report that, which read as a fault in a full backup that was perfectly good. The message named a symptom and stopped: it never said that only a backup taken with incremental backups switched on records a checkpoint, and never said that the run writing the message had *just laid one down*, so the next run would be a true incremental. The wording now says both — and when a checkpoint genuinely could not be created, it says that instead, along with which copy method it fell back to.
+
+- **The Incremental button used to give advice that could not work.** It was disabled whenever no checkpoint existed, with a tooltip saying "take a full backup first" — but a full backup taken from the button beside it records no checkpoint either, so following the instruction literally could never enable it. The only way out was a scheduled run. The button is now enabled whenever the host supports incrementals: with no checkpoint to chain onto, it takes a full backup *and* records one, which is what the engine was always designed to do.
+
+- **The schedule dialog now warns before the fact.** Switching backup type to incremental says that the first run will still be a full backup and why. The list of reasons a run can fall back to a full also gained the missing checkpoint — the one cause that is near-certain the moment the setting is saved, and the only one it did not mention.
+
+- **Storage Used counts backup directories that nothing can restore from.** They were filtered out of every listing, so a volume holding 95 GB could report 40 GB with nothing in the product to explain the difference.
+
+### Added
+
+- **An alert when a schedule set to incremental keeps producing full backups.** If the libvirt push-mode tier fails every night — an AppArmor denial, a stale job, a permissions problem — every run still succeeds as a full backup, so the schedule reported success, the banner still said "Incremental", and the only trace was a note buried in one row. Two consecutive non-chaining runs now raise a warning that quotes the underlying cause.
+
+- **An alert for backup directories holding data nothing can use**, and an automatic sweep of the ones left behind by an interrupted run once they are a day old. A backend killed mid-copy never reached its own cleanup, so a part-written multi-GB image stayed on the volume forever, invisible to every total the product showed. Retention and the sweep now also run every twelve hours rather than only at startup — a host that simply stays up never reclaimed anything a per-VM pass did not cover.
+
+- **Backups that carry a checkpoint are marked "Chainable"** in the history list, so it is visible which backup the next incremental will build on.
+
+### Fixed
+
+- **Opening the schedule dialog too quickly could silently downgrade an incremental schedule to "always full".** The dialog reads its initial values once, when it opens, and the button that opens it was clickable before the schedule had loaded. Clicking in that window built the form from blank defaults and then saved them explicitly — overwriting the VM's backup type, frequency, time and retention, with a "Schedule saved" toast and nothing to suggest anything had been lost. The button now waits for the data, and the dialog re-reads it if it arrives late.
+
+- **An unreadable `backup-schedules.json` deleted every schedule on the host.** Any read failure — a truncated file, a syntax error, a permissions problem — was treated as "no schedules configured". Every automatic backup then stopped without raising anything (the overdue alert reads the same empty map), and the next schedule saved through the UI persisted that emptiness over the top. Reads now distinguish a genuinely absent file from a broken one, and writes go through a temporary file and a rename so a crash mid-write cannot truncate the store in the first place.
+
+- **Two VMs due at the same minute could lose each other's schedule updates.** Saving a schedule is a read-modify-write of one shared file and the scheduler fires every due VM at once — and the dialog pre-fills 02:00, so several schedules really do come due in the same tick. Writes are now serialised. This also closes the window where an operator's change, saved while a scheduled run was recording its outcome, was silently reverted with a 200 OK.
+
+- **Opening a failed schedule and pressing Save cleared the "last scheduled backup failed" alert.** The record of how the last run ended was rebuilt from the request body, which does not carry it — so investigating a failure was enough to hide it until the next run failed, up to a month later on a monthly schedule.
+
+- **A backup that had already succeeded could be deleted by the housekeeping that runs after it.** The retention pass sat inside the same error handler that cleans up a *failed* copy, whose first act is to remove the backup directory. An unreadable settings file or a busy directory during that pass therefore destroyed a complete, restorable backup — and swept its checkpoint on the way out, so the next run degraded to a full as well.
+
+- **One unreadable manifest could delete an entire backup chain.** A manifest that failed to read was indistinguishable from a backup that did not exist, which made an incremental's parent look like a childless leaf; retention removed it, and the peel loop cascaded down the chain, leaving every backup above it permanently unrestorable once the read recovered. Retention and checkpoint reconciliation now refuse to prune anything at all while any manifest is unreadable, and say which one.
+
+- **A single unlucky capability probe disabled incremental backups until the service was restarted.** `virsh domcapabilities` reporting no backup support was cached for the process lifetime on the grounds that it could not change — but upgrading qemu and restarting libvirtd changes it. A negative answer is now re-probed; a positive one is still cached permanently.
+
+- **Taking a full backup by hand on an incremental-mode VM now asks first.** It records no checkpoint, so the next scheduled run had nothing to chain onto and took a full backup as well — with no warning, and different behaviour depending on which screen the button was pressed from.
+
+### Upgrade notes
+
+- The v2.7.0 upgrade note claiming that "the first backup taken after upgrading also records a checkpoint" was wrong, and has been wrong since that release shipped. A checkpoint is only ever recorded for a VM whose backups are set to incremental. The note has been corrected in place.
+
 ## [2.8.2] — 2026-08-04
 
 ### Fixed
@@ -105,7 +147,7 @@ Backups become incremental, restores become whole-machine, and VMs can be cloned
 
 ### Upgrade notes
 
-- Existing backups keep working untouched and are treated as full backups. The first backup taken after upgrading also records a checkpoint, which is what makes the *next* one able to be incremental — so incremental backups become available one run after the upgrade, not immediately.
+- Existing backups keep working untouched and are treated as full backups. A backup records a checkpoint only when incremental backups are switched on for that VM — a checkpoint pins a dirty bitmap inside the qcow2 and blocks every snapshot operation on the disk, so it is never created for a VM that has not asked for one. Switching a schedule to incremental therefore still takes a full backup on its first run; that run lays down the checkpoint, and the run after it is a true incremental. *(Corrected in 2.9.0 — this note previously claimed any post-upgrade backup recorded a checkpoint.)*
 - Incremental backups require a running VM and a host whose `virsh domcapabilities` reports `<backup supported='yes'/>` (libvirt 6.0+ with a qemu that has `blockdev-backup` — anything on Ubuntu 22.04 or newer). The Backups page says which of these is missing when the Incremental button is unavailable.
 - Cloning and restore-into-a-new-VM carry over attached ISOs but not the source's cloud-init seed, and turning off "give the clone its own identity" will duplicate a static IP — the dialog says so.
 

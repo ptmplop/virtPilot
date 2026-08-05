@@ -299,6 +299,10 @@ export interface BackupEntry {
   method?: BackupCopyMethod;
   compressed?: boolean;
   notes?: string[];
+  /** Left a libvirt checkpoint behind, so the next run can chain onto this one. */
+  hasCheckpoint: boolean;
+  /** This run tried to extend an incremental chain, whether or not it managed to. */
+  chainRequested: boolean;
   /** An ancestor this backup needs is missing — not restorable. */
   chainBroken: boolean;
   /** Another backup builds on this one, so deleting it alone is refused. */
@@ -337,7 +341,15 @@ export interface BackupAlert {
   vmUuid: string;
   vmName: string;
   severity: 'error' | 'warning';
-  kind: 'schedule-failed' | 'chain-broken' | 'schedule-overdue' | 'verify-failed';
+  kind:
+    | 'schedule-failed'
+    | 'chain-broken'
+    | 'schedule-overdue'
+    | 'verify-failed'
+    /** Scheduled for incrementals, but every recent run degraded to a full. */
+    | 'incremental-degraded'
+    /** Disk held by backup directories nothing can restore from. */
+    | 'orphaned-data';
   message: string;
 }
 
@@ -352,6 +364,9 @@ export interface BackupVmSummary {
   vmName: string;
   backupCount: number;
   totalSizeBytes: number;
+  /** Bytes held by backup directories nothing can restore from. */
+  unusableSizeBytes: number;
+  unusableCount: number;
   lastBackupAt: string | null;
   schedule: BackupSchedule | null;
   vmExists: boolean;

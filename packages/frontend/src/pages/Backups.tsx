@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Archive,
@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Trash2,
+  Link2,
   Unlink,
   Zap,
 } from 'lucide-react';
@@ -163,6 +164,8 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
         vmName: vm.name,
         backupCount: 0,
         totalSizeBytes: 0,
+        unusableSizeBytes: 0,
+        unusableCount: 0,
         lastBackupAt: null,
         schedule: null,
         vmExists: true,
@@ -177,7 +180,11 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
   const rows: BackupVmSummary[] = [...liveRows, ...orphanRows];
 
   const totalBackups = rows.reduce((n, r) => n + r.backupCount, 0);
-  const totalSize = rows.reduce((n, r) => n + r.totalSizeBytes, 0);
+  // Counts the directories no backup can use as well. They occupy the volume
+  // just the same, and leaving them out meant this tile could report 40 GB
+  // while the filesystem held 95 GB — with nothing in the product to explain
+  // the difference. The alert banner names the shortfall.
+  const totalSize = rows.reduce((n, r) => n + r.totalSizeBytes + r.unusableSizeBytes, 0);
   const withBackups = rows.filter((r) => r.backupCount > 0).length;
   const scheduled = rows.filter((r) => r.schedule?.enabled).length;
 
@@ -528,9 +535,11 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
   // Friendly name comes from the backup summaries (live VM > most recent
   // manifest > schedule). Falls back to the UUID if no summary exists.
   const { data: summaries } = useBackupSummaries();
-  const vmName = summaries?.find((s) => s.vmUuid === vmUuid)?.vmName ?? vmUuid;
+  const summary = summaries?.find((s) => s.vmUuid === vmUuid);
+  const vmName = summary?.vmName ?? vmUuid;
   const createBackup = useCreateBackup(vmUuid, vmName);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [confirmFullOpen, setConfirmFullOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BackupEntry | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<BackupEntry | null>(null);
 
@@ -546,15 +555,40 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
   }
 
   const backups = data?.backups ?? [];
-  const schedule = data?.schedule ?? null;
+  // Falls back to the summaries cache while the per-VM query is in flight.
+  // ScheduleDialog snapshots `existing` at mount, so opening it during that
+  // window used to build a blank form and then explicitly PUT its defaults —
+  // silently downgrading an incremental schedule to "always full" (and losing
+  // its frequency, time and retention) with a "Schedule saved" toast.
+  const schedule = data?.schedule ?? summary?.schedule ?? null;
+  // Latches on the first schedule seen — see the ScheduleDialog key below.
+  const everSeenSchedule = useRef(false);
+  if (schedule) everSeenSchedule.current = true;
   const incremental: IncrementalStatus = data?.incremental ?? { supported: false, chainLength: 0, canChain: false };
   const totalSize = backups.reduce((n, b) => n + b.sizeBytes, 0);
   const lastBackupAt = backups[0]?.createdAt ?? null;
+  const unusableSize = summary?.unusableSizeBytes ?? 0;
+  const unusableCount = summary?.unusableCount ?? 0;
+
+  // Taking a full backup by hand on an incremental-mode VM leaves no
+  // checkpoint, so the next scheduled run cannot chain onto it and takes a
+  // full as well. Worth one confirmation rather than an unexplained extra full.
+  const fullWouldEndChain = schedule?.mode === 'incremental' && incremental.canChain;
 
   const incrementalHint = !incremental.supported
     ? 'This host\'s libvirt/qemu cannot do incremental backups'
     : !incremental.canChain
-      ? 'Take a full backup first — an incremental needs a checkpoint to measure changes from'
+      // Deliberately still enabled: the engine handles this case by taking a
+      // full backup *and* recording the checkpoint the next run needs. The
+      // button used to be disabled here, with a tooltip telling the operator to
+      // take a full backup first — which never worked, because a full backup
+      // taken from the button beside it records no checkpoint either.
+      //
+      // "if the VM is running" is not padding: a checkpoint can only be laid
+      // down on a live domain, and this status carries no power state to
+      // condition on, so promising one outright would be a promise the run
+      // cannot keep for a stopped VM.
+      ? 'No checkpoint to measure changes against yet — this run takes a full backup and, if the VM is running, records one so the next can be a true incremental'
       : 'Copy only the blocks that changed since the last backup';
 
   return (
@@ -585,7 +619,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setScheduleOpen(true)}>
+            <Button variant="secondary" size="sm" onClick={() => setScheduleOpen(true)} disabled={isLoading}>
               <CalendarClock size={14} className="mr-1.5" />
               {schedule ? 'Edit Schedule' : 'Set Schedule'}
             </Button>
@@ -594,13 +628,17 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
                 variant="secondary"
                 size="sm"
                 onClick={() => handleBackupNow('incremental')}
-                disabled={busy || !incremental.supported || !incremental.canChain}
+                disabled={busy || !incremental.supported}
               >
                 <Layers size={13} className="mr-1.5" />
                 Incremental
               </Button>
             </Tooltip>
-            <Button size="sm" onClick={() => handleBackupNow('full')} disabled={busy}>
+            <Button
+              size="sm"
+              onClick={() => (fullWouldEndChain ? setConfirmFullOpen(true) : handleBackupNow('full'))}
+              disabled={busy}
+            >
               {busy ? (
                 <><Spinner className="mr-1.5 h-3.5 w-3.5" />Backing up…</>
               ) : (
@@ -641,6 +679,24 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
 
         {/* Schedule banner */}
         {schedule && <ScheduleBanner schedule={schedule} vmUuid={vmUuid} onEdit={() => setScheduleOpen(true)} />}
+
+        {/* Space held by directories no backup can use. Previously invisible:
+            they are filtered out of every listing, so the disk they occupied
+            never appeared in any total the product showed. */}
+        {unusableCount > 0 && (
+          <div className="flex items-center gap-4 rounded-xl border border-amber-500/25 bg-amber-500/5 px-5 py-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+              <ShieldAlert size={14} className="text-amber-400" />
+            </div>
+            <p className="flex-1 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">
+                {unusableCount} backup director{unusableCount !== 1 ? 'ies' : 'y'} ({formatBytes(unusableSize)})
+              </span>{' '}
+              hold data no backup can use — left by a run that was interrupted, or by a manifest that has become
+              unreadable. Interrupted runs are cleared automatically once they are a day old.
+            </p>
+          </div>
+        )}
 
         {/* Backup table */}
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -687,8 +743,49 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
       </div>
 
       {scheduleOpen && (
-        <ScheduleDialog vmUuid={vmUuid} vmName={vmName} existing={schedule} onClose={() => setScheduleOpen(false)} />
+        // Keyed so a schedule arriving after the dialog opened remounts it with
+        // the real values rather than leaving the form on its blank defaults.
+        //
+        // The key only ever advances: once a schedule has been seen it stays
+        // 'loaded', so a refetch that transiently returns none — or the delete
+        // button in the banner behind the dialog — cannot remount the form and
+        // wipe what the operator has typed.
+        <ScheduleDialog
+          key={everSeenSchedule.current ? 'loaded' : 'new'}
+          vmUuid={vmUuid}
+          vmName={vmName}
+          existing={schedule}
+          incremental={incremental}
+          onClose={() => setScheduleOpen(false)}
+        />
       )}
+      <Dialog
+        open={confirmFullOpen}
+        onClose={() => setConfirmFullOpen(false)}
+        title="Take a full backup?"
+        description="This VM is scheduled for incremental backups."
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmFullOpen(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              onClick={() => { setConfirmFullOpen(false); handleBackupNow('full'); }}
+            >
+              Take Full Backup
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          A full backup taken by hand records no checkpoint, so the next scheduled run will have nothing to measure
+          changes against and will take a full backup too. Existing backups are unaffected, and the chain resumes on
+          the run after that.
+        </p>
+        <p className="mt-3 text-sm text-muted-foreground">
+          To take a backup now <em>and</em> keep the chain going, use <span className="font-medium text-foreground">Incremental</span> instead.
+        </p>
+      </Dialog>
       {deleteTarget && (
         <DeleteBackupDialog backup={deleteTarget} vmUuid={vmUuid} onClose={() => setDeleteTarget(null)} />
       )}
@@ -892,6 +989,16 @@ function BackupRow({
               Full
             </span>
           )}
+          {/* Which backup carries a checkpoint is the difference between "the
+              next run will be incremental" and "it will be another full", and
+              nothing in the UI used to say. */}
+          {backup.hasCheckpoint && (
+            <Tooltip label="This backup recorded a checkpoint, so an incremental can be layered on top of it">
+              <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/25 bg-violet-500/5 px-1.5 py-px text-[10px] font-semibold text-violet-400/90">
+                <Link2 size={8} />Chainable
+              </span>
+            </Tooltip>
+          )}
           {backup.chainBroken && (
             <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-1.5 py-px text-[10px] font-semibold text-destructive">
               <Unlink size={8} />Chain broken
@@ -1006,11 +1113,14 @@ function ScheduleDialog({
   vmUuid,
   vmName,
   existing,
+  incremental,
   onClose,
 }: {
   vmUuid: string;
   vmName: string;
   existing: BackupSchedule | null;
+  /** Absent from the list page, which has no per-VM incremental status to hand. */
+  incremental?: IncrementalStatus;
   onClose: () => void;
 }) {
   const saveSchedule = useSaveSchedule(vmUuid);
@@ -1141,9 +1251,30 @@ function ScheduleDialog({
               />
               <p className="text-[11px] leading-snug text-muted-foreground">
                 Counted in backups, not days. Capping the chain keeps restores quick and limits how much a single
-                damaged link can cost. A run that cannot produce an incremental — the VM was off, or the host does
-                not support it — falls back to a full backup rather than being skipped.
+                damaged link can cost. A run that cannot produce an incremental — the VM was off, the host does not
+                support it, or the previous run recorded no checkpoint — falls back to a full backup rather than
+                being skipped.
               </p>
+              {/* The one fallback cause that is near-certain the moment this
+                  setting is saved. Leaving it out of the list above meant the
+                  first run's warning looked like a fault rather than the
+                  documented bootstrap. */}
+              {/* Only where a bootstrap is what will actually happen. On a host
+                  that cannot do incrementals at all, promising "everything
+                  after it copies just what has changed" would be untrue. */}
+              {incremental?.supported && !incremental.canChain && (
+                <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+                  <span className="font-medium text-foreground">The first run will still be a full backup.</span>{' '}
+                  Only a backup taken with this setting on records the checkpoint an incremental measures changes
+                  against, so the first run lays one down and everything after it copies just what has changed.
+                </p>
+              )}
+              {incremental && !incremental.supported && (
+                <p className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+                  <span className="font-medium text-foreground">This host cannot take incremental backups.</span>{' '}
+                  Its libvirt/qemu does not report backup support, so every run will fall back to a full backup.
+                </p>
+              )}
             </div>
           )}
         </div>

@@ -38,18 +38,36 @@ export function isVirtpilotCheckpoint(name: string): boolean {
 
 // ─── Capability probe ─────────────────────────────────────────────────────────
 
-// Cached for the process lifetime: the answer is a property of the host's
-// libvirt/qemu build and cannot change without a service restart.
+// A *positive* answer is cached for the process lifetime — support cannot be
+// withdrawn from under a running libvirtd, and every backup asks.
+//
+// A negative one is only cached briefly. It can genuinely change without
+// restarting VirtPilot: `apt upgrade qemu-kvm` followed by a libvirtd restart
+// flips it. Caching that forever meant one unlucky probe silently disabled
+// incremental backups *and* the fast push-mode copy path until somebody
+// happened to restart the service, while the recorded reason kept insisting the
+// host could not do it.
 let backupSupportedCache: boolean | null = null;
+// Timestamp of the last answer that was not a definite yes, whether it came
+// back negative or the probe itself failed. Both back off for the same window:
+// isBackupSupported is consulted on every backups-page poll as well as on every
+// backup, so retrying immediately would fork `virsh` continuously for as long
+// as libvirtd stayed unhappy.
+let lastNegativeAt = 0;
+const NEGATIVE_PROBE_TTL_MS = 5 * 60_000;
 
 export async function isBackupSupported(): Promise<boolean> {
-  if (backupSupportedCache !== null) return backupSupportedCache;
+  if (backupSupportedCache === true) return true;
+  if (lastNegativeAt !== 0 && Date.now() - lastNegativeAt < NEGATIVE_PROBE_TTL_MS) return false;
   try {
     const caps = await virsh(['domcapabilities'], { timeout: 15_000 });
     backupSupportedCache = /<backup\s+supported=['"]yes['"]\s*\/>/.test(caps);
+    if (!backupSupportedCache) lastNegativeAt = Date.now();
   } catch {
     // A probe failure must not be cached as a hard "no" — libvirtd may simply
-    // have been restarting. Report unsupported for this call and retry later.
+    // have been restarting. Report unsupported for this call and retry after
+    // the backoff, leaving the cached answer itself untouched.
+    lastNegativeAt = Date.now();
     return false;
   }
   return backupSupportedCache;
@@ -58,6 +76,7 @@ export async function isBackupSupported(): Promise<boolean> {
 /** Test seam — forget the cached capability answer. */
 export function resetBackupSupportCache(): void {
   backupSupportedCache = null;
+  lastNegativeAt = 0;
 }
 
 // ─── Checkpoints ──────────────────────────────────────────────────────────────
