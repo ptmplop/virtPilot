@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Save, Plus, X, ShieldCheck, ShieldOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Layout } from '@/components/layout/Layout';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
@@ -184,7 +185,7 @@ export function SettingsPage() {
       {/* Host configuration */}
       <section className="space-y-3">
         <div>
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/30 select-none border-l-2 border-primary/30 pl-2">Host Configuration</h2>
+          <SectionHeading label="Host Configuration" />
           <p className="mt-2 text-xs text-muted-foreground">
             Read-only. Set via environment variables in the backend{' '}
             <span className="font-mono">.env</span> file.
@@ -199,7 +200,7 @@ export function SettingsPage() {
             <dl className="divide-y divide-border">
               {configRows.map(([label, value]) => (
                 <div key={label} className="flex items-baseline gap-4 px-5 py-3 hover:bg-muted/20 transition-colors">
-                  <dt className="w-44 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">{label}</dt>
+                  <dt className="w-44 shrink-0 text-[12px] font-medium text-muted-foreground/80">{label}</dt>
                   <dd className="min-w-0 truncate font-mono text-xs text-foreground" title={value}>{value}</dd>
                 </div>
               ))}
@@ -215,7 +216,7 @@ export function SettingsPage() {
       {/* Log retention */}
       <section className="space-y-3">
         <div>
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/30 select-none border-l-2 border-primary/30 pl-2">Log Retention</h2>
+          <SectionHeading label="Log Retention" />
           <p className="mt-2 text-xs text-muted-foreground">
             Maximum number of log entries to keep. Oldest entries are pruned automatically. Range: 10 – 10,000.
           </p>
@@ -253,7 +254,7 @@ export function SettingsPage() {
       {/* Backup settings */}
       <section className="space-y-3">
         <div>
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/30 select-none border-l-2 border-primary/30 pl-2">Backups</h2>
+          <SectionHeading label="Backups" />
           <p className="mt-2 text-xs text-muted-foreground">
             Global defaults for all VM backups. Individual schedules can override the retention period.
             Set retention to <span className="font-mono">0</span> to keep backups forever.
@@ -301,13 +302,13 @@ export function SettingsPage() {
       {/* IP Access Control */}
       <section className="space-y-3">
         <div>
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/30 select-none border-l-2 border-primary/30 pl-2">IP Access Control</h2>
+          <SectionHeading label="IP Access Control" />
           <p className="mt-2 text-xs text-muted-foreground">
             Restrict login and API access to specific IP addresses or CIDR ranges (e.g.{' '}
             <span className="font-mono">203.0.113.1</span> or{' '}
             <span className="font-mono">10.0.0.0/8</span>). Leave empty to allow all IPs.
           </p>
-          <p className="mt-1 text-xs text-amber-500 dark:text-amber-400 font-medium">
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
             Ensure your own IP is listed before saving, or you will be locked out.
           </p>
         </div>
@@ -372,7 +373,7 @@ export function SettingsPage() {
       {/* Two-factor authentication */}
       <section className="space-y-3">
         <div>
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/30 select-none border-l-2 border-primary/30 pl-2">Two-Factor Authentication</h2>
+          <SectionHeading label="Two-Factor Authentication" />
           <p className="mt-2 text-xs text-muted-foreground">
             Require a time-based one-time code from an authenticator app (Google Authenticator, Authy, etc.) on every login.
           </p>
@@ -383,7 +384,7 @@ export function SettingsPage() {
           ) : settings?.totpEnabled ? (
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2.5">
-                <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 <span className="text-sm font-medium text-foreground">2FA is enabled</span>
               </div>
               <Button
@@ -427,7 +428,7 @@ export function SettingsPage() {
                   />
                 )}
                 <div className="flex flex-col justify-center gap-2 min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Manual entry key</p>
+                  <p className="text-[12px] font-medium text-muted-foreground/80">Manual entry key</p>
                   <p className="break-all font-mono text-xs text-foreground select-all">{totpSecret}</p>
                 </div>
               </div>

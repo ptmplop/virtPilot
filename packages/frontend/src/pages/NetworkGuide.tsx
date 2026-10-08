@@ -34,7 +34,7 @@ function Steps({ children }: { children: React.ReactNode }) {
 
 function SectionBadge({ label, color }: { label: string; color: string }) {
   return (
-    <span className={cn('rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest', color)}>
+    <span className={cn('rounded px-2.5 py-0.5 text-[12px] font-medium', color)}>
       {label}
     </span>
   );
@@ -46,7 +46,7 @@ function Callout({ variant, children }: { variant: 'warning' | 'tip'; children: 
       'mt-4 rounded-lg border px-4 py-3 text-sm',
       variant === 'warning'
         ? 'border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-300'
-        : 'border-blue-500/20 bg-blue-500/5 text-blue-700 dark:text-blue-300'
+        : 'border-border bg-blue-500/5 text-blue-700 dark:text-blue-300'
     )}>
       {children}
     </div>
@@ -233,7 +233,7 @@ ip route show" />
                 <Step n={3}>
                   Replace the file contents with a bridge configuration. Substitute{' '}
                   <Code>eth0</Code> with your interface name.
-                  <p className="mt-2 text-xs font-medium text-muted-foreground uppercase tracking-widest">If your server uses DHCP:</p>
+                  <p className="mt-2 text-[12px] font-medium text-muted-foreground">If your server uses DHCP:</p>
                   <CodeBlock code={`# /etc/netplan/01-bridge.yaml
 network:
   version: 2
@@ -247,7 +247,7 @@ network:
       parameters:
         stp: false
         forward-delay: 0`} />
-                  <p className="mt-3 text-xs font-medium text-muted-foreground uppercase tracking-widest">If your server uses a static IP:</p>
+                  <p className="mt-3 text-[12px] font-medium text-muted-foreground">If your server uses a static IP:</p>
                   <CodeBlock code={`# /etc/netplan/01-bridge.yaml
 network:
   version: 2

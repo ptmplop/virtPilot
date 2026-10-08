@@ -213,7 +213,7 @@ export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
             ) : (
               grouped.map(({ category, items }) => (
                 <div key={category} className="pt-1.5 first:pt-1">
-                  <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="mb-1 px-1 text-[12px] font-medium text-muted-foreground">
                     {CATEGORY_LABELS[category]}
                   </div>
                   <div className="grid grid-cols-5 gap-1">
@@ -267,7 +267,7 @@ export function VmLogo({ slug, size = 20, fallbackIcon: FallbackIcon = Server }:
         className="flex shrink-0 items-center justify-center rounded-md bg-muted"
         style={{ width: size, height: size }}
       >
-        <FallbackIcon size={size * 0.55} className="text-muted-foreground/50" />
+        <FallbackIcon size={size * 0.55} className="text-muted-foreground/80" />
       </div>
     );
   }

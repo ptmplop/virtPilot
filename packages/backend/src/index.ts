@@ -79,20 +79,20 @@ if (!process.env.TRUST_PROXY && !isLoopbackBind(config.bindAddress)) {
 
 app.use(
   helmet({
-    // CSP: scripts stay strict (same-origin only). Styles + fonts allow Google
-    // Fonts because the SPA's index.html loads Geist from there. Connect-src
-    // is locked to same-origin (HTTP + WS) so a compromised script can't
-    // exfiltrate to an attacker-controlled host.
+    // CSP: everything same-origin. Fonts are bundled with the SPA (no font CDN —
+    // installs are often air-gapped, and a CDN is a third party seeing every
+    // dashboard load). Connect-src is locked to same-origin (HTTP + WS) so a
+    // compromised script can't exfiltrate to an attacker-controlled host.
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
         'default-src': ["'self'"],
         'script-src': ["'self'"],
-        'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        'style-src-elem': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'style-src-elem': ["'self'", "'unsafe-inline'"],
         'img-src': ["'self'", 'data:', 'blob:'],
         'connect-src': ["'self'", 'ws:', 'wss:'],
-        'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
+        'font-src': ["'self'", 'data:'],
         'object-src': ["'none'"],
         'frame-ancestors': ["'self'"],
       },

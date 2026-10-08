@@ -168,9 +168,9 @@ function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
               <div
                 className={cn(
                   'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-all duration-300',
-                  done   && 'bg-emerald-500/20 text-emerald-400',
+                  done   && 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400',
                   active && 'bg-primary text-primary-foreground shadow-[0_0_14px_2px_hsl(214_100%_62%_/_0.35)]',
-                  !done && !active && 'bg-muted text-muted-foreground/50'
+                  !done && !active && 'bg-muted text-muted-foreground/80'
                 )}
               >
                 {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
@@ -178,7 +178,7 @@ function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
               <span
                 className={cn(
                   'text-sm font-medium transition-colors',
-                  active ? 'text-foreground' : done ? 'text-muted-foreground' : 'text-muted-foreground/40'
+                  active ? 'text-foreground' : done ? 'text-muted-foreground' : 'text-muted-foreground/80'
                 )}
               >
                 {STEP_META[s].label}
@@ -230,7 +230,7 @@ function SummarySidebar({
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
       <div className="border-b border-border bg-[hsl(var(--surface))] px-4 py-3">
-        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
+        <p className="text-[12px] font-medium text-muted-foreground/80">
           VM Summary
         </p>
       </div>
@@ -238,13 +238,13 @@ function SummarySidebar({
         {rows.map(([label, value, Icon]) => (
           <div key={label} className="flex items-center justify-between gap-3 px-4 py-2.5">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Icon className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+              <Icon className="h-3 w-3 shrink-0 text-muted-foreground/80" />
               {label}
             </div>
             <span
               className={cn(
                 'max-w-[140px] truncate text-right text-xs',
-                value === '—' ? 'text-muted-foreground/30' : 'font-mono font-medium text-foreground'
+                value === '—' ? 'text-muted-foreground/80' : 'font-mono font-medium text-foreground'
               )}
             >
               {value}
@@ -269,12 +269,12 @@ function FieldLabel({
 }) {
   return (
     <div className="flex items-center gap-2">
-      {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground/50" />}
-      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
+      {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground/80" />}
+      <span className="text-[12px] font-medium text-muted-foreground/80">
         {children}
       </span>
       {hint && (
-        <span className="text-[10px] normal-case font-normal text-muted-foreground/40">{hint}</span>
+        <span className="text-[10px] normal-case font-normal text-muted-foreground/80">{hint}</span>
       )}
     </div>
   );
@@ -355,7 +355,7 @@ function SourceDropdown({
             >
               <VmLogo slug={slugs[item.filename]} size={22} fallbackIcon={fallbackIcon} />
               <span className="flex-1 truncate text-left">{item.name}</span>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground/50">{item.sizeGb} GB</span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground/80">{item.sizeGb} GB</span>
               {isSel && <Check size={14} className="shrink-0 text-primary" />}
             </button>
           );
@@ -381,7 +381,7 @@ function SourceDropdown({
           <>
             <VmLogo slug={slugs[selected.filename]} size={22} fallbackIcon={fallbackIcon} />
             <span className="flex-1 truncate text-left text-foreground">{selected.name}</span>
-            <span className="shrink-0 font-mono text-xs text-muted-foreground/50">{selected.sizeGb} GB</span>
+            <span className="shrink-0 font-mono text-xs text-muted-foreground/80">{selected.sizeGb} GB</span>
           </>
         ) : (
           <>
@@ -432,7 +432,7 @@ function ResourcesStep({
       <div className="space-y-2">
         <FieldLabel icon={Server}>VM Name</FieldLabel>
         <div className="relative">
-          <Server className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/30" />
+          <Server className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/80" />
           <input
             type="text"
             placeholder="my-server"
@@ -468,10 +468,10 @@ function ResourcesStep({
                 <span className={cn('mb-2 text-xs font-semibold', sel ? 'text-foreground' : 'text-muted-foreground')}>
                   {p.label}
                 </span>
-                <span className={cn('font-mono text-xs', sel ? 'text-primary' : 'text-muted-foreground/50')}>
+                <span className={cn('font-mono text-xs', sel ? 'text-primary' : 'text-muted-foreground/80')}>
                   {p.cpus} vCPU
                 </span>
-                <span className={cn('font-mono text-xs', sel ? 'text-primary/80' : 'text-muted-foreground/50')}>
+                <span className={cn('font-mono text-xs', sel ? 'text-primary/80' : 'text-muted-foreground/80')}>
                   {mbToDisplay(p.memoryMb)}
                 </span>
               </button>
@@ -508,7 +508,7 @@ function ResourcesStep({
                 if (p) setCustomSize(false);
                 else setCustomSize(false);
               }}
-              className="text-xs text-muted-foreground/60 underline underline-offset-2 hover:text-foreground"
+              className="text-xs text-muted-foreground/80 underline underline-offset-2 hover:text-foreground"
             >
               Use a preset instead
             </button>
@@ -517,7 +517,7 @@ function ResourcesStep({
           <button
             type="button"
             onClick={() => setCustomSize(true)}
-            className="text-xs text-muted-foreground/50 underline underline-offset-2 hover:text-foreground"
+            className="text-xs text-muted-foreground/80 underline underline-offset-2 hover:text-foreground"
           >
             Set custom CPU / RAM
           </button>
@@ -603,12 +603,12 @@ function ResourcesStep({
                     {m.label}
                   </span>
                   {m.id === 'host-passthrough' && (
-                    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[12px] font-medium text-primary">
                       default
                     </span>
                   )}
                 </div>
-                <span className="text-[10px] leading-relaxed text-muted-foreground/60">{m.desc}</span>
+                <span className="text-[10px] leading-relaxed text-muted-foreground/80">{m.desc}</span>
               </button>
             );
           })}
@@ -638,12 +638,12 @@ function ResourcesStep({
                     {m.label}
                   </span>
                   {m.id === 'uefi' && (
-                    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[12px] font-medium text-primary">
                       default
                     </span>
                   )}
                 </div>
-                <span className="text-[10px] leading-relaxed text-muted-foreground/60">{m.desc}</span>
+                <span className="text-[10px] leading-relaxed text-muted-foreground/80">{m.desc}</span>
               </button>
             );
           })}
@@ -653,7 +653,7 @@ function ResourcesStep({
             <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
               <div>
                 <p className="text-xs font-semibold text-foreground">Secure Boot</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                <p className="mt-0.5 text-[10px] text-muted-foreground/80">
                   Enforces signed bootloaders. Required for Windows 11; disable for most Linux guests.
                 </p>
               </div>
@@ -680,7 +680,7 @@ function ResourcesStep({
             <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
               <div>
                 <p className="text-xs font-semibold text-foreground">Virtual TPM 2.0</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                <p className="mt-0.5 text-[10px] text-muted-foreground/80">
                   Emulated TPM chip via swtpm. Required for Windows 11; optional for other guests.
                 </p>
               </div>
@@ -832,10 +832,10 @@ function NetworkCard({
   const needsIp = isStaticBridge(network);
 
   const typeBadgeClass = network.type === 'nat'
-    ? 'bg-blue-500/10 text-blue-400'
+    ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400'
     : network.ipMode === 'dhcp'
-      ? 'bg-violet-500/10 text-violet-400'
-      : 'bg-emerald-500/10 text-emerald-400';
+      ? 'bg-violet-500/10 text-violet-700 dark:text-violet-400'
+      : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400';
 
   const prefix = network.type === 'existing-bridge' ? 'OS Bridge' : 'Bridge';
   const typeLabel = network.type === 'nat' ? 'NAT' : network.ipMode === 'dhcp' ? `${prefix} DHCP` : `${prefix} Static`;
@@ -859,16 +859,16 @@ function NetworkCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold text-foreground">{network.name}</p>
-            <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', typeBadgeClass)}>
+            <span className={cn('rounded px-2 py-0.5 text-[10px] font-semibold', typeBadgeClass)}>
               {typeLabel}
             </span>
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground/60">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground/80">
             <span>{network.cidr}</span>
-            <span className="text-muted-foreground/25">·</span>
+            <span className="text-muted-foreground/80">·</span>
             <span>br: {network.bridge}</span>
-            {network.physicalNic && <><span className="text-muted-foreground/25">·</span><span>{network.physicalNic}</span></>}
-            <span className="text-muted-foreground/25">·</span>
+            {network.physicalNic && <><span className="text-muted-foreground/80">·</span><span>{network.physicalNic}</span></>}
+            <span className="text-muted-foreground/80">·</span>
             <span>gw: {network.gateway}</span>
           </div>
         </div>
@@ -895,7 +895,7 @@ function NetworkCard({
 
           {needsIp && (
             <div className="space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">IP Address</p>
+              <p className="text-[12px] font-medium text-muted-foreground">IP Address</p>
               {availableIps.length === 0 ? (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
                   No available IPs — all addresses are allocated.
@@ -1014,12 +1014,12 @@ function NetworkStep({
                     {m.label}
                   </span>
                   {m.id === 'virtio' && (
-                    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[12px] font-medium text-primary">
                       default
                     </span>
                   )}
                 </div>
-                <span className="text-[10px] leading-relaxed text-muted-foreground/60">{m.desc}</span>
+                <span className="text-[10px] leading-relaxed text-muted-foreground/80">{m.desc}</span>
               </button>
             );
           })}
@@ -1134,7 +1134,7 @@ function SshKeyPicker({
         </div>
       ) : !keys.length ? (
         <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center">
-          <p className="text-xs text-muted-foreground/60">No SSH keys saved.</p>
+          <p className="text-xs text-muted-foreground/80">No SSH keys saved.</p>
           <Link to="/ssh-keys" className="mt-1 inline-block text-xs text-primary hover:underline">
             Add keys in SSH Keys settings →
           </Link>
@@ -1143,13 +1143,13 @@ function SshKeyPicker({
         <div className="grid grid-cols-2 gap-3">
           {/* Available */}
           <div className="space-y-1.5">
-            <p className="px-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">
+            <p className="px-0.5 text-[12px] font-medium text-muted-foreground/80">
               Available
             </p>
             <div className="min-h-[88px] overflow-hidden rounded-lg border border-border">
               {available.length === 0 ? (
                 <div className="flex min-h-[88px] items-center justify-center">
-                  <p className="text-xs text-muted-foreground/30">All keys added</p>
+                  <p className="text-xs text-muted-foreground/80">All keys added</p>
                 </div>
               ) : (
                 <div className="divide-y divide-border/60">
@@ -1162,10 +1162,10 @@ function SshKeyPicker({
                       className="flex cursor-grab items-center gap-2 px-3 py-2.5 hover:bg-muted/40 active:cursor-grabbing select-none"
                       title="Drag or click to add"
                     >
-                      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/25" />
+                      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/80" />
                       <div className="min-w-0">
                         <p className="truncate text-xs font-medium text-foreground">{key.name}</p>
-                        <p className="truncate font-mono text-[10px] text-muted-foreground/40">
+                        <p className="truncate font-mono text-[10px] text-muted-foreground/80">
                           {key.publicKey.slice(0, 30)}…
                         </p>
                       </div>
@@ -1178,7 +1178,7 @@ function SshKeyPicker({
 
           {/* Drop target */}
           <div className="space-y-1.5">
-            <p className="px-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/50">
+            <p className="px-0.5 text-[12px] font-medium text-muted-foreground/80">
               Added
             </p>
             <div
@@ -1196,7 +1196,7 @@ function SshKeyPicker({
             >
               {selected.length === 0 ? (
                 <div className="flex min-h-[88px] flex-col items-center justify-center gap-1 pointer-events-none">
-                  <p className="text-xs text-muted-foreground/30">
+                  <p className="text-xs text-muted-foreground/80">
                     {dropActive ? 'Release to add' : 'Drag keys here'}
                   </p>
                 </div>
@@ -1211,7 +1211,7 @@ function SshKeyPicker({
                       <button
                         type="button"
                         onClick={() => removeKey(key.id)}
-                        className="shrink-0 rounded p-0.5 text-muted-foreground/30 hover:bg-muted hover:text-foreground"
+                        className="shrink-0 rounded p-0.5 text-muted-foreground/80 hover:bg-muted hover:text-foreground"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -1225,7 +1225,7 @@ function SshKeyPicker({
       )}
 
       {keys.length > 0 && (
-        <p className="text-xs text-muted-foreground/50">
+        <p className="text-xs text-muted-foreground/80">
           {selected.length === 0
             ? 'No keys added — password-only access.'
             : `${selected.length} key${selected.length !== 1 ? 's' : ''} will be authorised on this VM.`}
@@ -1268,7 +1268,7 @@ function AuthStep({
           value={form.hostname}
           onChange={(e) => setForm((f) => ({ ...f, hostname: e.target.value }))}
         />
-        <p className="text-xs text-muted-foreground/50">Defaults to the VM name if left blank.</p>
+        <p className="text-xs text-muted-foreground/80">Defaults to the VM name if left blank.</p>
       </div>
 
       <div className="space-y-3">
@@ -1317,7 +1317,7 @@ function AuthStep({
                   title={copied ? 'Copied!' : 'Copy password'}
                   className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
-                  {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                  {copied ? <Check size={13} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={13} />}
                 </button>
               </div>
             </div>
@@ -1344,8 +1344,8 @@ function ReviewSection({
   return (
     <div className="overflow-hidden rounded-lg border border-border">
       <div className="flex items-center gap-2 border-b border-border bg-[hsl(var(--surface))] px-5 py-2.5">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground/50" />
-        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
+        <Icon className="h-3.5 w-3.5 text-muted-foreground/80" />
+        <span className="text-[12px] font-medium text-muted-foreground/80">
           {title}
         </span>
       </div>
@@ -1428,7 +1428,7 @@ function ReviewStep({
 
       <div className="flex items-center justify-between rounded-lg border border-border bg-card px-5 py-4">
         <div className="flex items-center gap-3">
-          <Power className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+          <Power className="h-4 w-4 shrink-0 text-muted-foreground/80" />
           <div>
             <p className="text-sm font-semibold text-foreground">Start after provisioning</p>
             <p className="mt-0.5 text-xs text-muted-foreground">Automatically start the VM once it has been created.</p>
@@ -1604,7 +1604,7 @@ export function VmCreatePage() {
       </div>
 
       <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Create Virtual Machine</h1>
+        <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-foreground">Create Virtual Machine</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Provision a new KVM guest from a cloud image or install from ISO.
         </p>

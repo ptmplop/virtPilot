@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="packages/frontend/public/vlogo-big.png" alt="VirtPilot" width="500">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/frontend/public/brand/virtpilot-horizontal-dark.svg">
+    <img src="packages/frontend/public/brand/virtpilot-horizontal.svg" alt="VirtPilot" width="360">
+  </picture>
 </p>
 
 A web-based KVM/QEMU management UI for a single Ubuntu host. Create and run virtual machines, manage networks, snapshots, backups and ISOs — all from your browser, all backed by `libvirt` and `virsh` on the host.

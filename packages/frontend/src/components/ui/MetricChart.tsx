@@ -132,13 +132,13 @@ export function MetricChart({
         >
           <defs>
             <linearGradient id={`mg-${id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-              <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+              <stop offset="0%" stopColor={color} stopOpacity="0.16" />
+              <stop offset="100%" stopColor={color} stopOpacity="0" />
             </linearGradient>
             {color2 && (
               <linearGradient id={`mg2-${id}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color2} stopOpacity="0.22" />
-                <stop offset="100%" stopColor={color2} stopOpacity="0.02" />
+                <stop offset="0%" stopColor={color2} stopOpacity="0.1" />
+                <stop offset="100%" stopColor={color2} stopOpacity="0" />
               </linearGradient>
             )}
           </defs>
@@ -172,7 +172,6 @@ export function MetricChart({
               strokeLinecap="round"
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
-              style={{ filter: `drop-shadow(0 1px 3px ${color}55)` }}
             />
           )}
           {fill2 && color2 && <path d={fill2} fill={`url(#mg2-${id})`} />}
@@ -186,12 +185,11 @@ export function MetricChart({
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
               strokeDasharray="4 2"
-              style={{ filter: `drop-shadow(0 1px 3px ${color2}55)` }}
             />
           )}
         </svg>
 
-        {/* Glowing "live" endpoint marker(s), pinned to the right edge */}
+        {/* "Live" endpoint marker(s), pinned to the right edge */}
         {endpoints.map((e, i) => (
           <span
             key={i}
@@ -199,11 +197,7 @@ export function MetricChart({
             style={{ left: '100%', top: `${e.top}%`, transform: 'translate(-100%, -50%)' }}
           >
             <span
-              className="absolute left-1/2 top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full animate-glow-pulse"
-              style={{ background: e.color, opacity: 0.35, filter: 'blur(2px)' }}
-            />
-            <span
-              className="relative block h-[7px] w-[7px] rounded-full ring-2 ring-card"
+              className="relative block h-[6px] w-[6px] rounded-full ring-2 ring-card"
               style={{ background: e.color }}
             />
           </span>

@@ -55,10 +55,10 @@ function TerminalPane({ name, tab, themeId, onConnState }: TerminalPaneProps) {
     const term = new XTerm({
       theme: { ...THEMES[themeIdRef.current].palette },
       // System monospace stack (Menlo / Consolas / DejaVu Sans Mono) for full
-      // glyph coverage — display fonts like Geist Mono lack some of the
+      // glyph coverage — display fonts lack some of the
       // unicode arrows / bullets nano and friends paint in status bars and
       // trigger per-glyph font substitution at non-monospace widths.
-      fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Geist Mono", monospace',
+      fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
       fontSize: 13,
       lineHeight: 1.2,
       letterSpacing: 0,
@@ -329,12 +329,12 @@ function ThemePicker({ themeId, onChange }: ThemePickerProps) {
       >
         <Palette size={11} className="text-white/50" />
         <span className="tracking-tight">{active.name}</span>
-        <ChevronDown size={11} className={cn('text-white/40 transition-transform', open && 'rotate-180')} />
+        <ChevronDown size={11} className={cn('text-white/55 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-20 mt-1.5 w-56 overflow-hidden rounded-lg border border-white/10 bg-[#0d0d14]/95 shadow-[0_8px_24px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.04] backdrop-blur"
+          className="absolute right-0 top-full z-20 mt-1.5 w-56 overflow-hidden rounded-lg border border-white/10 bg-[#121721] shadow-[0_8px_24px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.04] backdrop-blur"
         >
           <ul className="py-1">
             {THEME_ORDER.map((id) => {
@@ -461,11 +461,10 @@ export function VmConsolePage() {
     <div className="flex h-screen flex-col" style={{ background: themeBg }}>
       {/* Header bar */}
       <div
-        className="flex h-11 shrink-0 items-center gap-3 border-b px-5"
-        style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.03)' }}
+        className="flex h-11 shrink-0 items-center gap-3 border-b border-white/[0.07] bg-[#121721] px-5"
       >
         {/* Brand mark */}
-        <img src="/vlogo-small.png" alt="VirtPilot" className="h-5 w-5 shrink-0 object-contain" />
+        <img src="/brand/virtpilot-symbol-small-dark.svg" alt="VirtPilot" className="h-5 w-5 shrink-0" />
 
         <span className="h-4 w-px bg-white/8" />
 
@@ -477,7 +476,7 @@ export function VmConsolePage() {
         ) : (
           <Link
             to={`/vms/${uuid}`}
-            className="flex items-center gap-1.5 text-xs text-white/40 transition-colors hover:text-white/70"
+            className="flex items-center gap-1.5 text-xs text-white/55 transition-colors hover:text-white/70"
           >
             <ArrowLeft size={12} />
             {vm?.name ?? uuid}
@@ -497,7 +496,7 @@ export function VmConsolePage() {
               'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors',
               tab === 'console'
                 ? 'bg-white/10 text-white/80'
-                : 'text-white/35 hover:text-white/60'
+                : 'text-white/55 hover:text-white/60'
             )}
           >
             <Terminal size={11} />
@@ -509,7 +508,7 @@ export function VmConsolePage() {
               'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors',
               tab === 'ssh'
                 ? 'bg-white/10 text-white/80'
-                : 'text-white/35 hover:text-white/60'
+                : 'text-white/55 hover:text-white/60'
             )}
           >
             <Wifi size={11} />
@@ -521,7 +520,7 @@ export function VmConsolePage() {
               'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors',
               tab === 'vnc'
                 ? 'bg-white/10 text-white/80'
-                : 'text-white/35 hover:text-white/60'
+                : 'text-white/55 hover:text-white/60'
             )}
           >
             <Monitor size={11} />
@@ -541,7 +540,7 @@ export function VmConsolePage() {
                 : undefined
             }
           />
-          <span className="font-mono text-xs text-white/35">{connLabel[connState]}</span>
+          <span className="font-mono text-xs text-white/55">{connLabel[connState]}</span>
         </div>
 
         {/* VM action buttons — right aligned */}
@@ -588,7 +587,7 @@ export function VmConsolePage() {
               </button>
             </>
           )}
-          <span className="ml-1 font-mono text-xs text-white/20">{tab}/{vm?.name ?? uuid}</span>
+          <span className="ml-1 font-mono text-xs text-white/45">{tab}/{vm?.name ?? uuid}</span>
           <ThemePicker themeId={themeId} onChange={handleThemeChange} />
         </div>
       </div>
@@ -604,7 +603,7 @@ export function VmConsolePage() {
       {isNotRunning ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2">
           <Power size={24} className="text-white/15" />
-          <p className="text-sm text-white/40">
+          <p className="text-sm text-white/55">
             VM is <span className="font-mono">{vm.status}</span> — use Start above to boot it.
           </p>
         </div>

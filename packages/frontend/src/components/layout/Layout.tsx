@@ -23,6 +23,10 @@ import { cn } from '@/lib/cn';
 import { useVms } from '@/hooks/useVms';
 import { useAuthStore } from '@/store/authStore';
 
+// The version the operator sees. scripts/check-versions.sh checks this literal, and the
+// login screen imports it so the two can never disagree again.
+export const APP_VERSION = 'v2.10.0';
+
 interface LayoutProps {
   children?: ReactNode;
   actions?: ReactNode;
@@ -47,15 +51,15 @@ export function Layout({ children, actions, title, subtitle }: LayoutProps) {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {(title || actions) && (
-          <header className="shrink-0 border-b border-border/60 bg-card/40 px-6 py-6 backdrop-blur-sm">
+          <header className="shrink-0 border-b border-border bg-background px-6 pb-5 pt-7">
             <div className="mx-auto max-w-6xl lg:px-2">
-              <div className="flex items-center justify-between gap-4">
-                <div>
+              <div className="flex items-end justify-between gap-4">
+                <div className="min-w-0">
                   {title && (
-                    <h1 className="text-xl font-bold tracking-tight text-foreground">{title}</h1>
+                    <h1 className="text-[22px] font-semibold leading-7 tracking-[-0.015em] text-foreground">{title}</h1>
                   )}
                   {subtitle && (
-                    <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+                    <p className="mt-1 text-[13px] text-muted-foreground">{subtitle}</p>
                   )}
                 </div>
                 {actions && <div className="flex items-center gap-2">{actions}</div>}
@@ -64,7 +68,7 @@ export function Layout({ children, actions, title, subtitle }: LayoutProps) {
           </header>
         )}
         <main className="flex-1 overflow-auto">
-          <div className="mx-auto max-w-6xl px-6 py-8 lg:px-8 animate-slide-up">
+          <div className="mx-auto max-w-6xl px-6 py-8 lg:px-8">
             {children}
           </div>
         </main>
@@ -87,32 +91,34 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   return (
     <aside
       className={cn(
-        'dark flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-[max-width] duration-200',
-        collapsed ? 'max-w-[56px]' : 'max-w-[240px]'
+        'dark flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-[#A3ADBC] transition-[width] duration-200 ease-out',
+        collapsed ? 'w-[60px]' : 'w-[232px]'
       )}
     >
       {/* Brand */}
       {collapsed ? (
-        <div className="flex flex-col items-center gap-1.5 border-b border-sidebar-border py-3">
-          <img src="/vlogo-small.png" alt="VirtPilot" className="h-7 w-7 object-contain" />
+        <div className="flex flex-col items-center gap-2 pb-2 pt-4">
+          <img src="/brand/virtpilot-symbol-small-dark.svg" alt="VirtPilot" className="h-7 w-7" />
           <Tooltip label="Expand sidebar" side="right">
             <button
               type="button"
               onClick={onToggle}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
+              aria-label="Expand sidebar"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[#7F8A9B] transition-colors duration-150 hover:bg-white/[0.06] hover:text-white"
             >
               <PanelLeftOpen size={13} />
             </button>
           </Tooltip>
         </div>
       ) : (
-        <div className="flex items-center gap-2 border-b border-sidebar-border px-4 py-3">
-          <img src="/vlogo-big.png" alt="VirtPilot" className="h-8 w-auto flex-1 object-contain object-left" />
+        <div className="flex h-[68px] items-center gap-2 pl-5 pr-3">
+          <img src="/brand/virtpilot-horizontal-dark.svg" alt="VirtPilot" className="h-[26px] w-auto" />
           <Tooltip label="Collapse sidebar" side="right">
             <button
               type="button"
               onClick={onToggle}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-muted/50 hover:text-foreground"
+              aria-label="Collapse sidebar"
+              className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#7F8A9B] transition-colors duration-150 hover:bg-white/[0.06] hover:text-white"
             >
               <PanelLeftClose size={14} />
             </button>
@@ -121,19 +127,19 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       )}
 
       {/* Navigation */}
-      <nav className={cn('flex-1 overflow-y-auto py-3', collapsed ? 'px-2' : 'px-3')}>
+      <nav className={cn('flex-1 overflow-y-auto pb-3 pt-1', collapsed ? 'px-2.5' : 'px-3')}>
         {collapsed ? (
           <div className="space-y-0.5">
             <CollapsedNavItem to="/" icon={LayoutDashboard} label="Dashboard" end />
             <CollapsedNavItem to="/vms/new" icon={Plus} label="New VM" />
-            <div className="my-2 border-t border-sidebar-border" />
+            <div className="mx-2 my-2.5 border-t border-sidebar-border" />
             <CollapsedNavItem to="/vms" icon={Server} label="Virtual Machines" badge={<RunningVmsDot />} />
             <CollapsedNavItem to="/networks" icon={Network} label="Networks" />
             <CollapsedNavItem to="/templates" icon={HardDrive} label="Templates" />
             <CollapsedNavItem to="/isos" icon={Disc} label="ISOs" />
             <CollapsedNavItem to="/storage" icon={Database} label="Storage" />
             <CollapsedNavItem to="/backups" icon={ArchiveIcon} label="Backups" />
-            <div className="my-2 border-t border-sidebar-border" />
+            <div className="mx-2 my-2.5 border-t border-sidebar-border" />
             <CollapsedNavItem to="/ssh-keys" icon={KeyRound} label="SSH Keys" />
             <CollapsedNavItem to="/logs" icon={ScrollText} label="Logs" />
             <CollapsedNavItem to="/settings" icon={Settings2} label="Settings" />
@@ -162,7 +168,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       </nav>
 
       {/* Footer */}
-      <div className={cn('border-t border-sidebar-border py-3', collapsed ? 'px-2' : 'px-3')}>
+      <div className={cn('border-t border-sidebar-border py-2.5', collapsed ? 'px-2.5' : 'px-3')}>
         {collapsed ? (
           <div className="flex flex-col items-center gap-2">
             <ThemeToggle />
@@ -170,27 +176,28 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-200 ease-out hover:bg-red-500/15 hover:text-red-400"
+                aria-label="Sign out"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-[#7F8A9B] transition-colors duration-150 hover:bg-white/[0.06] hover:text-white"
               >
                 <LogOut size={13} />
               </button>
             </Tooltip>
           </div>
         ) : (
-          <div className="space-y-1">
-            <div className="flex items-center gap-1 px-1">
-              <ThemeToggle />
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">v2.9.1</span>
-            </div>
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={handleLogout}
-              className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-all duration-200 ease-out hover:bg-red-500/10 hover:text-red-400"
+              className="flex flex-1 items-center gap-3 rounded-md px-2.5 py-2 text-[13px] text-[#A3ADBC] transition-colors duration-150 hover:bg-white/[0.06] hover:text-white"
             >
-              <LogOut size={14} />
+              <LogOut size={15} strokeWidth={1.75} />
               <span>Sign out</span>
             </button>
+            <ThemeToggle />
           </div>
+        )}
+        {!collapsed && (
+          <p className="mt-1.5 px-2.5 font-mono text-[10.5px] text-[#5F6A7B]">VirtPilot {APP_VERSION}</p>
         )}
       </div>
     </aside>
@@ -201,11 +208,9 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
 
 function NavSection({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="mb-4">
-      <p className="mb-1 px-3 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground/60">
-        {label}
-      </p>
-      <div className="space-y-0.5">{children}</div>
+    <div className="mb-5">
+      <p className="mb-1.5 px-2.5 text-[11px] font-medium text-[#6B7687]">{label}</p>
+      <div className="space-y-px">{children}</div>
     </div>
   );
 }
@@ -229,14 +234,14 @@ function NavItem({
       end={end}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out',
+          'relative flex items-center gap-3 rounded-md px-2.5 py-[7px] text-[13.5px] transition-colors duration-150',
           isActive
-            ? 'border-l-2 border-primary bg-gradient-to-r from-primary/10 to-transparent pl-[10px] text-accent-foreground'
-            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+            ? 'bg-white/[0.07] font-medium text-white before:absolute before:-left-3 before:top-1.5 before:bottom-1.5 before:w-[2px] before:rounded-r before:bg-[#86AEDA]'
+            : 'text-[#A3ADBC] hover:bg-white/[0.04] hover:text-white'
         )
       }
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
       <span className="whitespace-nowrap">{label}</span>
       {badge}
     </NavLink>
@@ -263,14 +268,14 @@ function CollapsedNavItem({
         end={end}
         className={({ isActive }) =>
           cn(
-            'relative flex h-9 w-9 items-center justify-center rounded-md transition-all duration-200 ease-out',
+            'relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-150',
             isActive
-              ? 'bg-primary/10 text-accent-foreground'
-              : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+              ? 'bg-white/[0.08] text-white'
+              : 'text-[#A3ADBC] hover:bg-white/[0.05] hover:text-white'
           )
         }
       >
-        <Icon className="h-4 w-4 shrink-0" />
+        <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
         {badge && <span className="absolute right-0.5 top-0.5">{badge}</span>}
       </NavLink>
     </Tooltip>
@@ -284,8 +289,7 @@ function RunningVmsBadge() {
   const running = vms?.filter((v) => v.status === 'running').length ?? 0;
   if (!running) return null;
   return (
-    <span className="ml-auto flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400 ring-1 ring-emerald-500/20">
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+    <span className="ml-auto font-mono text-[11px] tabular-nums text-emerald-300" title={`${running} running`}>
       {running}
     </span>
   );
@@ -296,6 +300,6 @@ function RunningVmsDot() {
   const running = vms?.filter((v) => v.status === 'running').length ?? 0;
   if (!running) return null;
   return (
-    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_4px_1px_rgb(52_211_153_/_0.6)]" />
+    <span className="block h-1.5 w-1.5 rounded-full bg-emerald-300" />
   );
 }

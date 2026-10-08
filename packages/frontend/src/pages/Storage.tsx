@@ -36,8 +36,8 @@ function ResourceCard({
           <Icon size={15} />
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{count}</p>
+          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{count}</p>
           {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
         </div>
       </div>
@@ -54,7 +54,7 @@ function PurposeChips({ purposes }: { purposes: StorageDirPurpose[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {purposes.map((p) => (
-        <span key={p} className="inline-flex items-center rounded-full border border-border bg-muted/40 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+        <span key={p} className="inline-flex items-center rounded border border-border bg-muted/40 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
           {labels[p]}
         </span>
       ))}
@@ -69,11 +69,11 @@ function DefaultChips({ dir }: { dir: StorageDir }) {
     [dir.isDefaultVmDisks, 'VM disks'],
   ];
   const active = flags.filter(([on]) => on).map(([, label]) => label);
-  if (active.length === 0) return <span className="text-xs text-muted-foreground/60">—</span>;
+  if (active.length === 0) return <span className="text-xs text-muted-foreground/80">—</span>;
   return (
     <div className="flex flex-wrap gap-1">
       {active.map((label) => (
-        <span key={label} className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-px text-[10px] font-semibold text-emerald-400">
+        <span key={label} className="inline-flex items-center rounded border border-border bg-emerald-500/10 px-1.5 py-px text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
           {label}
         </span>
       ))}
@@ -95,7 +95,7 @@ function UsageBar({ dir }: { dir: StorageDirWithUsage }) {
   if (!usage.healthy) {
     return (
       <Tooltip label={usage.error ?? 'Storage directory is unhealthy'}>
-        <div className="inline-flex items-center gap-1 text-xs text-amber-400">
+        <div className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
           <AlertTriangle size={12} />
           unavailable
         </div>
@@ -117,7 +117,7 @@ function UsageBar({ dir }: { dir: StorageDirWithUsage }) {
           style={{ width: `${usedPct}%` }}
         />
       </div>
-      <p className="mt-1 text-[10px] text-muted-foreground/70">
+      <p className="mt-1 text-[10px] text-muted-foreground/80">
         VirtPilot files: {formatBytes(usage.usedByVirtpilotBytes)}
       </p>
     </div>
@@ -161,21 +161,21 @@ export function StoragePage() {
           count={templates?.length ?? 0}
           detail={`${totalTemplateGb.toFixed(1)} GB total`}
           icon={HardDrive}
-          iconClass="bg-violet-500/10 text-violet-500"
+          iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400"
         />
         <ResourceCard
           label="ISOs"
           count={isos?.length ?? 0}
           detail={`${totalIsoGb.toFixed(1)} GB total`}
           icon={Disc}
-          iconClass="bg-blue-500/10 text-blue-500"
+          iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400"
         />
         <ResourceCard
           label="VM Disks"
           count={vmDisksError ? '—' : (vmDisks?.length ?? 0)}
           detail={vmDisksError ? 'libvirt unreachable' : `${totalDiskGb.toFixed(1)} GB on disk`}
           icon={Database}
-          iconClass="bg-emerald-500/10 text-emerald-500"
+          iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
         />
       </div>
 
@@ -191,12 +191,12 @@ export function StoragePage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Name</th>
-                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Path</th>
-                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Holds</th>
-                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Default for</th>
-                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Usage</th>
-                <th className="px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground" />
+                <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Name</th>
+                <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Path</th>
+                <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Holds</th>
+                <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Default for</th>
+                <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Usage</th>
+                <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -208,7 +208,7 @@ export function StoragePage() {
                       <span className="text-sm font-medium text-foreground">{dir.name}</span>
                       {dir.usage?.warnings?.length > 0 && (
                         <Tooltip label={dir.usage.warnings.join(' • ')}>
-                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                          <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
                             <AlertTriangle size={9} /> warning
                           </span>
                         </Tooltip>
@@ -263,10 +263,10 @@ export function StoragePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Name</th>
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">File</th>
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Location</th>
-                  <th className="px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Size</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Name</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">File</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Location</th>
+                  <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground">Size</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -292,10 +292,10 @@ export function StoragePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Name</th>
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">File</th>
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Location</th>
-                  <th className="px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Size</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Name</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">File</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Location</th>
+                  <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground">Size</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -322,7 +322,7 @@ export function StoragePage() {
         <section>
           <h2 className="mb-3 text-sm font-semibold text-foreground">VM Disks</h2>
           <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-4 shadow-sm">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">libvirt unreachable — orphan status unknown</p>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -344,11 +344,11 @@ export function StoragePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Virtual Machine</th>
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">File</th>
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Location</th>
-                  <th className="px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Size on Disk</th>
-                  <th className="px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground" />
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Virtual Machine</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">File</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Location</th>
+                  <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground">Size on Disk</th>
+                  <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -359,12 +359,12 @@ export function StoragePage() {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-foreground">{d.vmName}</span>
                           {!d.vmExists && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                            <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
                               orphaned
                             </span>
                           )}
                         </div>
-                        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/50">{d.vmUuid}</p>
+                        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/80">{d.vmUuid}</p>
                       </div>
                     </td>
                     <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{d.filename}</td>

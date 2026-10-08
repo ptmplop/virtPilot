@@ -25,8 +25,8 @@ function StatCard({ icon: Icon, label, value, iconClass }: {
           <Icon size={15} />
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
         </div>
       </div>
     </div>
@@ -51,9 +51,9 @@ function networkTypeLabel(n: NetworkType): string {
 }
 
 function networkTypeColor(n: NetworkType): string {
-  if (n.type === 'nat') return 'text-blue-500 dark:text-blue-400';
-  if (n.ipMode === 'dhcp') return 'text-violet-500 dark:text-violet-400';
-  return 'text-emerald-500 dark:text-emerald-400';
+  if (n.type === 'nat') return 'text-blue-600 dark:text-blue-400';
+  if (n.ipMode === 'dhcp') return 'text-violet-600 dark:text-violet-400';
+  return 'text-emerald-600 dark:text-emerald-400';
 }
 
 function networkIconBg(n: NetworkType): string {
@@ -63,9 +63,9 @@ function networkIconBg(n: NetworkType): string {
 }
 
 function NetworkIcon({ n, className }: { n: NetworkType; className?: string }) {
-  if (n.type === 'nat') return <Network className={cn('h-4 w-4 text-blue-500 dark:text-blue-400', className)} />;
-  if (n.ipMode === 'dhcp') return <Globe className={cn('h-4 w-4 text-violet-500 dark:text-violet-400', className)} />;
-  return <Globe className={cn('h-4 w-4 text-emerald-500 dark:text-emerald-400', className)} />;
+  if (n.type === 'nat') return <Network className={cn('h-4 w-4 text-blue-600 dark:text-blue-400', className)} />;
+  if (n.ipMode === 'dhcp') return <Globe className={cn('h-4 w-4 text-violet-600 dark:text-violet-400', className)} />;
+  return <Globe className={cn('h-4 w-4 text-emerald-600 dark:text-emerald-400', className)} />;
 }
 
 function NetworkRow({ network, onDelete }: { network: NetworkType; onDelete: () => void }) {
@@ -88,10 +88,10 @@ function NetworkRow({ network, onDelete }: { network: NetworkType; onDelete: () 
       <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">
         {network.bridge}
         {network.physicalNic && (
-          <span className="ml-1.5 text-muted-foreground/50">← {network.physicalNic}</span>
+          <span className="ml-1.5 text-muted-foreground/80">← {network.physicalNic}</span>
         )}
         {network.type === 'existing-bridge' && (
-          <span className="ml-1.5 text-muted-foreground/50">(OS)</span>
+          <span className="ml-1.5 text-muted-foreground/80">(OS)</span>
         )}
       </td>
       <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{network.gateway}</td>
@@ -272,9 +272,9 @@ export function NetworksPage() {
     >
       {/* Stats */}
       <div className="mb-6 grid grid-cols-3 gap-3">
-        <StatCard icon={Network} label="Networks" value={isLoading ? '—' : String(networks?.length ?? 0)} iconClass="bg-blue-500/10 text-blue-500" />
-        <StatCard icon={Wifi} label="NAT" value={isLoading ? '—' : String(natCount)} iconClass="bg-violet-500/10 text-violet-500" />
-        <StatCard icon={Globe} label="Bridge" value={isLoading ? '—' : String(bridgeCount)} iconClass="bg-emerald-500/10 text-emerald-500" />
+        <StatCard icon={Network} label="Networks" value={isLoading ? '—' : String(networks?.length ?? 0)} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
+        <StatCard icon={Wifi} label="NAT" value={isLoading ? '—' : String(natCount)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
+        <StatCard icon={Globe} label="Bridge" value={isLoading ? '—' : String(bridgeCount)} iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -303,7 +303,7 @@ export function NetworksPage() {
                   <th
                     key={h}
                     className={cn(
-                      'px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
+                      'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
                       h === '' ? 'text-right' : 'text-left'
                     )}
                   >

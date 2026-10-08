@@ -1,12 +1,22 @@
 import { cn } from '@/lib/cn';
 import type { VmStatus } from '@/types';
 
+// Status is a coloured mark plus a word — no pill, no tint box. The word carries the
+// meaning; colour only confirms it, so the badge still reads in greyscale.
 const statusStyles: Record<VmStatus, string> = {
-  running: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
-  stopped: 'bg-slate-500/15 text-slate-400 border-slate-500/20',
-  paused: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
-  crashed: 'bg-red-500/15 text-red-400 border-red-500/20',
-  unknown: 'bg-muted text-muted-foreground border-border',
+  running: 'text-emerald-700 dark:text-emerald-300',
+  stopped: 'text-muted-foreground',
+  paused: 'text-amber-700 dark:text-amber-300',
+  crashed: 'text-red-600 dark:text-red-300',
+  unknown: 'text-muted-foreground',
+};
+
+const markStyles: Record<VmStatus, string> = {
+  running: 'bg-emerald-500',
+  stopped: 'bg-slate-400 dark:bg-slate-500',
+  paused: 'bg-amber-500',
+  crashed: 'bg-red-500',
+  unknown: 'bg-muted-foreground/50',
 };
 
 const statusLabels: Record<VmStatus, string> = {
@@ -19,24 +29,13 @@ const statusLabels: Record<VmStatus, string> = {
 
 export function StatusBadge({ status }: { status: VmStatus }) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
-        statusStyles[status]
-      )}
-    >
+    <span className={cn('inline-flex items-center gap-1.5 text-[12px] font-medium', statusStyles[status])}>
+      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', markStyles[status])} />
       {statusLabels[status]}
     </span>
   );
 }
 
 export function StatusDot({ status }: { status: VmStatus }) {
-  const dotColours: Record<VmStatus, string> = {
-    running: 'bg-emerald-500',
-    stopped: 'bg-slate-400',
-    paused: 'bg-amber-400',
-    crashed: 'bg-red-500',
-    unknown: 'bg-muted-foreground',
-  };
-  return <span className={cn('inline-block h-2 w-2 shrink-0 rounded-full', dotColours[status])} />;
+  return <span className={cn('inline-block h-2 w-2 shrink-0 rounded-full', markStyles[status])} />;
 }

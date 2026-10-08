@@ -112,7 +112,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
         )}
       >
         {/* Expand chevron */}
-        <span className="w-3.5 shrink-0 text-muted-foreground/40">
+        <span className="w-3.5 shrink-0 text-muted-foreground/80">
           {hasOutput ? (
             expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />
           ) : null}
@@ -120,7 +120,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
 
         {/* Status icon */}
         {entry.status === 'success' ? (
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
         ) : (
           <XCircle className="h-4 w-4 shrink-0 text-destructive" />
         )}
@@ -137,20 +137,20 @@ function LogRow({ entry }: { entry: LogEntry }) {
         </span>
 
         {/* Output preview */}
-        <span className="flex-1 truncate text-xs text-muted-foreground/70">
+        <span className="flex-1 truncate text-xs text-muted-foreground/80">
           {entry.output ? entry.output.split('\n')[0] : ''}
         </span>
 
         {/* Duration */}
         {entry.durationMs != null && (
-          <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/50">
+          <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/80">
             <Clock className="h-3 w-3" />
             {formatDuration(entry.durationMs)}
           </span>
         )}
 
         {/* Timestamp */}
-        <span className="w-36 shrink-0 text-right text-[11px] text-muted-foreground/50">
+        <span className="w-36 shrink-0 text-right text-[11px] text-muted-foreground/80">
           {formatTimestamp(entry.timestamp)}
         </span>
       </button>
@@ -277,7 +277,7 @@ export function LogsPage() {
       {/* Table */}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-2 text-[12px] font-medium text-muted-foreground">
           <span className="w-3.5 shrink-0" />
           <span className="w-4 shrink-0" />
           <span className="w-44 shrink-0">Action</span>
@@ -335,10 +335,10 @@ function PillButton({
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all',
+        'rounded border px-2.5 py-0.5 text-[11px] font-medium transition-all',
         active && !variant && 'border-primary/30 bg-primary/10 text-primary',
         active && variant === 'danger' && 'border-destructive/30 bg-destructive/10 text-destructive',
-        active && variant === 'success' && 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500',
+        active && variant === 'success' && 'border-border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
         !active && 'border-border text-muted-foreground hover:border-border/80 hover:text-foreground'
       )}
     >

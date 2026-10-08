@@ -3,6 +3,40 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.10.0] — 2026-10-08
+
+### Changed
+
+- **A new look, built around a refreshed logo.** The rocket-and-planet raster mark is replaced by *Heading* — an instrument ring with one heading needle — drawn as clean vector artwork in two quiet tones, slate and steel blue. The whole dashboard was restyled to match: the sidebar is the logo's ink tile, cards sit on hairlines instead of tinted gradient washes, blurred colour orbs and glowing stripes are gone, labels are sentence case rather than tiny spaced-out capitals, and status reads as a coloured mark and a word instead of a pulsing pill. The layout is unchanged — every page, tab and control is where it was.
+
+- **Type is Inter, with JetBrains Mono for identifiers**, bundled with the app (see Fixed). Inter's tailed `l` and serifed `I` are switched on, so hostnames such as `vm-l1` and labels such as `I/O` cannot be misread. Headline figures use Inter's tabular numerals rather than bold monospace.
+
+- **One colour vocabulary for every chart.** Single-series charts keep one hue per metric; paired series are always inbound (read, RX) in steel and outbound (write, TX) in dashed ochre, so a pair separates by colour *and* stroke and still reads in greyscale. Lines no longer glow.
+
+- **Destructive buttons are ranked.** Solid red is now reserved for confirming a destructive act. In the VM header, Power Off — a graceful ACPI shutdown — is an ordinary button, and Force Off is outlined in red rather than filled.
+
+- **Text you could barely read is now readable.** Several labels, step names and placeholders were set at 25–40 % opacity, and light-theme status text used shades as low as 2:1 against white. The palette's text shades now clear 4.5:1 on both the page and cards, and faded secondary text was raised to a legible level throughout.
+
+- **A new house terminal theme, VirtPilot Slate**, is the console's default. A theme you had already picked is kept.
+
+- **New favicon and app icons.** The browser-tab icon follows the browser's light or dark setting, and the dashboard now ships a web manifest with home-screen and maskable icons.
+
+### Fixed
+
+- **The dashboard loaded its fonts from Google on every page load.** Air-gapped and firewalled hosts fell back to system fonts, and every visit to a self-hosted dashboard was announced to a third party. Fonts are now bundled with the app, and the Content-Security-Policy no longer allows `fonts.googleapis.com` or `fonts.gstatic.com`.
+
+- **The sign-in screen always said v1.7.0**, whatever was installed — it had its own copy of the version string that nothing updated. It now reads the same constant as the sidebar.
+
+- **The sign-in screen's "System online" light was decoration.** It was always shown and never checked anything. It has been removed.
+
+- **The VM header said "KVM" on hosts without `/dev/kvm`**, where guests actually run under TCG software emulation. It now reports what the host provides.
+
+- **The VM header pushed the page sideways at narrower widths** (around 1024 px with the sidebar open): its six action buttons could not wrap. They now drop below the VM name when space runs out.
+
+- **Stacked dialogs announced the wrong title to screen readers.** Every dialog labelled itself with the same fixed element id; each now has its own.
+
+- **Development only:** the Vite dev server rejected every write with "Origin not allowed" when opened at `http://127.0.0.1:5174`, because its proxy rewrote the Host header to `localhost`. Reads still worked, so saves just looked flaky. The proxy now passes the browser's Host through.
+
 ## [2.9.1] — 2026-08-05
 
 ### Fixed

@@ -45,8 +45,8 @@ function StatCard({ icon: Icon, label, value, iconClass }: {
           <Icon size={15} />
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
         </div>
       </div>
     </div>
@@ -102,16 +102,16 @@ export function VmsPage() {
     >
       {/* Stats */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard icon={Server} label="Virtual Machines" value={isLoading ? '—' : String(total)} iconClass="bg-blue-500/10 text-blue-500" />
-        <StatCard icon={Power} label="Running" value={isLoading ? '—' : String(running)} iconClass="bg-emerald-500/10 text-emerald-500" />
+        <StatCard icon={Server} label="Virtual Machines" value={isLoading ? '—' : String(total)} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
+        <StatCard icon={Power} label="Running" value={isLoading ? '—' : String(running)} iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
         <StatCard icon={PowerOff} label="Stopped" value={isLoading ? '—' : String(stopped)} iconClass="bg-muted text-muted-foreground" />
-        <StatCard icon={Cpu} label="vCPUs Allocated" value={isLoading ? '—' : String(totalCpus)} iconClass="bg-violet-500/10 text-violet-500" />
+        <StatCard icon={Cpu} label="vCPUs Allocated" value={isLoading ? '—' : String(totalCpus)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
       </div>
 
       {/* Search + console-popup pref */}
       <div className="mb-5 flex items-start justify-between gap-4">
         <div className="relative max-w-sm flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/80" />
           <input
             type="text"
             placeholder="Search virtual machines…"
@@ -127,7 +127,7 @@ export function VmsPage() {
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {/* Header */}
         <div
-          className="grid items-center gap-4 border-b border-border bg-muted/40 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+          className="grid items-center gap-4 border-b border-border bg-muted/40 px-5 py-2.5 text-[12px] font-medium text-muted-foreground"
           style={{ gridTemplateColumns: COLS }}
         >
           <span>Name</span>
@@ -227,22 +227,11 @@ function ConsolePopupToggle() {
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: VmStatus }) {
-  const { label, dot, bg, text } = statusConfig[status];
-  const isRunning = status === 'running';
-
+  const { label, dot, text } = statusConfig[status];
+  // A static mark and a word: no tint box, no pulse. Every status reads the same way.
   return (
-    <span className={cn(
-      'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
-      bg, text,
-    )}>
-      {isRunning ? (
-        <span className="relative flex h-1.5 w-1.5 shrink-0">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-        </span>
-      ) : (
-        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dot)} />
-      )}
+    <span className={cn('inline-flex items-center gap-1.5 text-[12.5px] font-medium', text)}>
+      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dot)} />
       {label}
     </span>
   );
@@ -314,7 +303,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
             >
               {vm.name}
             </Link>
-            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/50">
+            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/80">
               {vm.id}
             </p>
           </div>
@@ -327,16 +316,16 @@ function VmRow({ vm }: { vm: VmSummary }) {
 
         {/* CPU */}
         <div className="flex items-center gap-2">
-          <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
+          <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
           <div>
             <span className="font-mono text-sm font-semibold text-foreground">{vm.cpus}</span>
-            <span className="ml-1 font-mono text-[10px] text-muted-foreground/70">vCPU</span>
+            <span className="ml-1 font-mono text-[10px] text-muted-foreground/80">vCPU</span>
           </div>
         </div>
 
         {/* Memory */}
         <div className="flex items-center gap-2">
-          <MemoryStick className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
+          <MemoryStick className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
           <span className="font-mono text-sm font-semibold text-foreground">{formatMemory(vm.memoryMb)}</span>
         </div>
 

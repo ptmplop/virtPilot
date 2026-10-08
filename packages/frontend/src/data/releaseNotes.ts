@@ -13,6 +13,24 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.10.0',
+    date: '2026-10-08',
+    changes: [
+      { type: 'changed', text: 'A new look, built around a refreshed logo. The rocket-and-planet raster mark is replaced by Heading — an instrument ring with one heading needle — drawn as clean vector artwork in two quiet tones, slate and steel blue. The whole dashboard was restyled to match: the sidebar is the logo’s ink tile, cards sit on hairlines instead of tinted gradient washes, blurred colour orbs and glowing stripes are gone, labels are sentence case rather than tiny spaced-out capitals, and status reads as a coloured mark and a word instead of a pulsing pill. The layout is unchanged — every page, tab and control is where it was.' },
+      { type: 'changed', text: 'Type is Inter, with JetBrains Mono for identifiers, bundled with the app. Inter’s tailed l and serifed I are switched on, so hostnames such as vm-l1 and labels such as I/O cannot be misread. Headline figures use tabular numerals rather than bold monospace.' },
+      { type: 'changed', text: 'One colour vocabulary for every chart. Paired series are always inbound (read, RX) in steel and outbound (write, TX) in dashed ochre, so a pair separates by colour and stroke and still reads in greyscale. Lines no longer glow.' },
+      { type: 'changed', text: 'Destructive buttons are ranked. Solid red is reserved for confirming a destructive act. In the VM header, Power Off — a graceful ACPI shutdown — is an ordinary button, and Force Off is outlined in red rather than filled.' },
+      { type: 'changed', text: 'Text you could barely read is now readable. Several labels, step names and placeholders were set at 25–40 % opacity, and light-theme status text used shades as low as 2:1 against white. The palette’s text shades now clear 4.5:1 on both the page and cards, and faded secondary text was raised to a legible level throughout.' },
+      { type: 'changed', text: 'A new house terminal theme, VirtPilot Slate, is the console’s default. A theme you had already picked is kept.' },
+      { type: 'changed', text: 'New favicon and app icons. The browser-tab icon follows the browser’s light or dark setting, and the dashboard now ships a web manifest with home-screen icons.' },
+      { type: 'fixed', text: 'The dashboard loaded its fonts from Google on every page load. Air-gapped and firewalled hosts fell back to system fonts, and every visit to a self-hosted dashboard was announced to a third party. Fonts are now bundled with the app, and the Content-Security-Policy no longer allows Google’s font domains.' },
+      { type: 'fixed', text: 'The sign-in screen always said v1.7.0, whatever was installed — it had its own copy of the version string that nothing updated. It now reads the same constant as the sidebar. Its "System online" light, which was always shown and never checked anything, has been removed.' },
+      { type: 'fixed', text: 'The VM header said "KVM" on hosts without /dev/kvm, where guests actually run under TCG software emulation. It now reports what the host provides.' },
+      { type: 'fixed', text: 'The VM header pushed the page sideways at narrower widths (around 1024 px with the sidebar open) because its six action buttons could not wrap. They now drop below the VM name when space runs out.' },
+      { type: 'fixed', text: 'Stacked dialogs announced the wrong title to screen readers: every dialog labelled itself with the same fixed element id. Each now has its own.' },
+    ],
+  },
+  {
     version: '2.9.1',
     date: '2026-08-05',
     changes: [

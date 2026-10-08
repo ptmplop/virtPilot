@@ -40,6 +40,8 @@ import { useVms } from '@/hooks/useVms';
 import { useCountUp } from '@/hooks/useCountUp';
 import type { VmStatus, VmSummary } from '@/types';
 import { cn } from '@/lib/cn';
+import { CHART } from '@/lib/chartColors';
+import { SectionHeading } from '@/components/ui/SectionHeading';
 import { streamSse } from '@/lib/sseStream';
 
 // ─── Formatters ────────────────────────────────────────────────────────────────
@@ -68,14 +70,6 @@ function cleanCpuModel(raw: string): string {
 }
 
 // ─── Section label ─────────────────────────────────────────────────────────────
-
-function SectionLabel({ label }: { label: string }) {
-  return (
-    <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/30 select-none border-l-2 border-primary/30 pl-2">
-      {label}
-    </h2>
-  );
-}
 
 // ─── Legend item ───────────────────────────────────────────────────────────────
 
@@ -111,15 +105,8 @@ interface SchemeConfig {
   chartHex:       string;
   // Card chrome
   border:         string;
-  hoverGlow:      string;
-  // Layered background overlays
-  gradientBg:     string;
-  blurOrbA:       string;
-  blurOrbB:       string;
-  // Top accent stripe
-  stripeBg:       string;
-  // Glowing icon badge
-  iconBadgeGlow:  string;
+  hoverBorder:    string;
+  // Icon badge
   iconBadgeBg:    string;
   iconBadgeRing:  string;
   iconColor:      string;
@@ -130,105 +117,75 @@ interface SchemeConfig {
   dotColor:       string;
   barColor:       string;
   showDot:        boolean;
-  // Chart background tint (right-hand panel of MetricCard)
-  chartBgClass:   string;
 }
 
+// Cards sit on neutral hairlines. Colour lives only in what carries meaning: the icon,
+// the live mark, the bar and the chart line — no washes, orbs, stripes or glows.
 const ACCENT_CFG: Record<TileAccent, SchemeConfig> = {
   neutral: {
-    chartHex:      '#94a3b8',
+    chartHex:      '#8592a6',
     border:        'border-border',
-    hoverGlow:     'hover:shadow-[0_4px_24px_-4px_rgb(0_0_0_/_0.12)]',
-    gradientBg:    'bg-gradient-to-br from-foreground/[0.025] to-transparent',
-    blurOrbA:      'bg-foreground/[0.04]',
-    blurOrbB:      'bg-foreground/[0.025]',
-    stripeBg:      'bg-gradient-to-r from-border via-border/50 to-transparent',
-    iconBadgeGlow: 'bg-foreground/10',
-    iconBadgeBg:   'bg-gradient-to-br from-muted via-muted/70 to-muted/40',
+    hoverBorder:   'hover:border-muted-foreground/25',
+    iconBadgeBg:   'bg-surface',
     iconBadgeRing: 'ring-border',
     iconColor:     'text-muted-foreground',
     labelColor:    'text-muted-foreground',
     valueColor:    'text-foreground',
     dotColor:      '',
-    barColor:      'bg-border/60',
+    barColor:      'bg-border',
     showDot:       false,
-    chartBgClass:  'bg-gradient-to-r from-foreground/[0.03] to-transparent',
   },
   ok: {
-    chartHex:      '#10b981',
-    border:        'border-emerald-500/25',
-    hoverGlow:     'hover:shadow-[0_0_36px_-6px_rgb(52_211_153_/_0.30)]',
-    gradientBg:    'bg-gradient-to-br from-emerald-500/[0.07] via-teal-500/[0.03] to-transparent',
-    blurOrbA:      'bg-emerald-500/10',
-    blurOrbB:      'bg-teal-500/[0.07]',
-    stripeBg:      'bg-gradient-to-r from-emerald-500 via-teal-500/50 to-transparent',
-    iconBadgeGlow: 'bg-emerald-500/30',
-    iconBadgeBg:   'bg-gradient-to-br from-emerald-500/30 via-emerald-500/15 to-teal-500/20',
-    iconBadgeRing: 'ring-emerald-400/30',
-    iconColor:     'text-emerald-600 dark:text-emerald-300',
-    labelColor:    'text-emerald-700 dark:text-emerald-300',
-    valueColor:    'text-emerald-700 dark:text-emerald-200',
-    dotColor:      'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]',
-    barColor:      'bg-emerald-500/60',
+    chartHex:      '#578c72',
+    border:        'border-border',
+    hoverBorder:   'hover:border-muted-foreground/25',
+    iconBadgeBg:   'bg-surface',
+    iconBadgeRing: 'ring-border',
+    iconColor:     'text-emerald-600 dark:text-emerald-400',
+    labelColor:    'text-muted-foreground',
+    valueColor:    'text-foreground',
+    dotColor:      'bg-emerald-500',
+    barColor:      'bg-emerald-500/70',
     showDot:       true,
-    chartBgClass:  'bg-gradient-to-r from-emerald-500/[0.07] dark:from-emerald-500/[0.05] to-transparent',
   },
   warn: {
-    chartHex:      '#f59e0b',
-    border:        'border-amber-500/30',
-    hoverGlow:     'hover:shadow-[0_0_36px_-6px_rgb(245_158_11_/_0.30)]',
-    gradientBg:    'bg-gradient-to-br from-amber-500/[0.07] via-orange-500/[0.03] to-transparent',
-    blurOrbA:      'bg-amber-500/12',
-    blurOrbB:      'bg-orange-500/[0.07]',
-    stripeBg:      'bg-gradient-to-r from-amber-500 via-orange-500/50 to-transparent',
-    iconBadgeGlow: 'bg-amber-500/30',
-    iconBadgeBg:   'bg-gradient-to-br from-amber-500/30 via-amber-500/15 to-orange-500/20',
-    iconBadgeRing: 'ring-amber-400/30',
-    iconColor:     'text-amber-600 dark:text-amber-300',
-    labelColor:    'text-amber-700 dark:text-amber-300',
-    valueColor:    'text-amber-700 dark:text-amber-200',
-    dotColor:      'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
-    barColor:      'bg-amber-500/60',
+    chartHex:      '#b98a4c',
+    border:        'border-border',
+    hoverBorder:   'hover:border-muted-foreground/25',
+    iconBadgeBg:   'bg-surface',
+    iconBadgeRing: 'ring-border',
+    iconColor:     'text-amber-600 dark:text-amber-400',
+    labelColor:    'text-muted-foreground',
+    valueColor:    'text-foreground',
+    dotColor:      'bg-amber-500',
+    barColor:      'bg-amber-500/70',
     showDot:       true,
-    chartBgClass:  'bg-gradient-to-r from-amber-500/[0.07] dark:from-amber-500/[0.05] to-transparent',
   },
   blue: {
-    chartHex:      '#3b82f6',
-    border:        'border-blue-500/25',
-    hoverGlow:     'hover:shadow-[0_0_36px_-6px_rgb(59_130_246_/_0.30)]',
-    gradientBg:    'bg-gradient-to-br from-blue-500/[0.07] via-indigo-500/[0.03] to-transparent',
-    blurOrbA:      'bg-blue-500/10',
-    blurOrbB:      'bg-indigo-500/[0.07]',
-    stripeBg:      'bg-gradient-to-r from-blue-500 via-indigo-500/50 to-transparent',
-    iconBadgeGlow: 'bg-blue-500/30',
-    iconBadgeBg:   'bg-gradient-to-br from-blue-500/30 via-blue-500/15 to-indigo-500/20',
-    iconBadgeRing: 'ring-blue-400/30',
-    iconColor:     'text-blue-600 dark:text-blue-300',
-    labelColor:    'text-blue-700 dark:text-blue-300',
-    valueColor:    'text-blue-700 dark:text-blue-200',
-    dotColor:      'bg-blue-500 shadow-[0_0_6px_1px_rgb(59_130_246_/_0.5)]',
-    barColor:      'bg-blue-500/60',
+    chartHex:      '#3d73b0',
+    border:        'border-border',
+    hoverBorder:   'hover:border-muted-foreground/25',
+    iconBadgeBg:   'bg-surface',
+    iconBadgeRing: 'ring-border',
+    iconColor:     'text-blue-600 dark:text-blue-400',
+    labelColor:    'text-muted-foreground',
+    valueColor:    'text-foreground',
+    dotColor:      'bg-blue-500',
+    barColor:      'bg-blue-500/70',
     showDot:       true,
-    chartBgClass:  'bg-gradient-to-r from-blue-500/[0.07] dark:from-blue-500/[0.05] to-transparent',
   },
   violet: {
-    chartHex:      '#8b5cf6',
-    border:        'border-violet-500/25',
-    hoverGlow:     'hover:shadow-[0_0_36px_-6px_rgb(139_92_246_/_0.30)]',
-    gradientBg:    'bg-gradient-to-br from-violet-500/[0.07] via-purple-500/[0.03] to-transparent',
-    blurOrbA:      'bg-violet-500/10',
-    blurOrbB:      'bg-purple-500/[0.07]',
-    stripeBg:      'bg-gradient-to-r from-violet-500 via-purple-500/50 to-transparent',
-    iconBadgeGlow: 'bg-violet-500/30',
-    iconBadgeBg:   'bg-gradient-to-br from-violet-500/30 via-violet-500/15 to-purple-500/20',
-    iconBadgeRing: 'ring-violet-400/30',
-    iconColor:     'text-violet-600 dark:text-violet-300',
-    labelColor:    'text-violet-700 dark:text-violet-300',
-    valueColor:    'text-violet-700 dark:text-violet-200',
-    dotColor:      'bg-violet-500 shadow-[0_0_6px_1px_rgb(139_92_246_/_0.5)]',
-    barColor:      'bg-violet-500/60',
+    chartHex:      '#7162aa',
+    border:        'border-border',
+    hoverBorder:   'hover:border-muted-foreground/25',
+    iconBadgeBg:   'bg-surface',
+    iconBadgeRing: 'ring-border',
+    iconColor:     'text-violet-600 dark:text-violet-400',
+    labelColor:    'text-muted-foreground',
+    valueColor:    'text-foreground',
+    dotColor:      'bg-violet-500',
+    barColor:      'bg-violet-500/70',
     showDot:       true,
-    chartBgClass:  'bg-gradient-to-r from-violet-500/[0.07] dark:from-violet-500/[0.05] to-transparent',
   },
 };
 
@@ -240,9 +197,9 @@ const ACCENT_CFG: Record<TileAccent, SchemeConfig> = {
 // status, so you can see *which* VMs are up at a glance and jump straight in.
 
 const VM_STATUS: Record<VmStatus, { dot: string; label: string; live: boolean }> = {
-  running: { dot: 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]', label: 'Running', live: true },
-  paused:  { dot: 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',  label: 'Paused',  live: false },
-  crashed: { dot: 'bg-red-500 shadow-[0_0_6px_1px_rgb(239_68_68_/_0.5)]',     label: 'Crashed', live: false },
+  running: { dot: 'bg-emerald-500', label: 'Running', live: true },
+  paused:  { dot: 'bg-amber-500',  label: 'Paused',  live: false },
+  crashed: { dot: 'bg-red-500',     label: 'Crashed', live: false },
   stopped: { dot: 'bg-muted-foreground/25',                                   label: 'Stopped', live: false },
   unknown: { dot: 'bg-muted-foreground/25',                                   label: 'Unknown', live: false },
 };
@@ -296,21 +253,17 @@ function VmRoster({ vms }: { vms: VmSummary[] }) {
   });
 
   return (
-    <div className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-blue-500/25 bg-card shadow-airy transition-all duration-300 ease-out hover:shadow-[0_0_36px_-6px_rgb(59_130_246_/_0.25)]">
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/[0.05] via-indigo-500/[0.02] to-transparent" />
-      <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-blue-500/[0.07] blur-3xl" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[2px] bg-gradient-to-r from-blue-500 via-indigo-500/50 to-transparent" />
+    <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-airy transition-all duration-300 ease-out">
 
       {/* Header */}
       <div className="relative flex items-center gap-2.5 px-5 pt-4">
         <div className="relative shrink-0">
-          <div className="absolute inset-0 rounded-xl bg-blue-500/30 blur-md opacity-70" />
-          <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/30 via-blue-500/15 to-indigo-500/20 ring-1 ring-blue-400/30">
+          <div className="bg-blue-500/10 relative flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-blue-400/30">
             <Boxes className="h-4 w-4 text-blue-600 dark:text-blue-300" />
           </div>
         </div>
         <div className="min-w-0">
-          <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-300">
+          <span className="block text-[12px] font-medium text-blue-700 dark:text-blue-300">
             Virtual Machines
           </span>
           <span className="block text-xs text-muted-foreground">
@@ -347,7 +300,7 @@ function VmRoster({ vms }: { vms: VmSummary[] }) {
                       <VmLogo slug={osSlugFromImage(vm.sourceTemplateFilename)} size={20} />
                       <span className={cn(
                         'absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-card',
-                        s.dot, s.live && 'animate-glow-pulse',
+                        s.dot,
                       )} />
                     </span>
 
@@ -360,7 +313,7 @@ function VmRoster({ vms }: { vms: VmSummary[] }) {
                         {vm.name}
                       </span>
                       {vm.autostart && (
-                        <Power className="h-3 w-3 shrink-0 text-muted-foreground/40" aria-label="Autostart enabled" />
+                        <Power className="h-3 w-3 shrink-0 text-muted-foreground/80" aria-label="Autostart enabled" />
                       )}
                       {vm.guestAgent && (
                         <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500/60" aria-label="Guest agent active" />
@@ -370,7 +323,7 @@ function VmRoster({ vms }: { vms: VmSummary[] }) {
                     {/* Recent-CPU sparkline (running VMs with samples) */}
                     <span className="flex h-4 items-center justify-end">
                       {s.live && vm.cpuSpark && vm.cpuSpark.length >= 2 && (
-                        <Sparkline data={vm.cpuSpark} color={ACCENT_CFG.blue.chartHex} idKey={vm.id} />
+                        <Sparkline data={vm.cpuSpark} color={CHART.cpu} idKey={vm.id} />
                       )}
                     </span>
 
@@ -395,7 +348,7 @@ function ZoneSeparator({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2">
       <div className="h-px flex-1 bg-border/50" />
-      <span className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/40">
+      <span className="text-[12px] font-medium text-muted-foreground/80">
         {label}
       </span>
     </div>
@@ -409,7 +362,7 @@ function ZoneSeparator({ label }: { label: string }) {
 function CardRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <>
-      <dt className="self-center text-[11px] font-medium text-muted-foreground/55">{label}</dt>
+      <dt className="self-center text-[11px] font-medium text-muted-foreground/80">{label}</dt>
       <dd className="min-w-0 self-center truncate font-mono text-[11px] tabular-nums text-foreground">
         {children}
       </dd>
@@ -420,9 +373,9 @@ function CardRow({ label, children }: { label: string; children: React.ReactNode
 function LoadValue({ load, cores }: { load?: [number, number, number]; cores?: number }) {
   const color = (v: number) => {
     const r = v / Math.max(cores ?? 1, 1);
-    if (r > 1.0) return 'text-red-400';
-    if (r > 0.7) return 'text-amber-400';
-    return 'text-emerald-400';
+    if (r > 1.0) return 'text-red-700 dark:text-red-400';
+    if (r > 0.7) return 'text-amber-700 dark:text-amber-400';
+    return 'text-emerald-700 dark:text-emerald-400';
   };
   if (!load) return <span className="text-muted-foreground">—</span>;
   return (
@@ -459,8 +412,8 @@ function HostOverview() {
   if (!settings) {
     return (
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.4fr]">
-        <Skeleton className="h-[268px] rounded-2xl" />
-        <Skeleton className="h-[268px] rounded-2xl" />
+        <Skeleton className="h-[268px] rounded-xl" />
+        <Skeleton className="h-[268px] rounded-xl" />
       </div>
     );
   }
@@ -474,34 +427,11 @@ function HostOverview() {
       <div
         style={{ animationDelay: '60ms' }}
         className={cn(
-        'group relative animate-fade-up overflow-hidden rounded-2xl border bg-card shadow-airy transition-all duration-300 ease-out',
+        'group relative animate-fade-up overflow-hidden rounded-xl border bg-card shadow-airy transition-all duration-300 ease-out',
         isKvm
-          ? 'border-emerald-500/25 hover:shadow-[0_0_36px_-6px_rgb(52_211_153_/_0.30)]'
-          : 'border-amber-500/30 hover:shadow-[0_0_36px_-6px_rgb(245_158_11_/_0.30)]',
+          ? 'border-border'
+          : 'border-amber-500/30',
       )}>
-        {/* Layered gradient background + blur orbs */}
-        <div className={cn(
-          'pointer-events-none absolute inset-0 bg-gradient-to-br to-transparent',
-          isKvm
-            ? 'from-emerald-500/[0.07] via-teal-500/[0.03]'
-            : 'from-amber-500/[0.07] via-orange-500/[0.03]',
-        )} />
-        <div className={cn(
-          'pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full blur-3xl',
-          isKvm ? 'bg-emerald-500/10' : 'bg-amber-500/12',
-        )} />
-        <div className={cn(
-          'pointer-events-none absolute -left-16 -bottom-20 h-48 w-48 rounded-full blur-3xl',
-          isKvm ? 'bg-teal-500/[0.07]' : 'bg-orange-500/[0.07]',
-        )} />
-
-        {/* Top accent stripe */}
-        <div className={cn(
-          'pointer-events-none absolute inset-x-0 top-0 z-10 h-[3px]',
-          isKvm
-            ? 'bg-gradient-to-r from-emerald-500 via-teal-500/50 to-transparent'
-            : 'bg-gradient-to-r from-amber-500 via-orange-500/50 to-transparent',
-        )} />
 
         <div className="relative flex flex-col gap-3 p-5">
 
@@ -509,14 +439,10 @@ function HostOverview() {
           <div className="flex items-center gap-3">
             <div className="relative shrink-0">
               <div className={cn(
-                'absolute inset-0 rounded-2xl blur-xl',
-                isKvm ? 'bg-emerald-500/30' : 'bg-amber-500/30',
-              )} />
-              <div className={cn(
-                'relative flex h-11 w-11 items-center justify-center rounded-2xl ring-1 shadow-[0_4px_20px_-2px_rgb(0_0_0_/_0.2)]',
+                'relative flex h-11 w-11 items-center justify-center rounded-xl ring-1',
                 isKvm
-                  ? 'bg-gradient-to-br from-emerald-500/30 via-emerald-500/15 to-teal-500/20 ring-emerald-400/30'
-                  : 'bg-gradient-to-br from-amber-500/30 via-amber-500/15 to-orange-500/20 ring-amber-400/30',
+                  ? 'bg-emerald-500/10 ring-emerald-400/30'
+                  : 'bg-amber-500/10 ring-amber-400/30',
               )}>
                 <VirtIcon className={cn(
                   'h-5 w-5',
@@ -533,10 +459,10 @@ function HostOverview() {
                   {isKvm ? 'KVM' : 'TCG'}
                 </span>
                 <span className={cn(
-                  'h-1.5 w-1.5 rounded-full animate-glow-pulse',
+                  'h-1.5 w-1.5 rounded-full',
                   isKvm
-                    ? 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.5)]'
-                    : 'bg-amber-500 shadow-[0_0_6px_1px_rgb(245_158_11_/_0.5)]',
+                    ? 'bg-emerald-500'
+                    : 'bg-amber-500',
                 )} />
               </div>
               <p className="text-[11px] text-muted-foreground">
@@ -620,25 +546,16 @@ function HostMetricCard({
   return (
     <div
       className={cn(
-        'group relative overflow-hidden rounded-2xl border bg-card shadow-airy animate-fade-up transition-all duration-300 ease-out hover:-translate-y-px',
-        a.border, a.hoverGlow,
+        'group relative overflow-hidden rounded-xl border bg-card shadow-airy animate-fade-up transition-all duration-300 ease-out',
+        a.border, a.hoverBorder,
       )}
       style={{ animationDelay: `${delay}ms` }}
     >
-      {/* Layered gradient background + blur orbs */}
-      <div className={cn('pointer-events-none absolute inset-0', a.gradientBg)} />
-      <div className={cn('pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full blur-3xl', a.blurOrbA)} />
-      <div className={cn('pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full blur-3xl', a.blurOrbB)} />
-
-      {/* Coloured top accent stripe */}
-      <div className={cn('pointer-events-none absolute inset-x-0 top-0 z-10 h-[3px]', a.stripeBg)} />
 
       <div className="relative px-5 pb-3 pt-5">
         {/* Header row */}
         <div className="flex items-center gap-3">
-          {/* Glowing icon badge */}
           <div className="relative shrink-0">
-            <div className={cn('absolute inset-0 rounded-xl blur-md opacity-70', a.iconBadgeGlow)} />
             <div className={cn(
               'relative flex h-9 w-9 items-center justify-center rounded-xl ring-1',
               a.iconBadgeBg, a.iconBadgeRing,
@@ -646,7 +563,7 @@ function HostMetricCard({
               <Icon className={cn('h-4 w-4', a.iconColor)} />
             </div>
           </div>
-          <span className={cn('text-[10px] font-bold uppercase tracking-[0.2em]', a.labelColor)}>
+          <span className={cn('text-[12px] font-medium', a.labelColor)}>
             {label}
           </span>
 
@@ -664,7 +581,7 @@ function HostMetricCard({
               </div>
             ) : (
               <>
-                <span className={cn('block whitespace-nowrap text-2xl font-bold tracking-tight tabular-nums', a.valueColor)}>
+                <span className={cn('block whitespace-nowrap text-2xl font-semibold tracking-[-0.015em] tabular-nums', a.valueColor)}>
                   <AnimatedNumber value={primaryValue} format={formatValue} />
                 </span>
                 {secondaryValue && (
@@ -798,13 +715,13 @@ function UpgradeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
             {done ? (
               success ? (
                 <>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  <span className="text-xs text-emerald-400">Upgrade complete</span>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                  <span className="text-xs text-emerald-700 dark:text-emerald-400">Upgrade complete</span>
                 </>
               ) : (
                 <>
-                  <X className="h-4 w-4 text-red-400" />
-                  <span className="text-xs text-red-400">Upgrade failed (exit {exitCode})</span>
+                  <X className="h-4 w-4 text-red-700 dark:text-red-400" />
+                  <span className="text-xs text-red-700 dark:text-red-400">Upgrade failed (exit {exitCode})</span>
                 </>
               )
             ) : (
@@ -847,15 +764,6 @@ function AptSection() {
   return (
     <>
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-        {/* Coloured top stripe */}
-        <div className={cn(
-          'h-[3px] w-full',
-          upToDate
-            ? 'bg-gradient-to-r from-emerald-500/70 via-emerald-500/25 to-transparent'
-            : count > 0
-            ? 'bg-gradient-to-r from-amber-500/70 via-amber-500/25 to-transparent'
-            : 'bg-gradient-to-r from-border/40 to-transparent'
-        )} />
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-5">
           <div className="flex items-center gap-3">
@@ -865,7 +773,7 @@ function AptSection() {
             )}>
               <PackageOpen className={cn(
                 'h-3.5 w-3.5',
-                upToDate ? 'text-emerald-500' : count > 0 ? 'text-amber-500' : 'text-muted-foreground'
+                upToDate ? 'text-emerald-600 dark:text-emerald-400' : count > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
               )} />
             </div>
             <div>
@@ -899,7 +807,7 @@ function AptSection() {
 
         {upToDate && (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             No updates available
           </div>
         )}
@@ -913,7 +821,7 @@ function AptSection() {
                 </span>
                 <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-muted-foreground">
                   <span className="font-mono font-semibold text-foreground">{pkg.version}</span>
-                  <span className="ml-1 rounded bg-muted px-1 py-0.5 text-[9px] uppercase tracking-wider">
+                  <span className="ml-1 rounded bg-muted px-1 py-0.5 text-[12px]">
                     {pkg.arch}
                   </span>
                 </div>
@@ -1065,14 +973,14 @@ function VirtPilotUpgradeModal({
             )}
             {phase === 'done-success' && (
               <>
-                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                <span className="text-xs text-emerald-400">Upgrade complete</span>
+                <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                <span className="text-xs text-emerald-700 dark:text-emerald-400">Upgrade complete</span>
               </>
             )}
             {phase === 'done-fail' && (
               <>
-                <X className="h-4 w-4 text-red-400" />
-                <span className="text-xs text-red-400">
+                <X className="h-4 w-4 text-red-700 dark:text-red-400" />
+                <span className="text-xs text-red-700 dark:text-red-400">
                   Upgrade failed{exitCode !== null ? ` (exit ${exitCode})` : ''}
                 </span>
               </>
@@ -1136,44 +1044,21 @@ function VirtPilotUpdateCard() {
     const broken = !data.repoOk;
     return (
       <div className={cn(
-        'group relative overflow-hidden rounded-2xl border shadow-airy transition-all duration-300 ease-out',
+        'group relative overflow-hidden rounded-xl border shadow-airy transition-all duration-300 ease-out',
         broken
-          ? 'border-amber-500/30 hover:shadow-[0_0_48px_-8px_rgb(245_158_11_/_0.30)]'
-          : 'border-emerald-500/25 hover:shadow-[0_0_48px_-8px_rgb(52_211_153_/_0.30)]',
+          ? 'border-amber-500/30'
+          : 'border-border',
       )}>
-        {/* Layered gradient background — kept subtle so text stays readable */}
-        <div className={cn(
-          'pointer-events-none absolute inset-0 bg-gradient-to-br to-transparent',
-          broken ? 'from-amber-500/[0.06] via-amber-500/[0.03]' : 'from-emerald-500/[0.06] via-teal-500/[0.03]',
-        )} />
-        <div className={cn(
-          'pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full blur-3xl',
-          broken ? 'bg-amber-500/10' : 'bg-emerald-500/10',
-        )} />
-        <div className={cn(
-          'pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full blur-3xl',
-          broken ? 'bg-orange-500/[0.07]' : 'bg-teal-500/[0.07]',
-        )} />
-
-        {/* Static top stripe */}
-        <div className={cn(
-          'relative h-[3px] w-full bg-gradient-to-r to-transparent',
-          broken ? 'from-amber-500 via-amber-500/40' : 'from-emerald-500 via-teal-500/50',
-        )} />
 
         <div className="relative px-6 py-5">
           <div className="flex items-start gap-4">
             {/* Icon badge — matches the Update-available card's structure */}
             <div className="relative shrink-0">
               <div className={cn(
-                'absolute inset-0 rounded-2xl blur-xl',
-                broken ? 'bg-amber-500/30' : 'bg-emerald-500/30',
-              )} />
-              <div className={cn(
-                'relative flex h-12 w-12 items-center justify-center rounded-2xl ring-1 shadow-[0_4px_20px_-2px_rgb(0_0_0_/_0.2)]',
+                'relative flex h-12 w-12 items-center justify-center rounded-xl ring-1',
                 broken
-                  ? 'bg-gradient-to-br from-amber-500/30 via-amber-500/15 to-orange-500/20 ring-amber-400/30'
-                  : 'bg-gradient-to-br from-emerald-500/30 via-emerald-500/15 to-teal-500/20 ring-emerald-400/30',
+                  ? 'bg-amber-500/10 ring-amber-400/30'
+                  : 'bg-emerald-500/10 ring-emerald-400/30',
               )}>
                 {broken
                   ? <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-300" />
@@ -1184,7 +1069,7 @@ function VirtPilotUpdateCard() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className={cn(
-                  'text-[10px] font-bold uppercase tracking-[0.2em]',
+                  'text-[12px] font-medium',
                   broken ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300',
                 )}>
                   {broken ? 'In-app upgrades unavailable' : 'Up to date'}
@@ -1194,7 +1079,7 @@ function VirtPilotUpdateCard() {
               {/* Big version display — solid colours for max contrast */}
               <div className="mt-2 font-mono">
                 <span className={cn(
-                  'text-2xl font-bold tabular-nums',
+                  'text-2xl font-semibold tabular-nums tracking-[-0.015em]',
                   broken ? 'text-amber-700 dark:text-amber-200' : 'text-emerald-700 dark:text-emerald-200',
                 )}>
                   v{data.current}
@@ -1235,10 +1120,9 @@ function VirtPilotUpdateCard() {
   if (!data.repoOk) {
     return (
       <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] shadow-sm overflow-hidden">
-        <div className="h-[3px] w-full bg-gradient-to-r from-amber-500/80 via-amber-500/30 to-transparent" />
         <div className="flex items-start gap-3 px-5 py-4">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground">
@@ -1262,33 +1146,22 @@ function VirtPilotUpdateCard() {
   // ── Update available, repo OK ────────────────────────────────────────────
   return (
     <>
-      <div className="group relative overflow-hidden rounded-2xl border border-blue-500/30 shadow-airy transition-all duration-300 ease-out hover:shadow-[0_0_48px_-8px_rgb(99_102_241_/_0.35)]">
-        {/* Layered gradient background — kept subtle so text stays readable */}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/[0.06] via-violet-500/[0.03] to-transparent" />
-        <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full bg-violet-500/[0.07] blur-3xl" />
-
-        {/* Animated top stripe */}
-        <div className="relative h-[3px] w-full overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500 via-violet-500 to-blue-500 bg-[length:200%_100%] animate-[shimmer_3s_linear_infinite]" />
-        </div>
+      <div className="group relative overflow-hidden rounded-xl border border-border shadow-airy transition-all duration-300 ease-out">
 
         <div className="relative px-6 py-5">
           <div className="flex items-start gap-4">
-            {/* Glowing icon badge */}
             <div className="relative shrink-0">
-              <div className="absolute inset-0 rounded-2xl bg-blue-500/40 blur-xl animate-glow-pulse" />
-              <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/30 via-blue-500/15 to-violet-500/20 ring-1 ring-blue-400/30 shadow-[0_4px_20px_-2px_rgb(59_130_246_/_0.4)]">
+              <div className="bg-blue-500/10 relative flex h-12 w-12 items-center justify-center rounded-xl ring-1 ring-blue-400/30">
                 <Sparkles className="h-5 w-5 text-blue-600 dark:text-blue-300" />
               </div>
             </div>
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">
+                <span className="text-[12px] font-medium text-blue-700 dark:text-blue-300">
                   Update available
                 </span>
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-glow-pulse shadow-[0_0_8px_2px_rgb(59_130_246_/_0.7)]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
               </div>
 
               {/* Big version transition — solid colours for max contrast */}
@@ -1296,8 +1169,8 @@ function VirtPilotUpdateCard() {
                 <span className="text-xl font-medium tabular-nums text-muted-foreground line-through decoration-muted-foreground/40 decoration-1">
                   v{data.current}
                 </span>
-                <ArrowRight className="h-4 w-4 text-blue-500 dark:text-blue-400 transition-transform duration-300 group-hover:translate-x-0.5" />
-                <span className="text-2xl font-bold tabular-nums text-blue-700 dark:text-blue-200">
+                <ArrowRight className="h-4 w-4 text-blue-600 dark:text-blue-400 transition-transform duration-300 group-hover:translate-x-0.5" />
+                <span className="text-2xl font-semibold tabular-nums tracking-[-0.015em] text-blue-700 dark:text-blue-200">
                   v{targetVersion}
                 </span>
               </div>
@@ -1314,17 +1187,8 @@ function VirtPilotUpdateCard() {
                 <button
                   type="button"
                   onClick={() => setUpgrading(true)}
-                  className={cn(
-                    'group/btn relative inline-flex items-center gap-1.5 overflow-hidden rounded-lg px-4 py-2 text-xs font-semibold text-white',
-                    'bg-gradient-to-r from-blue-500 to-violet-500',
-                    'shadow-[0_4px_16px_-2px_rgb(59_130_246_/_0.5)]',
-                    'transition-all duration-200 ease-out',
-                    'hover:shadow-[0_6px_24px_-2px_rgb(99_102_241_/_0.65)] hover:-translate-y-px',
-                    'active:scale-95',
-                  )}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3.5 text-[12.5px] font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
                 >
-                  {/* Hover shimmer */}
-                  <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 ease-out group-hover/btn:translate-x-full" />
                   <RefreshCw className="relative h-3.5 w-3.5" />
                   <span className="relative">Update now</span>
                 </button>
@@ -1381,7 +1245,7 @@ function Vital({
     <div className="flex min-w-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-1.5">
         <Icon className={cn('h-3.5 w-3.5 shrink-0', a.iconColor)} />
-        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+        <span className="text-[12px] font-medium text-muted-foreground">
           {label}
         </span>
         <span className={cn('ml-auto text-sm font-bold tabular-nums', a.valueColor)}>
@@ -1412,7 +1276,7 @@ function HealthBand() {
   const current = stats?.current;
 
   if (!settings || !current) {
-    return <Skeleton className="h-[112px] rounded-2xl" />;
+    return <Skeleton className="h-[112px] rounded-xl" />;
   }
 
   const total   = vms?.length ?? 0;
@@ -1434,43 +1298,18 @@ function HealthBand() {
 
   return (
     <div className={cn(
-      'relative overflow-hidden rounded-2xl border bg-card shadow-airy animate-fade-up',
-      healthy ? 'border-emerald-500/25' : 'border-amber-500/35',
+      'relative overflow-hidden rounded-xl border bg-card shadow-airy animate-fade-up',
+      healthy ? 'border-border' : 'border-amber-500/35',
     )}>
-      {/* Verdict-tinted wash + single orb (calmer than the tiles) */}
-      <div className={cn(
-        'pointer-events-none absolute inset-0 bg-gradient-to-r to-transparent',
-        healthy ? 'from-emerald-500/[0.06] via-emerald-500/[0.02]' : 'from-amber-500/[0.07] via-amber-500/[0.03]',
-      )} />
-      <div className={cn(
-        'pointer-events-none absolute -left-16 -top-20 h-44 w-44 rounded-full blur-3xl',
-        healthy ? 'bg-emerald-500/10' : 'bg-amber-500/12',
-      )} />
-      <div className={cn(
-        'pointer-events-none absolute inset-x-0 top-0 z-10 h-[2px]',
-        healthy
-          ? 'bg-gradient-to-r from-emerald-500 via-teal-500/40 to-transparent'
-          : 'bg-gradient-to-r from-amber-500 via-orange-500/40 to-transparent',
-      )} />
-
       <div className="relative flex flex-col gap-5 px-5 py-4 lg:flex-row lg:items-center lg:gap-6">
         {/* Verdict */}
         <div className="flex items-center gap-3 lg:w-64 lg:shrink-0">
           <div className="relative shrink-0">
             <div className={cn(
-              'absolute inset-0 rounded-xl blur-md opacity-70',
-              healthy ? 'bg-emerald-500/30' : 'bg-amber-500/30',
-            )} />
-            {/* Slow pulsing ring — a calm "heartbeat" when all is well */}
-            <span className={cn(
-              'absolute -inset-1 rounded-2xl ring-1 animate-glow-pulse',
-              healthy ? 'ring-emerald-400/40' : 'ring-amber-400/40',
-            )} />
-            <div className={cn(
               'relative flex h-10 w-10 items-center justify-center rounded-xl ring-1',
               healthy
-                ? 'bg-gradient-to-br from-emerald-500/30 via-emerald-500/15 to-teal-500/20 ring-emerald-400/30'
-                : 'bg-gradient-to-br from-amber-500/30 via-amber-500/15 to-orange-500/20 ring-amber-400/30',
+                ? 'bg-emerald-500/10 ring-emerald-400/30'
+                : 'bg-amber-500/10 ring-amber-400/30',
             )}>
               {healthy
                 ? <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
@@ -1515,9 +1354,9 @@ function HealthBand() {
             document.getElementById('virtpilot-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }}
           className={cn(
-            'group flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 transition-all duration-200 ease-out hover:-translate-y-px',
+            'group flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 transition-all duration-200 ease-out',
             updateAvailable
-              ? 'border-blue-500/30 bg-blue-500/[0.06] hover:bg-blue-500/[0.1] hover:shadow-[0_4px_16px_-4px_rgb(59_130_246_/_0.4)]'
+              ? 'border-border bg-blue-500/[0.06] hover:bg-blue-500/[0.1]'
               : 'border-border bg-muted/40 hover:bg-muted/70 hover:shadow-airy',
           )}
         >
@@ -1616,25 +1455,18 @@ export function DashboardPage() {
     <Layout title="Dashboard" subtitle="Live server metrics and system status.">
       <div className="relative space-y-8">
 
-        {/* Ambient glow — a soft wash of colour behind the top of the page for
-            depth. Purely decorative; sits behind all content. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-12 -z-10 mx-auto h-64 max-w-4xl rounded-[40px] bg-gradient-to-r from-blue-500/10 via-violet-500/10 to-emerald-500/[0.07] blur-[80px]"
-        />
-
         {/* ── Health summary ── */}
         <HealthBand />
 
         {/* ── Overview ── */}
         <section className="space-y-3">
-          <SectionLabel label="Overview" />
+          <SectionHeading label="Overview" />
           <HostOverview />
         </section>
 
         {/* ── VirtPilot ── */}
         <section id="virtpilot-section" className="animate-fade-up space-y-3 scroll-mt-6" style={{ animationDelay: '180ms' }}>
-          <SectionLabel label="VirtPilot" />
+          <SectionHeading label="VirtPilot" />
           <VirtPilotUpdateCard />
         </section>
 
@@ -1649,11 +1481,11 @@ export function DashboardPage() {
             >
               <ChevronDown
                 className={cn(
-                  'h-3 w-3 text-muted-foreground/40 transition-transform duration-200 group-hover:text-muted-foreground/70',
+                  'h-3 w-3 text-muted-foreground/80 transition-transform duration-200 group-hover:text-muted-foreground/70',
                   metricsCollapsed && '-rotate-90',
                 )}
               />
-              <SectionLabel label="Host Metrics" />
+              <SectionHeading label="Host Metrics" />
             </button>
             {!metricsCollapsed && (
               <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-card">
@@ -1663,7 +1495,7 @@ export function DashboardPage() {
                     type="button"
                     onClick={() => setRange(r)}
                     className={cn(
-                      'flex items-center gap-1.5 rounded-md px-3 py-1 text-[10px] font-semibold uppercase tracking-widest transition',
+                      'flex items-center gap-1.5 rounded-md px-3 py-1 text-[12px] font-medium transition',
                       range === r
                         ? 'bg-muted text-foreground'
                         : 'text-muted-foreground hover:text-foreground',
@@ -1674,7 +1506,7 @@ export function DashboardPage() {
                         className={cn(
                           'h-1.5 w-1.5 rounded-full transition-colors',
                           range === 'live'
-                            ? 'bg-emerald-500 shadow-[0_0_6px_1px_rgb(52_211_153_/_0.6)] animate-glow-pulse'
+                            ? 'bg-emerald-500'
                             : 'bg-muted-foreground/40',
                         )}
                       />
@@ -1697,7 +1529,7 @@ export function DashboardPage() {
               formatValue={fmtPct}
               data={cpuData}
               timestamps={timestamps}
-              color={ACCENT_CFG.blue.chartHex}
+              color={CHART.cpu}
               formatY={(v) => `${Math.round(v)}%`}
               formatX={formatX}
               max={100}
@@ -1715,7 +1547,7 @@ export function DashboardPage() {
               secondaryValue={current ? `of ${fmtMb(current.memTotalMb)}` : undefined}
               data={memPctData}
               timestamps={timestamps}
-              color={ACCENT_CFG.violet.chartHex}
+              color={CHART.memory}
               formatY={(v) => `${Math.round(v)}%`}
               formatX={formatX}
               max={100}
@@ -1733,14 +1565,14 @@ export function DashboardPage() {
               secondaryValue="total"
               legend={
                 <div className="flex items-center gap-3">
-                  <LegendItem color="#f59e0b" label="Read" />
-                  <LegendItem color="#f97316" label="Write" dashed />
+                  <LegendItem color={CHART.inbound} label="Read" />
+                  <LegendItem color={CHART.outbound} label="Write" dashed />
                 </div>
               }
               data={diskRdData}
               data2={diskWrData}
-              color="#f59e0b"
-              color2="#f97316"
+              color={CHART.inbound}
+              color2={CHART.outbound}
               timestamps={timestamps}
               formatY={fmtBps}
               formatX={formatX}
@@ -1758,14 +1590,14 @@ export function DashboardPage() {
               secondaryValue="total"
               legend={
                 <div className="flex items-center gap-3">
-                  <LegendItem color="#10b981" label="RX" />
-                  <LegendItem color="#06b6d4" label="TX" dashed />
+                  <LegendItem color={CHART.inbound} label="RX" />
+                  <LegendItem color={CHART.outbound} label="TX" dashed />
                 </div>
               }
               data={netRxData}
               data2={netTxData}
-              color="#10b981"
-              color2="#06b6d4"
+              color={CHART.inbound}
+              color2={CHART.outbound}
               timestamps={timestamps}
               formatY={fmtBps}
               formatX={formatX}
@@ -1779,7 +1611,7 @@ export function DashboardPage() {
 
         {/* ── System ── */}
         <section className="animate-fade-up space-y-5" style={{ animationDelay: '450ms' }}>
-          <SectionLabel label="System" />
+          <SectionHeading label="System" />
           <AptSection />
         </section>
 

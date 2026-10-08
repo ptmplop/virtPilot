@@ -58,7 +58,7 @@ export function Tooltip({ label, side = 'top', children }: TooltipProps) {
             style={{ top: coords.top, left: coords.left, transform: transformMap[side] }}
             className={cn(
               'pointer-events-none fixed z-[9999] animate-fade-in whitespace-nowrap rounded-md',
-              'bg-foreground px-2 py-1 text-[11px] font-medium text-background shadow-md'
+              'bg-[#121721] px-2 py-1 text-[11.5px] font-medium text-[#E6EAF0] shadow-pop ring-1 ring-white/10'
             )}
           >
             {label}

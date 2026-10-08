@@ -1,14 +1,21 @@
 /** @type {import('tailwindcss').Config} */
+const palette = require('./tailwind.palette.cjs');
+const { _util, ...scales } = palette;
+
 module.exports = {
   darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Geist', 'system-ui', 'sans-serif'],
-        mono: ['Geist Mono', 'JetBrains Mono', 'monospace'],
+        // Bundled with the app (no font CDN: installs are often air-gapped).
+        sans: ['"Inter Variable"', 'Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        mono: ['"JetBrains Mono Variable"', '"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       colors: {
+        ...scales,
+        surface: 'hsl(var(--surface))',
+        field: 'hsl(var(--field))',
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
@@ -47,15 +54,17 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)',
       },
       boxShadow: {
-        'glow-primary': '0 0 16px 2px hsl(var(--primary) / 0.2)',
-        'glow-emerald': '0 0 10px 1px rgb(52 211 153 / 0.25)',
-        'card': '0 1px 3px rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.12)',
-        'card-hover': '0 4px 14px rgba(0,0,0,0.22), 0 2px 4px rgba(0,0,0,0.14)',
+        // The glows are retired: kept as names so old call sites resolve to nothing loud.
+        'glow-primary': '0 0 0 0 transparent',
+        'glow-emerald': '0 0 0 0 transparent',
+        'card': 'var(--shadow-card)',
+        'card-hover': 'var(--shadow-pop)',
+        'pop': 'var(--shadow-pop)',
         'inner-border': 'inset 0 0 0 1px hsl(var(--border))',
       },
       animation: {
         'fade-in': 'fade-in 0.15s ease-out',
-        'slide-up': 'slide-up 0.2s ease-out',
+        'slide-up': 'slide-up 0.2s cubic-bezier(0.2, 0, 0, 1)',
       },
       keyframes: {
         'fade-in': {

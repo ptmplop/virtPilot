@@ -23,8 +23,8 @@ function StatCard({ icon: Icon, label, value, iconClass }: {
           <Icon size={15} />
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
         </div>
       </div>
     </div>
@@ -138,9 +138,9 @@ function KeyRow({ id, name, publicKey, createdAt }: { id: string; name: string; 
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-foreground">{name}</p>
-        <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/60 truncate">{keyPreview}</p>
+        <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/80 truncate">{keyPreview}</p>
       </div>
-      <p className="shrink-0 text-xs text-muted-foreground/50">{dateAdded}</p>
+      <p className="shrink-0 text-xs text-muted-foreground/80">{dateAdded}</p>
       <button
         type="button"
         onClick={handleDelete}
@@ -148,7 +148,7 @@ function KeyRow({ id, name, publicKey, createdAt }: { id: string; name: string; 
         className={cn(
           'shrink-0 rounded p-1.5 text-xs font-medium transition-colors',
           confirming
-            ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
+            ? 'bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20'
             : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
         )}
         title={confirming ? 'Click again to confirm deletion' : 'Remove key'}
@@ -191,8 +191,8 @@ export function SshKeysPage() {
     >
       {/* Stats */}
       <div className="mb-6 grid grid-cols-2 gap-3">
-        <StatCard icon={KeyRound} label="Saved Keys" value={isLoading ? '—' : String(keys?.length ?? 0)} iconClass="bg-violet-500/10 text-violet-500" />
-        <StatCard icon={Clock} label="Last Added" value={isLoading ? '—' : lastAdded} iconClass="bg-blue-500/10 text-blue-500" />
+        <StatCard icon={KeyRound} label="Saved Keys" value={isLoading ? '—' : String(keys?.length ?? 0)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
+        <StatCard icon={Clock} label="Last Added" value={isLoading ? '—' : lastAdded} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
       </div>
 
       <div className="space-y-4">

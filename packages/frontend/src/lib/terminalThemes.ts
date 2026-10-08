@@ -1,6 +1,7 @@
 import type { ITheme } from '@xterm/xterm';
 
 export type ThemeId =
+  | 'virtpilot-slate'
   | 'tokyo-night'
   | 'dracula'
   | 'catppuccin-mocha'
@@ -14,6 +15,33 @@ export interface TerminalTheme {
   name: string;
   palette: ITheme;
 }
+
+// VirtPilot Slate — the house theme, built from the logo kit: the console sits on the same
+// ink as the sidebar, the cursor is the needle's steel, and the ANSI colours are the app's
+// damped status hues, brightened just enough to read on ink.
+const virtpilotSlate: ITheme = {
+  background: '#0E121A',
+  foreground: '#D9DFE8',
+  cursor: '#86AEDA',
+  cursorAccent: '#0E121A',
+  selectionBackground: '#2A3B55',
+  black: '#1A202B',
+  red: '#E07D73',
+  green: '#83C6A5',
+  yellow: '#E2B36E',
+  blue: '#86AEDA',
+  magenta: '#A99FCF',
+  cyan: '#7FBDBC',
+  white: '#B8C1CE',
+  brightBlack: '#5B6779',
+  brightRed: '#EE9A91',
+  brightGreen: '#A3D9BE',
+  brightYellow: '#F0CB8E',
+  brightBlue: '#A9C6E6',
+  brightMagenta: '#C2BAE0',
+  brightCyan: '#A0D3D2',
+  brightWhite: '#EEF2F7',
+};
 
 // Tokyo Night, with our slightly darker custom background so the terminal blends
 // with the rest of the dashboard chrome.
@@ -186,6 +214,7 @@ const solarizedDark: ITheme = {
 };
 
 export const THEMES: Record<ThemeId, TerminalTheme> = {
+  'virtpilot-slate':   { id: 'virtpilot-slate',   name: 'VirtPilot Slate',   palette: virtpilotSlate },
   'tokyo-night':       { id: 'tokyo-night',       name: 'Tokyo Night',       palette: tokyoNight },
   'dracula':           { id: 'dracula',           name: 'Dracula',           palette: dracula },
   'catppuccin-mocha':  { id: 'catppuccin-mocha',  name: 'Catppuccin Mocha',  palette: catppuccinMocha },
@@ -196,6 +225,7 @@ export const THEMES: Record<ThemeId, TerminalTheme> = {
 };
 
 export const THEME_ORDER: ThemeId[] = [
+  'virtpilot-slate',
   'tokyo-night',
   'dracula',
   'catppuccin-mocha',
@@ -205,7 +235,7 @@ export const THEME_ORDER: ThemeId[] = [
   'solarized-dark',
 ];
 
-export const DEFAULT_THEME_ID: ThemeId = 'tokyo-night';
+export const DEFAULT_THEME_ID: ThemeId = 'virtpilot-slate';
 
 const STORAGE_KEY = 'virtpilotTerminalTheme';
 

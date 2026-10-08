@@ -19,9 +19,13 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    // changeOrigin stays off: the backend's same-origin check compares the Origin's
+    // hostname with Host. Rewriting Host to "localhost" rejected every write made from
+    // http://127.0.0.1:5174 with "Origin not allowed" (reads still worked, so it looked
+    // like a flaky save). Passing the browser's own Host through matches either name.
     proxy: {
-      '/api': { target: 'http://localhost:3001', changeOrigin: true },
-      '/ws': { target: 'ws://localhost:3001', changeOrigin: true, ws: true },
+      '/api': { target: 'http://localhost:3001', changeOrigin: false },
+      '/ws': { target: 'ws://localhost:3001', changeOrigin: false, ws: true },
     },
   },
   build: {

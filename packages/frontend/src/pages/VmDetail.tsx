@@ -37,6 +37,8 @@ import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
 import { formatMemory, formatDisk, formatBytes } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { CHART } from '@/lib/chartColors';
+import { useSettings } from '@/hooks/useSettings';
 import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
 import { useVmOpsStore } from '@/store/vmOpsStore';
@@ -56,10 +58,10 @@ const statusLabels: Record<VmStatus, string> = {
 };
 
 const statusTextColour: Record<VmStatus, string> = {
-  running: 'text-emerald-500 dark:text-emerald-400',
+  running: 'text-emerald-600 dark:text-emerald-400',
   stopped: 'text-slate-500 dark:text-slate-400',
-  paused: 'text-amber-500 dark:text-amber-400',
-  crashed: 'text-red-500 dark:text-red-400',
+  paused: 'text-amber-600 dark:text-amber-400',
+  crashed: 'text-red-600 dark:text-red-400',
   unknown: 'text-muted-foreground',
 };
 
@@ -72,6 +74,7 @@ export function VmDetailPage() {
   const vmMeta = metaData?.meta ?? null;
   const action = useVmAction(uuid!);
   const openConsoleInPopup = useUserPrefsStore((s) => s.openConsoleInPopup);
+  const { data: hostSettings } = useSettings();
 
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -142,8 +145,10 @@ export function VmDetailPage() {
       ) : (
         <>
           {/* Hero */}
-          <div className="mb-8 flex items-start justify-between gap-4">
-            <div className="flex items-center gap-4">
+          {/* Wraps rather than overflows: below ~1100px of content the action group drops
+              under the name instead of pushing the page sideways. */}
+          <div className="mb-8 flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+            <div className="flex min-w-0 items-center gap-4">
               <div
                 className={cn(
                   'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl',
@@ -154,7 +159,7 @@ export function VmDetailPage() {
                   className={cn(
                     'h-5 w-5',
                     vm.status === 'running'
-                      ? 'text-emerald-500 dark:text-emerald-400'
+                      ? 'text-emerald-600 dark:text-emerald-400'
                       : 'text-muted-foreground'
                   )}
                 />
@@ -181,7 +186,7 @@ export function VmDetailPage() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <h1 className="text-2xl font-bold tracking-tight text-foreground">{vm.name}</h1>
+                    <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-foreground">{vm.name}</h1>
                     {vm.status === 'stopped' && (
                       <Tooltip label="Rename VM">
                         <button
@@ -200,15 +205,18 @@ export function VmDetailPage() {
                   <span className={cn('text-sm font-medium', statusTextColour[vm.status])}>
                     {statusLabels[vm.status]}
                   </span>
-                  <span className="text-muted-foreground/40">·</span>
-                  <span className="text-sm text-muted-foreground">
-                    {vm.cpus} {vm.cpus === 1 ? 'vCPU' : 'vCPUs'} · {formatMemory(vm.memoryMb)} · KVM
+                  <span className="text-muted-foreground/80">·</span>
+                  <span className="whitespace-nowrap text-sm text-muted-foreground">
+                    {vm.cpus} {vm.cpus === 1 ? 'vCPU' : 'vCPUs'} · {formatMemory(vm.memoryMb)}
+                    {/* The host decides acceleration (xmlBuilder picks kvm vs qemu by /dev/kvm);
+                        this used to say KVM unconditionally, even on TCG-only hosts. */}
+                    {hostSettings && (hostSettings.kvmAvailable ? ' · KVM' : ' · TCG')}
                   </span>
                 </div>
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {vm.status === 'stopped' && (
                 <Button size="sm" onClick={() => handleAction('start')} disabled={action.isPending}>
                   <Power size={13} /> Power On
@@ -239,7 +247,7 @@ export function VmDetailPage() {
                   <Tooltip label="Shutdown (ACPI)">
                     <Button
                       size="sm"
-                      variant="danger"
+                      variant="secondary"
                       onClick={() => handleAction('stop')}
                       disabled={action.isPending}
                     >
@@ -249,7 +257,7 @@ export function VmDetailPage() {
                   <Tooltip label="Force off (kill immediately)">
                     <Button
                       size="sm"
-                      variant="danger"
+                      variant="dangerOutline"
                       onClick={() => handleAction('stop', true)}
                       disabled={action.isPending}
                     >
@@ -564,10 +572,10 @@ function OverviewTab({
               <div className="flex items-center justify-between gap-4 px-5 py-3.5">
                 <span className="text-sm text-muted-foreground">Guest Agent</span>
                 <span className={cn(
-                  'rounded-full px-2 py-0.5 text-xs font-medium',
+                  'rounded px-2 py-0.5 text-xs font-medium',
                   vm.guestAgent
                     ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-muted text-muted-foreground/60',
+                    : 'bg-muted text-muted-foreground/80',
                 )}>
                   {vm.guestAgent ? 'Connected' : 'Not available'}
                 </span>
@@ -596,7 +604,7 @@ function CopyButton({ text }: { text: string }) {
       aria-label="Copy to clipboard"
     >
       {copied
-        ? <Check className="h-3.5 w-3.5 text-emerald-500" />
+        ? <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
         : <Copy className="h-3.5 w-3.5" />}
     </button>
   );
@@ -621,11 +629,11 @@ function ResourceCard({
         <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', iconBg)}>
           <Icon className={cn('h-3.5 w-3.5', iconColor)} />
         </div>
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        <span className="text-[12px] font-medium text-muted-foreground">
           {label}
         </span>
       </div>
-      <p className="font-mono text-2xl font-bold tracking-tight text-foreground">{value}</p>
+      <p className="text-[26px] font-semibold tabular-nums leading-tight tracking-[-0.015em] text-foreground">{value}</p>
     </div>
   );
 }
@@ -633,7 +641,7 @@ function ResourceCard({
 function InfoField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="px-5 py-4">
-      <dt className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <dt className="mb-1.5 text-[12px] font-medium text-muted-foreground">
         {label}
       </dt>
       <dd>{children}</dd>
@@ -654,7 +662,7 @@ function ConfigRow({ label, value, mono, copy }: { label: string; value: string;
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</h2>;
+  return <h2 className="mb-3 text-[12px] font-medium text-muted-foreground">{children}</h2>;
 }
 
 // ─── Disks ────────────────────────────────────────────────────────────────────
@@ -802,7 +810,7 @@ function DisksTab({
                     <th
                       key={h}
                       className={cn(
-                        'px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
+                        'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
                         h === '' ? 'text-right' : 'text-left'
                       )}
                     >
@@ -819,7 +827,7 @@ function DisksTab({
                         <span>{d.target}</span>
                         {d.fileMissing && (
                           <Tooltip label={`File missing on disk: ${d.source}. The VM will fail to start until the file is restored or the path is corrected.`}>
-                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                            <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
                               <AlertTriangle size={9} /> missing
                             </span>
                           </Tooltip>
@@ -838,12 +846,12 @@ function DisksTab({
                       {d.sizeGb != null && d.sizeGb > 0 ? formatDisk(d.sizeGb) : '—'}
                     </td>
                     <td
-                      className={cn('max-w-xs truncate px-5 py-3.5 font-mono text-xs', d.fileMissing ? 'text-amber-400' : 'text-muted-foreground')}
+                      className={cn('max-w-xs truncate px-5 py-3.5 font-mono text-xs', d.fileMissing ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}
                       title={d.source}
                     >
                       {d.source || '—'}
                       {d.storageDirName && (
-                        <span className="ml-2 text-[10px] text-muted-foreground/70">[{d.storageDirName}]</span>
+                        <span className="ml-2 text-[10px] text-muted-foreground/80">[{d.storageDirName}]</span>
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-right">
@@ -1007,7 +1015,7 @@ function DisksTab({
                         </span>
                       )}
                     </span>
-                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    <span className="text-[12px] text-muted-foreground">
                       {disk.type}
                     </span>
                     <div className="flex gap-0.5">
@@ -1048,7 +1056,7 @@ function DisksTab({
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Start the VM once from the attached ISO without changing the persistent boot order.
                 {vmStatus === 'running' && (
-                  <span className="ml-1 text-amber-500 dark:text-amber-400">
+                  <span className="ml-1 text-amber-600 dark:text-amber-400">
                     Power off the VM first to use this option.
                   </span>
                 )}
@@ -1305,7 +1313,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
                   <th
                     key={h}
                     className={cn(
-                      'px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
+                      'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
                       h === '' ? 'text-right' : 'text-left'
                     )}
                   >
@@ -1326,7 +1334,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
                       <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-xs text-muted-foreground/50">Taking snapshot…</td>
+                  <td className="px-5 py-3 text-xs text-muted-foreground/80">Taking snapshot…</td>
                   <td className="px-5 py-3" />
                   <td className="px-5 py-3" />
                   <td className="px-5 py-3" />
@@ -1431,7 +1439,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
           Letters, numbers, hyphens, and underscores only.
         </p>
         {vmStatus === 'running' && (
-          <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-500 dark:text-amber-400">
+          <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400">
             The VM is running — the snapshot will include both disk and memory state.
           </p>
         )}
@@ -1502,9 +1510,9 @@ function networkTypeLabel(type: string, ipMode?: string): string {
 }
 
 function networkTypeClass(type: string, ipMode?: string): string {
-  if (type === 'nat') return 'text-blue-500 dark:text-blue-400';
-  if (ipMode === 'dhcp') return 'text-violet-500 dark:text-violet-400';
-  return 'text-emerald-500 dark:text-emerald-400';
+  if (type === 'nat') return 'text-blue-600 dark:text-blue-400';
+  if (ipMode === 'dhcp') return 'text-violet-600 dark:text-violet-400';
+  return 'text-emerald-600 dark:text-emerald-400';
 }
 
 interface AddPortForwardForm {
@@ -1566,7 +1574,7 @@ function PortForwardsSection({
   return (
     <div className="mt-3 rounded-xl border border-border bg-card shadow-card">
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+        <span className="text-[12px] font-medium text-muted-foreground">
           Port Forwards
         </span>
         <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
@@ -1586,7 +1594,7 @@ function PortForwardsSection({
                 <th
                   key={h}
                   className={cn(
-                    'px-4 py-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
+                    'px-4 py-2 text-[12px] font-medium text-muted-foreground',
                     h === '' ? 'text-right' : 'text-left'
                   )}
                 >
@@ -1599,7 +1607,7 @@ function PortForwardsSection({
             {forwards.map((fwd: PortForward) => (
               <tr key={fwd.id} className="transition-colors hover:bg-muted/30">
                 <td className="px-4 py-2.5">
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-foreground">
+                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px] font-medium text-foreground">
                     {fwd.protocol}
                   </span>
                 </td>
@@ -1679,7 +1687,7 @@ function PortForwardsSection({
             value={form.description}
             onChange={set('description')}
           />
-          <p className="rounded-lg bg-blue-500/10 px-3 py-2.5 text-xs text-blue-500 dark:text-blue-400">
+          <p className="rounded-lg bg-blue-500/10 px-3 py-2.5 text-xs text-blue-600 dark:text-blue-400">
             A static DHCP reservation will be created for this NIC so its IP stays fixed.
             The VM must be rebooted once for the reservation to take effect if it is already running.
           </p>
@@ -1729,7 +1737,7 @@ function IpCell({
 
   if (!displayIp) {
     return (
-      <span className="text-xs text-muted-foreground/40">
+      <span className="text-xs text-muted-foreground/80">
         {networkType === 'nat' || networkType === 'bridge' || networkType === 'existing-bridge' ? 'DHCP · unresolved' : '—'}
       </span>
     );
@@ -1739,7 +1747,7 @@ function IpCell({
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="font-mono text-xs text-foreground">{displayIp}</span>
       {isReserved && (
-        <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-500">
+        <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[12px] font-medium text-emerald-600 dark:text-emerald-400">
           reserved
         </span>
       )}
@@ -1919,7 +1927,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                     <th
                       key={h}
                       className={cn(
-                        'px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
+                        'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
                         h === '' ? 'text-right' : 'text-left'
                       )}
                     >
@@ -1938,7 +1946,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                         <div className="flex items-center gap-2">
                           {nic.mac}
                           {isPrimary && (
-                            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[12px] font-medium text-primary">
                               primary
                             </span>
                           )}
@@ -1948,7 +1956,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                         {network ? (
                           <span className={cn('font-medium', networkTypeClass(network.type, network.ipMode))}>
                             {network.name}
-                            <span className="ml-1.5 font-normal text-muted-foreground/50">
+                            <span className="ml-1.5 font-normal text-muted-foreground/80">
                               {networkTypeLabel(network.type, network.ipMode)}
                             </span>
                           </span>
@@ -1974,7 +1982,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                             ↑ {nic.outboundKbps ? `${mbpsFromKbps(nic.outboundKbps)} MB/s` : 'unlimited'}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground/60">unlimited</span>
+                          <span className="text-muted-foreground/80">unlimited</span>
                         )}
                       </td>
                       <td className="px-5 py-3.5 text-right">
@@ -2142,7 +2150,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                 onChange={(e) => setAddOutbound(e.target.value)}
               />
             </div>
-            <p className="rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-500 dark:text-amber-400">
+            <p className="rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400">
               Cloud-init will not configure this NIC automatically. Configuration steps will be shown after adding.
             </p>
           </div>
@@ -2275,7 +2283,7 @@ function FirewallRulesTable({
               <th
                 key={h}
                 className={cn(
-                  'px-4 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
+                  'px-4 py-2.5 text-[12px] font-medium text-muted-foreground',
                   h === '' ? 'text-right' : 'text-left'
                 )}
               >
@@ -2287,18 +2295,18 @@ function FirewallRulesTable({
         <tbody className="divide-y divide-border">
           {rules.map((rule, idx) => (
             <tr key={rule.id} className="transition-colors hover:bg-muted/30">
-              <td className="px-4 py-3 text-xs text-muted-foreground/50">{idx + 1}</td>
-              <td className="px-4 py-3 font-mono text-xs text-foreground uppercase">{rule.protocol}</td>
+              <td className="px-4 py-3 text-xs text-muted-foreground/80">{idx + 1}</td>
+              <td className="px-4 py-3 font-mono text-[12px] text-foreground">{rule.protocol}</td>
               <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                 {rule.protocol === 'icmp' ? (rule.icmpType ?? 'any') : (rule.portRange ?? 'any')}
               </td>
               <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{rule.source ?? rule.destination ?? '—'}</td>
               <td className="px-4 py-3">
                 <span className={cn(
-                  'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase',
+                  'rounded px-1.5 py-0.5 text-[12px] font-medium',
                   rule.action === 'allow'
-                    ? 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-400'
-                    : 'bg-red-500/10 text-red-500 dark:text-red-400'
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-red-500/10 text-red-600 dark:text-red-400'
                 )}>
                   {rule.action}
                 </span>
@@ -2564,7 +2572,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
 
       {/* Default Policies */}
       <div className="rounded-xl border border-border bg-card p-4">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+        <p className="mb-3 text-[12px] font-medium text-muted-foreground">
           Default Policies
         </p>
         <p className="mb-4 text-xs text-muted-foreground">
@@ -2632,7 +2640,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-foreground">Inbound Rules</span>
-            <span className="rounded bg-blue-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-500 dark:text-blue-400">
+            <span className="rounded bg-blue-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-600 dark:text-blue-400">
               {inboundRules.length}
             </span>
           </div>
@@ -2660,7 +2668,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-foreground">Outbound Rules</span>
-            <span className="rounded bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-violet-500 dark:text-violet-400">
+            <span className="rounded bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-violet-600 dark:text-violet-400">
               {outboundRules.length}
             </span>
           </div>
@@ -2787,7 +2795,7 @@ function DeviceRow({
       <td className="px-5 py-3.5">
         <span
           className={cn(
-            'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase',
+            'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium',
             device.type === 'pci'
               ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
               : 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
@@ -2878,7 +2886,7 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
         <th
           key={h}
           className={cn(
-            'px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground',
+            'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
             h === '' ? 'text-right' : 'text-left',
           )}
         >
@@ -3001,7 +3009,7 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
                       {['Type', 'Device', 'Details', 'Assigned To'].map((h) => (
                         <th
                           key={h}
-                          className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                          className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground"
                         >
                           {h}
                         </th>
@@ -3156,7 +3164,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
 
       {/* Range selector */}
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">History</span>
+        <span className="text-[12px] font-medium text-muted-foreground">History</span>
         <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-card">
           {(['live', '1h', '24h', '7d', '30d'] as const).map((r) => (
             <button
@@ -3164,7 +3172,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
               type="button"
               onClick={() => setRange(r)}
               className={cn(
-                'px-3 py-1 text-[11px] font-semibold uppercase tracking-widest rounded-md transition',
+                'px-3 py-1 text-[12px] font-medium rounded-md transition',
                 range === r
                   ? 'bg-muted text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
@@ -3183,7 +3191,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
             title="CPU Usage"
             data={cpuData}
             timestamps={timestamps}
-            color="hsl(214 100% 52%)"
+            color={CHART.cpu}
             max={100}
             formatY={(v) => `${Math.round(v)}%`}
             formatX={formatX}
@@ -3192,7 +3200,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
             title="Memory Usage"
             data={memData}
             timestamps={timestamps}
-            color="hsl(158 60% 34%)"
+            color={CHART.memory}
             max={100}
             formatY={(v) => `${Math.round(v)}%`}
             formatX={formatX}
@@ -3202,8 +3210,8 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
             data={diskRdData}
             data2={diskWrData}
             timestamps={timestamps}
-            color="hsl(214 100% 52%)"
-            color2="hsl(0 72% 51%)"
+            color={CHART.inbound}
+            color2={CHART.outbound}
             legend={['Read', 'Write']}
             formatY={fmtBps}
             formatX={formatX}
@@ -3213,8 +3221,8 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
             data={netRxData}
             data2={netTxData}
             timestamps={timestamps}
-            color="hsl(214 100% 52%)"
-            color2="hsl(280 65% 55%)"
+            color={CHART.inbound}
+            color2={CHART.outbound}
             legend={['RX', 'TX']}
             formatY={fmtBps}
             formatX={formatX}
@@ -3252,16 +3260,16 @@ function MetricCard({
           'flex h-7 w-7 items-center justify-center rounded-lg',
           accent === 'warn' ? 'bg-amber-500/15' : 'bg-muted',
         )}>
-          <Activity className={cn('h-3.5 w-3.5', accent === 'warn' ? 'text-amber-500' : 'text-muted-foreground')} />
+          <Activity className={cn('h-3.5 w-3.5', accent === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')} />
         </div>
         <span className={cn(
-          'text-[10px] font-semibold uppercase tracking-widest',
-          accent === 'warn' ? 'text-amber-500 dark:text-amber-400' : 'text-muted-foreground',
+          'text-[12px] font-medium',
+          accent === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
         )}>
           {label}
         </span>
       </div>
-      <p className="nums text-xl font-bold text-foreground">{value}</p>
+      <p className="text-[22px] font-semibold tabular-nums tracking-[-0.01em] text-foreground">{value}</p>
       {sub && <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>}
     </div>
   );

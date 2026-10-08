@@ -45,8 +45,8 @@ function StatCard({ icon: Icon, label, value, iconClass }: {
           <Icon size={15} />
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
         </div>
       </div>
     </div>
@@ -150,14 +150,7 @@ function TemplateSetCard({
     : undefined;
 
   return (
-    <div className="group relative mb-6 overflow-hidden rounded-2xl border border-violet-500/25 shadow-airy transition-all duration-300 ease-out hover:shadow-[0_0_48px_-8px_rgb(139_92_246_/_0.30)]">
-      {/* Layered gradient background — kept subtle so text stays readable */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-violet-500/[0.06] via-blue-500/[0.03] to-transparent" />
-      <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl" />
-      <div className="pointer-events-none absolute -left-16 -bottom-20 h-56 w-56 rounded-full bg-blue-500/[0.07] blur-3xl" />
-
-      {/* Top stripe */}
-      <div className="relative h-[3px] w-full bg-gradient-to-r from-violet-500 via-blue-500/50 to-transparent" />
+    <div className="group relative mb-6 overflow-hidden rounded-xl border border-border shadow-airy transition-all duration-300 ease-out">
 
       {/* Dismiss button */}
       {!downloading && (
@@ -173,17 +166,15 @@ function TemplateSetCard({
 
       <div className="relative px-6 py-5">
         <div className="flex items-start gap-4">
-          {/* Glowing icon badge */}
           <div className="relative shrink-0">
-            <div className="absolute inset-0 rounded-2xl bg-violet-500/30 blur-xl" />
-            <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500/30 via-violet-500/15 to-blue-500/20 ring-1 ring-violet-400/30 shadow-[0_4px_20px_-2px_rgb(139_92_246_/_0.4)]">
+            <div className="bg-violet-500/10 relative flex h-12 w-12 items-center justify-center rounded-xl ring-1 ring-violet-400/30">
               <PackageOpen className="h-5 w-5 text-violet-600 dark:text-violet-300" />
             </div>
           </div>
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-700 dark:text-violet-300">
+              <span className="text-[12px] font-medium text-violet-700 dark:text-violet-300">
                 {templatesEmpty ? 'New install' : 'Starter set'}
               </span>
             </div>
@@ -463,8 +454,8 @@ export function TemplatesPage() {
     >
       {/* Stats */}
       <div className="mb-6 grid grid-cols-2 gap-3">
-        <StatCard icon={HardDrive} label="Templates" value={isLoading ? '—' : String(templates?.length ?? 0)} iconClass="bg-violet-500/10 text-violet-500" />
-        <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : `${totalTemplateGb.toFixed(1)} GB`} iconClass="bg-blue-500/10 text-blue-500" />
+        <StatCard icon={HardDrive} label="Templates" value={isLoading ? '—' : String(templates?.length ?? 0)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
+        <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : `${totalTemplateGb.toFixed(1)} GB`} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
       </div>
 
       {/* Starter template-set card (new installs only — auto-hides once any template exists or is dismissed) */}
@@ -552,7 +543,7 @@ export function TemplatesPage() {
                 {['Name', 'File', 'Location', 'Size', 'Added', ''].map((h) => (
                   <th
                     key={h}
-                    className={`px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground ${h === '' ? 'text-right' : 'text-left'}`}
+                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' ? 'text-right' : 'text-left'}`}
                   >
                     {h}
                   </th>

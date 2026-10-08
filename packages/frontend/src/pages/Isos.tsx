@@ -58,8 +58,8 @@ function StatCard({ icon: Icon, label, value, iconClass }: {
           <Icon size={15} />
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
         </div>
       </div>
     </div>
@@ -296,8 +296,8 @@ export function IsosPage() {
     >
       {/* Stats */}
       <div className="mb-6 grid grid-cols-2 gap-3">
-        <StatCard icon={Disc} label="ISOs" value={isLoading ? '—' : String(isos?.length ?? 0)} iconClass="bg-blue-500/10 text-blue-500" />
-        <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : `${totalIsoGb.toFixed(1)} GB`} iconClass="bg-violet-500/10 text-violet-500" />
+        <StatCard icon={Disc} label="ISOs" value={isLoading ? '—' : String(isos?.length ?? 0)} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
+        <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : `${totalIsoGb.toFixed(1)} GB`} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
       </div>
 
       {/* Upload progress */}
@@ -381,7 +381,7 @@ export function IsosPage() {
                 {['Name', 'File', 'Location', 'Size', ''].map((h) => (
                   <th
                     key={h}
-                    className={`px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground ${h === '' ? 'text-right' : 'text-left'}`}
+                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' ? 'text-right' : 'text-left'}`}
                   >
                     {h}
                   </th>

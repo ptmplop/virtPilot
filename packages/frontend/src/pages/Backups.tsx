@@ -75,7 +75,7 @@ function BackupAlertsBanner() {
       tone === 'destructive' ? 'border-destructive/30 bg-destructive/5' : 'border-amber-500/30 bg-amber-500/5',
     )}>
       <div className="flex items-center gap-2.5">
-        <ShieldAlert size={15} className={tone === 'destructive' ? 'text-destructive' : 'text-amber-400'} />
+        <ShieldAlert size={15} className={tone === 'destructive' ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'} />
         <p className="text-sm font-semibold text-foreground">
           {alerts.length} backup {alerts.length === 1 ? 'problem' : 'problems'} need attention
         </p>
@@ -194,10 +194,10 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard icon={Server} label="Virtual Machines" value={String(vms?.length ?? '—')} iconClass="bg-blue-500/10 text-blue-500" />
-          <StatCard icon={HardDrive} label="VMs Backed Up" value={isLoading ? '—' : String(withBackups)} iconClass="bg-emerald-500/10 text-emerald-500" />
-          <StatCard icon={Archive} label="Total Backups" value={isLoading ? '—' : String(totalBackups)} iconClass="bg-violet-500/10 text-violet-500" />
-          <StatCard icon={Database} label="Storage Used" value={isLoading ? '—' : formatBytes(totalSize)} iconClass="bg-amber-500/10 text-amber-500" />
+          <StatCard icon={Server} label="Virtual Machines" value={String(vms?.length ?? '—')} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
+          <StatCard icon={HardDrive} label="VMs Backed Up" value={isLoading ? '—' : String(withBackups)} iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
+          <StatCard icon={Archive} label="Total Backups" value={isLoading ? '—' : String(totalBackups)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
+          <StatCard icon={Database} label="Storage Used" value={isLoading ? '—' : formatBytes(totalSize)} iconClass="bg-amber-500/10 text-amber-600 dark:text-amber-400" />
         </div>
 
         <BackupAlertsBanner />
@@ -208,7 +208,7 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
         {/* Table */}
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div
-            className="grid items-center gap-4 border-b border-border bg-muted/40 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+            className="grid items-center gap-4 border-b border-border bg-muted/40 px-5 py-2.5 text-[12px] font-medium text-muted-foreground"
             style={{ gridTemplateColumns: LIST_COLS }}
           >
             <span>Virtual Machine</span>
@@ -266,8 +266,8 @@ function StatCard({
           <Icon size={15} />
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums leading-tight text-foreground">{value}</p>
+          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
         </div>
       </div>
     </div>
@@ -288,7 +288,7 @@ function BackupInfoPanel() {
       >
         <Info size={13} className="shrink-0 text-muted-foreground" />
         <span className="flex-1 text-xs font-medium text-muted-foreground">Understanding backup states</span>
-        <span className={cn('text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 transition-opacity', open ? 'opacity-0' : 'opacity-100')}>
+        <span className={cn('text-[12px] font-medium text-muted-foreground/80 transition-opacity', open ? 'opacity-0' : 'opacity-100')}>
           Click to expand
         </span>
       </button>
@@ -297,7 +297,7 @@ function BackupInfoPanel() {
         <div className="border-t border-border/60 bg-muted/20 px-5 pb-5 pt-4">
           <div className="grid gap-4 sm:grid-cols-3">
             <InfoStateCard
-              icon={<Check size={13} className="text-emerald-400" />}
+              icon={<Check size={13} className="text-emerald-700 dark:text-emerald-400" />}
               iconBg="bg-emerald-500/10"
               title="App-consistent"
               body="Filesystems were frozen via the QEMU guest agent before copying. All writes were flushed — safe to restore any application or database without extra checks."
@@ -309,11 +309,11 @@ function BackupInfoPanel() {
               body="The VM was powered off when the backup ran. The disk was idle with no writes in flight — always safe to restore, no guest agent needed."
             />
             <InfoStateCard
-              icon={<ShieldAlert size={13} className="text-amber-400" />}
+              icon={<ShieldAlert size={13} className="text-amber-700 dark:text-amber-400" />}
               iconBg="bg-amber-500/10"
               title="No guest agent"
               badge={
-                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
                   <ShieldAlert size={8} />No guest agent
                 </span>
               }
@@ -422,7 +422,7 @@ function SummaryRow({
                 {summary.vmName}
               </span>
               {orphaned && (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+                <span className="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
                   <ShieldAlert size={8} />Orphaned
                 </span>
               )}
@@ -456,13 +456,13 @@ function SummaryRow({
         {/* Schedule */}
         <span>
           {summary.schedule?.enabled ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+            <span className="inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
               <CalendarClock size={9} />
               {frequencyLabel(summary.schedule.frequency)}
               {summary.schedule.mode === 'incremental' && <span className="opacity-70">· Inc</span>}
             </span>
           ) : (
-            <span className="text-xs text-muted-foreground/50">None</span>
+            <span className="text-xs text-muted-foreground/80">None</span>
           )}
         </span>
 
@@ -612,7 +612,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
               <HardDrive className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">{vmName}</h1>
+              <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-foreground">{vmName}</h1>
               <p className="mt-0.5 text-sm text-muted-foreground">
                 {isLoading ? 'Loading…' : `${backups.length} backup${backups.length !== 1 ? 's' : ''}${totalSize > 0 ? ` · ${formatBytes(totalSize)} total` : ''}`}
               </p>
@@ -651,13 +651,13 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
         {/* Stats row */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard icon={Archive} label="Backups" value={isLoading ? '—' : String(backups.length)} iconClass="bg-primary/10 text-primary" />
-          <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : (totalSize > 0 ? formatBytes(totalSize) : '—')} iconClass="bg-violet-500/10 text-violet-500" />
-          <StatCard icon={Clock} label="Last Backup" value={isLoading ? '—' : (lastBackupAt ? formatRelative(lastBackupAt) : 'Never')} iconClass="bg-blue-500/10 text-blue-500" />
+          <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : (totalSize > 0 ? formatBytes(totalSize) : '—')} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
+          <StatCard icon={Clock} label="Last Backup" value={isLoading ? '—' : (lastBackupAt ? formatRelative(lastBackupAt) : 'Never')} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
           <StatCard
             icon={CalendarClock}
             label="Next Scheduled"
             value={schedule?.enabled && schedule.nextRunAt ? formatRelative(schedule.nextRunAt).replace('ago', '').trim() || 'Soon' : '—'}
-            iconClass={schedule?.enabled ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground'}
+            iconClass={schedule?.enabled ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}
           />
         </div>
 
@@ -665,7 +665,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
         {incremental.chainLength > 0 && (
           <div className="flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10">
-              <Layers size={14} className="text-violet-400" />
+              <Layers size={14} className="text-violet-700 dark:text-violet-400" />
             </div>
             <p className="flex-1 text-xs text-muted-foreground">
               <span className="font-semibold text-foreground">
@@ -686,7 +686,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
         {unusableCount > 0 && (
           <div className="flex items-center gap-4 rounded-xl border border-amber-500/25 bg-amber-500/5 px-5 py-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
-              <ShieldAlert size={14} className="text-amber-400" />
+              <ShieldAlert size={14} className="text-amber-700 dark:text-amber-400" />
             </div>
             <p className="flex-1 text-xs text-muted-foreground">
               <span className="font-semibold text-foreground">
@@ -701,7 +701,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
         {/* Backup table */}
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div
-            className="grid items-center gap-4 border-b border-border bg-muted/40 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+            className="grid items-center gap-4 border-b border-border bg-muted/40 px-5 py-2.5 text-[12px] font-medium text-muted-foreground"
             style={{ gridTemplateColumns: BACKUP_COLS }}
           >
             <span>Date</span>
@@ -828,7 +828,7 @@ function ScheduleBanner({
           <p className="text-sm font-semibold text-foreground">
             {frequencyLabel(schedule.frequency)} backups
             {!schedule.enabled && (
-              <span className="ml-2 inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-px text-[10px] font-semibold text-muted-foreground">
+              <span className="ml-2 inline-flex items-center rounded border border-border bg-muted/50 px-2 py-px text-[10px] font-semibold text-muted-foreground">
                 Paused
               </span>
             )}
@@ -901,7 +901,7 @@ function BackupInProgressRow({ triggerType }: { triggerType: 'manual' | 'schedul
         </div>
       </div>
       {/* Size */}
-      <span className="font-mono text-sm text-muted-foreground/40">—</span>
+      <span className="font-mono text-sm text-muted-foreground/80">—</span>
       {/* Disks */}
       <span />
       {/* State */}
@@ -909,7 +909,7 @@ function BackupInProgressRow({ triggerType }: { triggerType: 'manual' | 'schedul
       {/* Trigger */}
       <span>
         {triggerType === 'scheduled' ? (
-          <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+          <span className="inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
             <CalendarClock size={9} />
             Scheduled
           </span>
@@ -929,7 +929,7 @@ const consistencyConfig: Record<BackupConsistency, {
   badge?: React.ReactNode;
 }> = {
   'app-consistent': {
-    icon: <Check size={12} className="text-emerald-400" />,
+    icon: <Check size={12} className="text-emerald-700 dark:text-emerald-400" />,
     label: 'App-consistent',
   },
   'offline': {
@@ -937,10 +937,10 @@ const consistencyConfig: Record<BackupConsistency, {
     label: 'VM offline',
   },
   'crash-consistent': {
-    icon: <ShieldAlert size={12} className="text-amber-400" />,
+    icon: <ShieldAlert size={12} className="text-amber-700 dark:text-amber-400" />,
     label: 'No guest agent',
     badge: (
-      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-400">
+      <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
         <ShieldAlert size={8} />No guest agent
       </span>
     ),
@@ -981,11 +981,11 @@ function BackupRow({
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-foreground">{formatDate(backup.createdAt)}</span>
           {backup.kind === 'incremental' ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-1.5 py-px text-[10px] font-semibold text-violet-400">
+            <span className="inline-flex items-center gap-1 rounded border border-border bg-violet-500/10 px-1.5 py-px text-[10px] font-semibold text-violet-700 dark:text-violet-400">
               <Layers size={8} />Incremental
             </span>
           ) : (
-            <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-1.5 py-px text-[10px] font-semibold text-muted-foreground">
+            <span className="inline-flex items-center rounded border border-border bg-muted/50 px-1.5 py-px text-[10px] font-semibold text-muted-foreground">
               Full
             </span>
           )}
@@ -994,22 +994,22 @@ function BackupRow({
               nothing in the UI used to say. */}
           {backup.hasCheckpoint && (
             <Tooltip label="This backup recorded a checkpoint, so an incremental can be layered on top of it">
-              <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/25 bg-violet-500/5 px-1.5 py-px text-[10px] font-semibold text-violet-400/90">
+              <span className="inline-flex items-center gap-1 rounded border border-border bg-violet-500/5 px-1.5 py-px text-[10px] font-semibold text-violet-400/90">
                 <Link2 size={8} />Chainable
               </span>
             </Tooltip>
           )}
           {backup.chainBroken && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-1.5 py-px text-[10px] font-semibold text-destructive">
+            <span className="inline-flex items-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-px text-[10px] font-semibold text-destructive">
               <Unlink size={8} />Chain broken
             </span>
           )}
           {backup.lastVerify && (
             <Tooltip label={`${backup.lastVerify.summary} · checked ${formatRelative(backup.lastVerify.checkedAt)}`}>
               <span className={cn(
-                'inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-semibold',
+                'inline-flex items-center gap-1 rounded border px-1.5 py-px text-[10px] font-semibold',
                 backup.lastVerify.ok
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                  ? 'border-border bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
                   : 'border-destructive/30 bg-destructive/10 text-destructive',
               )}>
                 <ShieldCheck size={8} />
@@ -1024,7 +1024,7 @@ function BackupRow({
           </p>
         )}
         {!backup.chainBroken && backup.notes?.length ? (
-          <p className="mt-1 text-[11px] leading-snug text-amber-400">{backup.notes.join(' ')}</p>
+          <p className="mt-1 text-[11px] leading-snug text-amber-700 dark:text-amber-400">{backup.notes.join(' ')}</p>
         ) : null}
       </div>
 
@@ -1032,7 +1032,7 @@ function BackupRow({
       <span className="font-mono text-sm text-muted-foreground">
         {formatBytes(backup.sizeBytes)}
         {backup.kind === 'incremental' && backup.chainSizeBytes > backup.sizeBytes && (
-          <span className="block text-[10px] text-muted-foreground/60">
+          <span className="block text-[10px] text-muted-foreground/80">
             {formatBytes(backup.chainSizeBytes)} chain
           </span>
         )}
@@ -1056,7 +1056,7 @@ function BackupRow({
         {cons.badge ?? (
           <span className={cn(
             'text-xs font-medium',
-            backup.consistency === 'app-consistent' && 'text-emerald-400',
+            backup.consistency === 'app-consistent' && 'text-emerald-700 dark:text-emerald-400',
             backup.consistency === 'offline' && 'text-muted-foreground',
           )}>
             {cons.label}
@@ -1067,7 +1067,7 @@ function BackupRow({
       {/* Trigger */}
       <span>
         {backup.triggerType === 'scheduled' && backup.scheduleFrequency ? (
-          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+          <span className="inline-flex items-center gap-1 rounded border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
             <CalendarClock size={9} />
             {frequencyLabel(backup.scheduleFrequency)}
           </span>
@@ -1222,7 +1222,7 @@ function ScheduleDialog({
 
         <div>
           <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-            Retention (days) <span className="text-muted-foreground/60">— leave blank to use global default</span>
+            Retention (days) <span className="text-muted-foreground/80">— leave blank to use global default</span>
           </label>
           <Input
             type="number"
@@ -1339,7 +1339,7 @@ function DeleteBackupDialog({
             it, so the destructive option has to be asked for explicitly. */}
         {backup.hasDependents && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-            <p className="text-xs text-amber-400">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
               Later incremental backups are built on top of this one. Deleting it on its own would leave them
               unrestorable, so it is only possible together with them.
             </p>
