@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { HardDrive, Disc, Database, Download, Trash2, Plus, Pencil, FolderOpen, AlertTriangle, FolderInput } from 'lucide-react';
+import { HardDrive, Download, Trash2, Plus, Pencil, FolderOpen, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
@@ -12,38 +12,10 @@ import { useIsos } from '@/hooks/useIsos';
 import { useVmDisks, useDeleteOrphanedVmDisk, useDownloadVmDisk, useMoveVmDisk } from '@/hooks/useVmDisks';
 import { useStorageDirs, useDeleteStorageDir } from '@/hooks/useStorageDirs';
 import { MoveDialog } from '@/components/MoveDialog';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { Panel, Stat, StatStrip } from '@/components/ui/Panel';
+import { WarnGlyph } from '@/components/ui/Badge';
 import type { StorageDir, StorageDirPurpose, StorageDirWithUsage } from '@/types';
-
-function ResourceCard({
-  label,
-  count,
-  detail,
-  icon: Icon,
-  iconClass,
-}: {
-  label: string;
-  // Accepts a string so a card whose source query failed can show "—" rather
-  // than a 0 that reads as a real, trustworthy count.
-  count: number | string;
-  detail?: string;
-  icon: typeof HardDrive;
-  iconClass: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
-          <Icon size={15} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{count}</p>
-          {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function PurposeChips({ purposes }: { purposes: StorageDirPurpose[] }) {
   const labels: Record<StorageDirPurpose, string> = {
@@ -52,13 +24,9 @@ function PurposeChips({ purposes }: { purposes: StorageDirPurpose[] }) {
     vmDisks: 'VM disks',
   };
   return (
-    <div className="flex flex-wrap gap-1">
-      {purposes.map((p) => (
-        <span key={p} className="inline-flex items-center rounded border border-border bg-muted/40 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
-          {labels[p]}
-        </span>
-      ))}
-    </div>
+    <span className="text-[12.5px] text-foreground">
+      {purposes.map((p) => labels[p]).join(' · ')}
+    </span>
   );
 }
 
@@ -69,15 +37,11 @@ function DefaultChips({ dir }: { dir: StorageDir }) {
     [dir.isDefaultVmDisks, 'VM disks'],
   ];
   const active = flags.filter(([on]) => on).map(([, label]) => label);
-  if (active.length === 0) return <span className="text-xs text-muted-foreground/80">—</span>;
+  if (active.length === 0) return <span className="text-[12.5px] text-muted-foreground">—</span>;
   return (
-    <div className="flex flex-wrap gap-1">
-      {active.map((label) => (
-        <span key={label} className="inline-flex items-center rounded border border-border bg-emerald-500/10 px-1.5 py-px text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
-          {label}
-        </span>
-      ))}
-    </div>
+    <span className="text-[12.5px] font-medium text-emerald-700 dark:text-emerald-300">
+      {active.join(' · ')}
+    </span>
   );
 }
 
@@ -95,9 +59,9 @@ function UsageBar({ dir }: { dir: StorageDirWithUsage }) {
   if (!usage.healthy) {
     return (
       <Tooltip label={usage.error ?? 'Storage directory is unhealthy'}>
-        <div className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
-          <AlertTriangle size={12} />
-          unavailable
+        <div className="inline-flex items-center gap-1.5 text-[12.5px] text-amber-700 dark:text-amber-300">
+          <WarnGlyph />
+          Unavailable
         </div>
       </Tooltip>
     );
@@ -106,18 +70,18 @@ function UsageBar({ dir }: { dir: StorageDirWithUsage }) {
     ? Math.min(100, Math.round(((usage.totalBytes - usage.freeBytes) / usage.totalBytes) * 100))
     : 0;
   return (
-    <div className="min-w-[140px]">
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>{formatBytes(usage.totalBytes - usage.freeBytes)} used</span>
+    <div className="min-w-[160px]">
+      <div className="flex items-baseline justify-between gap-3 text-[12px] tabular-nums text-muted-foreground">
+        <span><span className="font-semibold text-foreground">{formatBytes(usage.totalBytes - usage.freeBytes)}</span> used</span>
         <span>{formatBytes(usage.totalBytes)}</span>
       </div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+      <div className="mt-1.5 h-[5px] overflow-hidden rounded-[2px] bg-gauge-track">
         <div
-          className={cn('h-full transition-all', usedPct >= 90 ? 'bg-destructive' : 'bg-primary')}
+          className={cn('h-full transition-[width] duration-500', usedPct >= 90 ? 'bg-destructive' : 'bg-[#4F7CAC] dark:bg-[#86AEDA]')}
           style={{ width: `${usedPct}%` }}
         />
       </div>
-      <p className="mt-1 text-[10px] text-muted-foreground/80">
+      <p className="mt-1.5 text-[12px] text-muted-foreground">
         VirtPilot files: {formatBytes(usage.usedByVirtpilotBytes)}
       </p>
     </div>
@@ -154,43 +118,30 @@ export function StoragePage() {
 
   return (
     <Layout title="Storage" subtitle="Configure storage directories and review disk usage across templates, ISOs, and VMs.">
-      {/* Summary cards */}
-      <div className="mb-7 grid grid-cols-3 gap-4">
-        <ResourceCard
-          label="Templates"
-          count={templates?.length ?? 0}
-          detail={`${totalTemplateGb.toFixed(1)} GB total`}
-          icon={HardDrive}
-          iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+      {/* Summary */}
+      <StatStrip className="mb-8">
+        <Stat label="Templates" value={templates?.length ?? 0} sub={`${totalTemplateGb.toFixed(1)} GB total`} />
+        <Stat label="ISOs" value={isos?.length ?? 0} sub={`${totalIsoGb.toFixed(1)} GB total`} />
+        <Stat
+          label="VM disks"
+          value={vmDisksError ? '—' : (vmDisks?.length ?? 0)}
+          sub={vmDisksError ? 'libvirt unreachable' : `${totalDiskGb.toFixed(1)} GB on disk`}
         />
-        <ResourceCard
-          label="ISOs"
-          count={isos?.length ?? 0}
-          detail={`${totalIsoGb.toFixed(1)} GB total`}
-          icon={Disc}
-          iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400"
-        />
-        <ResourceCard
-          label="VM Disks"
-          count={vmDisksError ? '—' : (vmDisks?.length ?? 0)}
-          detail={vmDisksError ? 'libvirt unreachable' : `${totalDiskGb.toFixed(1)} GB on disk`}
-          icon={Database}
-          iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-        />
-      </div>
+      </StatStrip>
 
       {/* Storage Directories */}
       <section className="mb-7">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">Storage Directories</h2>
-          <Button variant="primary" size="sm" onClick={openAdd}>
-            <Plus size={14} /> Add directory
-          </Button>
+        <div className="mb-3.5">
+          <SectionHeading label="Storage directories">
+            <Button variant="secondary" size="sm" onClick={openAdd}>
+              <Plus size={14} /> Add directory
+            </Button>
+          </SectionHeading>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <Panel className="overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/40">
+              <tr className="table-head">
                 <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Name</th>
                 <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Path</th>
                 <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Holds</th>
@@ -201,15 +152,15 @@ export function StoragePage() {
             </thead>
             <tbody className="divide-y divide-border">
               {(storageDirs ?? []).map((dir) => (
-                <tr key={dir.id} className="transition-colors hover:bg-muted/30">
+                <tr key={dir.id} className="transition-colors hover:bg-surface/70">
                   <td className="px-5 py-3 align-top">
                     <div className="flex items-center gap-2">
                       <FolderOpen size={13} className="text-muted-foreground" />
                       <span className="text-sm font-medium text-foreground">{dir.name}</span>
                       {dir.usage?.warnings?.length > 0 && (
                         <Tooltip label={dir.usage.warnings.join(' • ')}>
-                          <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
-                            <AlertTriangle size={9} /> warning
+                          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+                            <WarnGlyph size={9} /> Warning
                           </span>
                         </Tooltip>
                       )}
@@ -225,7 +176,7 @@ export function StoragePage() {
                         <button
                           type="button"
                           onClick={() => openEdit(dir)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
                           <Pencil size={13} />
                         </button>
@@ -234,7 +185,7 @@ export function StoragePage() {
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteDir(dir)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -245,24 +196,24 @@ export function StoragePage() {
               ))}
               {(storageDirs?.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-6 text-center text-xs text-muted-foreground">
+                  <td colSpan={6} className="px-5 py-8 text-center text-[13px] text-muted-foreground">
                     No storage directories yet. Add one to start uploading templates and ISOs.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
-        </div>
+        </Panel>
       </section>
 
       {/* Templates table */}
       {!!templates?.length && (
         <section className="mb-5">
-          <h2 className="mb-3 text-sm font-semibold text-foreground">Templates</h2>
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="mb-3.5"><SectionHeading label="Templates" /></div>
+          <div className="panel overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/40">
+                <tr className="table-head">
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Name</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">File</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Location</th>
@@ -271,11 +222,11 @@ export function StoragePage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {templates.map((t) => (
-                  <tr key={t.filename} className="transition-colors hover:bg-muted/30">
-                    <td className="px-5 py-3.5 text-sm font-medium text-foreground">{t.name}</td>
-                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{t.filename}</td>
-                    <td className="px-5 py-3.5 text-xs text-muted-foreground">{t.storageDirName}</td>
-                    <td className="px-5 py-3.5 text-right font-mono text-xs text-muted-foreground">{t.sizeGb} GB</td>
+                  <tr key={t.filename} className="transition-colors hover:bg-surface/70">
+                    <td className="px-5 py-3 text-sm font-medium text-foreground">{t.name}</td>
+                    <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{t.filename}</td>
+                    <td className="px-5 py-3 text-xs text-muted-foreground">{t.storageDirName}</td>
+                    <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{t.sizeGb} GB</td>
                   </tr>
                 ))}
               </tbody>
@@ -287,11 +238,11 @@ export function StoragePage() {
       {/* ISOs table */}
       {!!isos?.length && (
         <section className="mb-5">
-          <h2 className="mb-3 text-sm font-semibold text-foreground">ISOs</h2>
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="mb-3.5"><SectionHeading label="ISOs" /></div>
+          <div className="panel overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/40">
+                <tr className="table-head">
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Name</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">File</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Location</th>
@@ -300,11 +251,11 @@ export function StoragePage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {isos.map((iso) => (
-                  <tr key={iso.filename} className="transition-colors hover:bg-muted/30">
-                    <td className="px-5 py-3.5 text-sm font-medium text-foreground">{iso.name}</td>
-                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{iso.filename}</td>
-                    <td className="px-5 py-3.5 text-xs text-muted-foreground">{iso.storageDirName}</td>
-                    <td className="px-5 py-3.5 text-right font-mono text-xs text-muted-foreground">{iso.sizeGb} GB</td>
+                  <tr key={iso.filename} className="transition-colors hover:bg-surface/70">
+                    <td className="px-5 py-3 text-sm font-medium text-foreground">{iso.name}</td>
+                    <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{iso.filename}</td>
+                    <td className="px-5 py-3 text-xs text-muted-foreground">{iso.storageDirName}</td>
+                    <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{iso.sizeGb} GB</td>
                   </tr>
                 ))}
               </tbody>
@@ -320,9 +271,9 @@ export function StoragePage() {
           that orphan status is unknown instead of silently rendering nothing. */}
       {vmDisksError && (
         <section>
-          <h2 className="mb-3 text-sm font-semibold text-foreground">VM Disks</h2>
-          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-4 shadow-sm">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="mb-3.5"><SectionHeading label="VM disks" /></div>
+          <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-5 py-4">
+            <WarnGlyph size={12} className="mt-1" />
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">libvirt unreachable — orphan status unknown</p>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -339,38 +290,38 @@ export function StoragePage() {
       {/* VM Disks table */}
       {!vmDisksError && !!vmDisks?.length && (
         <section>
-          <h2 className="mb-3 text-sm font-semibold text-foreground">VM Disks</h2>
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="mb-3.5"><SectionHeading label="VM disks" /></div>
+          <div className="panel overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Virtual Machine</th>
+                <tr className="table-head">
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Virtual machine</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">File</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Location</th>
-                  <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground">Size on Disk</th>
+                  <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground">Size on disk</th>
                   <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {vmDisks.map((d) => (
-                  <tr key={`${d.vmUuid}/${d.filename}`} className="transition-colors hover:bg-muted/30">
-                    <td className="px-5 py-3.5">
+                  <tr key={`${d.vmUuid}/${d.filename}`} className="transition-colors hover:bg-surface/70">
+                    <td className="px-5 py-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-foreground">{d.vmName}</span>
                           {!d.vmExists && (
-                            <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-amber-700 dark:text-amber-300">
                               orphaned
                             </span>
                           )}
                         </div>
-                        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/80">{d.vmUuid}</p>
+                        <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{d.vmUuid}</p>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{d.filename}</td>
-                    <td className="px-5 py-3.5 text-xs text-muted-foreground">{d.storageDirName}</td>
-                    <td className="px-5 py-3.5 text-right font-mono text-xs text-muted-foreground">{d.sizeGb} GB</td>
-                    <td className="px-5 py-3.5 text-right">
+                    <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{d.filename}</td>
+                    <td className="px-5 py-3 text-xs text-muted-foreground">{d.storageDirName}</td>
+                    <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{d.sizeGb} GB</td>
+                    <td className="px-5 py-3 text-right">
                       <div className="inline-flex items-center gap-1">
                         {(() => {
                           // Same gate as download: VM must be stopped (or undefined). Moving
@@ -390,7 +341,7 @@ export function StoragePage() {
                                   storageDirId: d.storageDirId,
                                   vmStatus: d.vmStatus,
                                 })}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
                               >
                                 <FolderInput size={13} />
                               </button>
@@ -412,7 +363,7 @@ export function StoragePage() {
                                     toast.error(err instanceof Error ? err.message : 'Failed to start download');
                                   }
                                 }}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
                               >
                                 <Download size={13} />
                               </button>
@@ -424,7 +375,7 @@ export function StoragePage() {
                             <button
                               type="button"
                               onClick={() => setDeleteTarget({ uuid: d.vmUuid, name: d.vmName })}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                             >
                               <Trash2 size={13} />
                             </button>
@@ -532,9 +483,7 @@ export function StoragePage() {
       {/* Empty state */}
       {!hasContent && (storageDirs?.length ?? 0) > 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-            <HardDrive className="h-6 w-6 text-muted-foreground" />
-          </div>
+          <HardDrive className="mb-3 h-5 w-5 text-muted-foreground" />
           <p className="text-sm font-semibold text-foreground">No storage yet</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Upload templates and ISOs to see disk usage here.

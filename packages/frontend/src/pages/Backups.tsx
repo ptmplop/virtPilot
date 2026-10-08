@@ -1,34 +1,32 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Archive,
   ArchiveRestore,
   ArrowLeft,
+  ArrowRight,
   CalendarClock,
-  Check,
-  Clock,
-  Database,
-  HardDrive,
-  Info,
+  ChevronDown,
+  History as HistoryIcon,
   Layers,
+  Link2,
   Play,
-  Power,
   Server,
-  ShieldAlert,
   ShieldCheck,
   Trash2,
-  Link2,
   Unlink,
-  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
+import { formatDateTime } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Panel, Stat, StatStrip } from '@/components/ui/Panel';
+import { StatusGlyph, WarnGlyph } from '@/components/ui/Badge';
+import { VmLogo } from '@/components/ui/OsLogoPicker';
 import {
   useBackupSummaries,
   useVmBackups,
@@ -45,6 +43,8 @@ import {
 import { Spinner } from '@/components/ui/Spinner';
 import { StorageDirSelect } from '@/components/StorageDirSelect';
 import { useVms } from '@/hooks/useVms';
+import { useLogoStore } from '@/store/logoStore';
+import { osSlugFromImage } from '@/data/templateSets';
 import { cn } from '@/lib/cn';
 import type {
   BackupConsistency,
@@ -57,6 +57,45 @@ import type {
   BackupVmSummary,
   IncrementalStatus,
 } from '@/types';
+
+// ─── Shared chrome ────────────────────────────────────────────────────────────
+
+// Callouts (DESIGN.md): attention is amber with the warning glyph, info is the quiet
+// surface well. One shape for both, so a note never looks like a different component.
+const CALLOUT_ATTENTION =
+  'rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-800 dark:text-amber-200';
+const CALLOUT_INFO =
+  'rounded-md border border-border bg-surface px-3.5 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground';
+
+// Row actions: ghost icon buttons; the destructive one only turns red on approach.
+const ROW_ACTION =
+  'flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50';
+const ROW_ACTION_DANGER =
+  'flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive';
+
+// True while the element is narrower than `minWidth`. The tables use it to fall back
+// to icon-only row actions rather than letting the actions scroll out of sight (a
+// 1024px window with the sidebar open). Measured on the table itself, so collapsing
+// the sidebar counts as much as resizing the window.
+function useNarrow<T extends HTMLElement>(minWidth: number) {
+  const ref = useRef<T>(null);
+  const [narrow, setNarrow] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setNarrow(el.clientWidth < minWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [minWidth]);
+  return [ref, narrow] as const;
+}
+
+// Wraps an icon-only control in its tooltip; a control showing its own label needs none.
+function withTip(label: string, show: boolean, node: React.ReactElement) {
+  return show ? <Tooltip label={label}>{node}</Tooltip> : node;
+}
 
 // ─── Backup health banner ─────────────────────────────────────────────────────
 
@@ -71,19 +110,22 @@ function BackupAlertsBanner() {
 
   return (
     <div className={cn(
-      'space-y-2 rounded-xl border px-5 py-4',
-      tone === 'destructive' ? 'border-destructive/30 bg-destructive/5' : 'border-amber-500/30 bg-amber-500/5',
+      'rounded-md border px-4 py-3',
+      tone === 'destructive'
+        ? 'border-destructive/30 bg-destructive/[0.06]'
+        : 'border-amber-500/30 bg-amber-500/[0.06]',
     )}>
-      <div className="flex items-center gap-2.5">
-        <ShieldAlert size={15} className={tone === 'destructive' ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'} />
-        <p className="text-sm font-semibold text-foreground">
-          {alerts.length} backup {alerts.length === 1 ? 'problem' : 'problems'} need attention
-        </p>
-      </div>
-      <ul className="space-y-1 pl-[26px]">
+      <p className={cn(
+        'flex items-center gap-2 text-[13px] font-semibold',
+        tone === 'destructive' ? 'text-red-800 dark:text-red-200' : 'text-amber-800 dark:text-amber-200',
+      )}>
+        {tone === 'destructive' ? <StatusGlyph status="crashed" size={9} /> : <WarnGlyph size={10} />}
+        {alerts.length} backup {alerts.length === 1 ? 'problem needs' : 'problems need'} attention
+      </p>
+      <ul className="mt-1.5 space-y-1 pl-[19px]">
         {alerts.map((a, i) => (
-          <li key={`${a.vmUuid}-${a.kind}-${i}`} className="text-xs leading-relaxed text-muted-foreground">
-            <span className="font-mono font-semibold text-foreground">{a.vmName}</span>
+          <li key={`${a.vmUuid}-${a.kind}-${i}`} className="text-[12.5px] leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">{a.vmName}</span>
             {' — '}{a.message}
           </li>
         ))}
@@ -100,12 +142,8 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1_024).toFixed(0)} KB`;
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
+// The app's one date-and-time format ("8 Oct 2026, 16:33").
+const formatDate = formatDateTime;
 
 function formatRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -115,6 +153,18 @@ function formatRelative(iso: string): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// A time still to come. formatRelative() measures the past: handed a future time its
+// difference is negative, so it fell into the `mins < 1` branch and every upcoming run
+// read "just now".
+function formatUntil(iso: string): string {
+  const mins = Math.floor((new Date(iso).getTime() - Date.now()) / 60_000);
+  if (mins < 1) return 'Soon';
+  if (mins < 60) return `in ${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `in ${hrs}h`;
+  return `in ${Math.floor(hrs / 24)}d`;
 }
 
 function frequencyLabel(f: BackupFrequency): string {
@@ -146,7 +196,13 @@ export function BackupsPage() {
 
 // ─── Main list ────────────────────────────────────────────────────────────────
 
-const LIST_COLS = 'minmax(0,1fr) 90px 110px 150px 130px 186px';
+// The actions column is sized to what it holds (Set schedule · Back up · History);
+// at 186px the buttons spilled left over the Schedule column. Where the full set
+// does not fit, the narrow set takes over with icon-only actions; below even that,
+// the panel scrolls sideways rather than letting columns collide.
+const LIST_COLS = 'minmax(0,1fr) 64px 84px 108px 124px 292px';
+const LIST_COLS_NARROW = 'minmax(0,1fr) 56px 76px 96px 112px 112px';
+const LIST_FULL_MIN = 960;
 
 function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
   const { data: summaries, isLoading: summariesLoading } = useBackupSummaries();
@@ -155,6 +211,8 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
 
   const isLoading = summariesLoading || vmsLoading;
   const runningSet = new Set(runningBackups.map((r) => r.vmUuid));
+  const templateByVm = new Map((vms ?? []).map((vm) => [vm.id, vm.sourceTemplateFilename]));
+  const [tableRef, narrow] = useNarrow<HTMLDivElement>(LIST_FULL_MIN);
 
   const summaryMap = new Map((summaries ?? []).map((s) => [s.vmUuid, s]));
   const liveRows: BackupVmSummary[] = (vms ?? []).map(
@@ -192,13 +250,13 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
     <Layout title="Backups" subtitle="Manage VM backups and schedules">
       <div className="space-y-6 animate-slide-up">
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard icon={Server} label="Virtual Machines" value={String(vms?.length ?? '—')} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
-          <StatCard icon={HardDrive} label="VMs Backed Up" value={isLoading ? '—' : String(withBackups)} iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
-          <StatCard icon={Archive} label="Total Backups" value={isLoading ? '—' : String(totalBackups)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
-          <StatCard icon={Database} label="Storage Used" value={isLoading ? '—' : formatBytes(totalSize)} iconClass="bg-amber-500/10 text-amber-600 dark:text-amber-400" />
-        </div>
+        {/* Readouts */}
+        <StatStrip>
+          <Stat label="Virtual machines" value={String(vms?.length ?? '—')} />
+          <Stat label="VMs backed up" value={isLoading ? '—' : String(withBackups)} />
+          <Stat label="Total backups" value={isLoading ? '—' : String(totalBackups)} />
+          <Stat label="Storage used" value={isLoading ? '—' : formatBytes(totalSize)} />
+        </StatStrip>
 
         <BackupAlertsBanner />
 
@@ -206,71 +264,57 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
         <BackupInfoPanel />
 
         {/* Table */}
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <div
-            className="grid items-center gap-4 border-b border-border bg-muted/40 px-5 py-2.5 text-[12px] font-medium text-muted-foreground"
-            style={{ gridTemplateColumns: LIST_COLS }}
-          >
-            <span>Virtual Machine</span>
-            <span>Backups</span>
-            <span>Size</span>
-            <span>Last Backup</span>
-            <span>Schedule</span>
-            <span className="text-right">Actions</span>
+        <Panel className="overflow-hidden">
+          <div ref={tableRef} className="overflow-x-auto">
+            <div className={narrow ? 'min-w-[660px]' : undefined}>
+              <div
+                className={cn('table-head grid items-center px-5 py-2.5', narrow ? 'gap-3' : 'gap-4')}
+                style={{ gridTemplateColumns: narrow ? LIST_COLS_NARROW : LIST_COLS }}
+              >
+                <span>Virtual machine</span>
+                <span>Backups</span>
+                <span>Size</span>
+                <span>Last backup</span>
+                <span>Schedule</span>
+                <span className="text-right">Actions</span>
+              </div>
+
+              {!isLoading && rows.length > 0 && (
+                <div className="divide-y divide-border">
+                  {rows.map((s, i) => (
+                    <SummaryRow
+                      key={s.vmUuid}
+                      summary={s}
+                      templateFilename={templateByVm.get(s.vmUuid)}
+                      onSelect={onSelect}
+                      index={i}
+                      isRunning={runningSet.has(s.vmUuid)}
+                      narrow={narrow}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          {isLoading ? (
-            <div className="space-y-px p-3">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[60px] rounded-xl" />)}
-            </div>
-          ) : rows.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <div className="divide-y divide-border/60">
-              {rows.map((s, i) => (
-                <SummaryRow key={s.vmUuid} summary={s} onSelect={onSelect} index={i} isRunning={runningSet.has(s.vmUuid)} />
-              ))}
+          {isLoading && (
+            <div className="space-y-2 p-4">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 rounded-md" />)}
             </div>
           )}
 
+          {!isLoading && rows.length === 0 && <EmptyState />}
+
           {!isLoading && rows.length > 0 && scheduled > 0 && (
-            <div className="border-t border-border/60 bg-muted/20 px-5 py-2">
-              <p className="text-[11px] text-muted-foreground">
+            <div className="border-t border-border bg-surface/60 px-5 py-2.5">
+              <p className="text-[12px] text-muted-foreground">
                 {scheduled} VM{scheduled !== 1 ? 's' : ''} with active schedule
               </p>
             </div>
           )}
-        </div>
+        </Panel>
       </div>
     </Layout>
-  );
-}
-
-// ─── Stat card ────────────────────────────────────────────────────────────────
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  iconClass,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  iconClass: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
-          <Icon size={15} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -280,87 +324,83 @@ function BackupInfoPanel() {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <Panel className="overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2.5 px-5 py-3 text-left transition-colors hover:bg-muted/30"
+        aria-expanded={open}
+        className="group flex w-full items-center gap-2.5 px-5 py-3 text-left transition-colors hover:bg-surface/70 focus-visible:outline-offset-[-2px]"
       >
-        <Info size={13} className="shrink-0 text-muted-foreground" />
-        <span className="flex-1 text-xs font-medium text-muted-foreground">Understanding backup states</span>
-        <span className={cn('text-[12px] font-medium text-muted-foreground/80 transition-opacity', open ? 'opacity-0' : 'opacity-100')}>
+        <ChevronDown
+          size={14}
+          className={cn(
+            'shrink-0 text-muted-foreground transition-transform duration-200 group-hover:text-foreground',
+            !open && '-rotate-90',
+          )}
+        />
+        <span className="flex-1 text-[13px] font-medium text-foreground">Understanding backup states</span>
+        <span className={cn('text-[12px] text-muted-foreground transition-opacity', open ? 'opacity-0' : 'opacity-100')}>
           Click to expand
         </span>
       </button>
 
       {open && (
-        <div className="border-t border-border/60 bg-muted/20 px-5 pb-5 pt-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <InfoStateCard
-              icon={<Check size={13} className="text-emerald-700 dark:text-emerald-400" />}
-              iconBg="bg-emerald-500/10"
-              title="App-consistent"
-              body="Filesystems were frozen via the QEMU guest agent before copying. All writes were flushed — safe to restore any application or database without extra checks."
-            />
-            <InfoStateCard
-              icon={<Power size={13} className="text-muted-foreground" />}
-              iconBg="bg-muted"
-              title="VM offline"
-              body="The VM was powered off when the backup ran. The disk was idle with no writes in flight — always safe to restore, no guest agent needed."
-            />
-            <InfoStateCard
-              icon={<ShieldAlert size={13} className="text-amber-700 dark:text-amber-400" />}
-              iconBg="bg-amber-500/10"
-              title="No guest agent"
-              badge={
-                <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
-                  <ShieldAlert size={8} />No guest agent
-                </span>
-              }
-              body={
-                <>
-                  VM was running without a guest agent — filesystems were not frozen.
-                  Databases or apps with open transactions may need{' '}
-                  <code className="rounded bg-muted px-1 font-mono text-[11px]">fsck</code> or{' '}
-                  <code className="rounded bg-muted px-1 font-mono text-[11px]">mysqlcheck</code> after
-                  restore. Install{' '}
-                  <code className="rounded bg-muted px-1 font-mono text-[11px]">qemu-guest-agent</code>{' '}
-                  inside the VM to fix this.
-                </>
-              }
-            />
-          </div>
+        <div className="grid divide-y divide-border border-t border-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <InfoStateCard
+            glyph={<StatusGlyph status="running" size={8} />}
+            title="App-consistent"
+            body="Filesystems were frozen via the QEMU guest agent before copying. All writes were flushed — safe to restore any application or database without extra checks."
+          />
+          <InfoStateCard
+            glyph={<StatusGlyph status="stopped" size={8} />}
+            title="VM offline"
+            body="The VM was powered off when the backup ran. The disk was idle with no writes in flight — always safe to restore, no guest agent needed."
+          />
+          <InfoStateCard
+            glyph={<WarnGlyph size={9} />}
+            title="No guest agent"
+            body={
+              <>
+                VM was running without a guest agent — filesystems were not frozen.
+                Databases or apps with open transactions may need{' '}
+                <InlineCode>fsck</InlineCode> or{' '}
+                <InlineCode>mysqlcheck</InlineCode> after
+                restore. Install{' '}
+                <InlineCode>qemu-guest-agent</InlineCode>{' '}
+                inside the VM to fix this.
+              </>
+            }
+          />
         </div>
       )}
-    </div>
+    </Panel>
   );
 }
 
+function InlineCode({ children }: { children: React.ReactNode }) {
+  return (
+    <code className="rounded-[4px] bg-muted px-1 py-px font-mono text-[11.5px] text-foreground">{children}</code>
+  );
+}
+
+// The glyphs are the ones each state wears in the backup table, so this legend
+// reads straight across to the rows below it.
 function InfoStateCard({
-  icon,
-  iconBg,
+  glyph,
   title,
-  badge,
   body,
 }: {
-  icon: React.ReactNode;
-  iconBg: string;
+  glyph: React.ReactNode;
   title: string;
-  badge?: React.ReactNode;
   body: React.ReactNode;
 }) {
   return (
-    <div className="flex gap-3">
-      <div className={cn('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', iconBg)}>
-        {icon}
-      </div>
-      <div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <p className="text-xs font-semibold text-foreground">{title}</p>
-          {badge}
-        </div>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{body}</p>
-      </div>
+    <div className="px-5 py-4">
+      <p className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+        {glyph}
+        {title}
+      </p>
+      <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">{body}</p>
     </div>
   );
 }
@@ -369,17 +409,24 @@ function InfoStateCard({
 
 function SummaryRow({
   summary,
+  templateFilename,
   onSelect,
   index,
   isRunning,
+  narrow,
 }: {
   summary: BackupVmSummary;
+  /** The live VM's source image, for its OS mark; absent for orphaned backups. */
+  templateFilename?: string;
   onSelect: (v: string) => void;
   index: number;
   isRunning: boolean;
+  /** The table is too narrow for labelled actions: show icon buttons. */
+  narrow: boolean;
 }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const createBackup = useCreateBackup(summary.vmUuid, summary.vmName);
+  const logoSlug = useLogoStore((s) => s.vms[summary.vmName]) ?? osSlugFromImage(templateFilename);
   const busy = isRunning || createBackup.isPending;
   // Backups left behind by a deleted VM. Nothing can be backed up or scheduled
   // against a VM that no longer exists, but History (and the deletes it offers)
@@ -389,6 +436,7 @@ function SummaryRow({
   // Honour the VM's own policy: a VM set up for incremental backups should get
   // an incremental from this button too, not silently a full one.
   const kind: BackupKindRequest = summary.schedule?.mode === 'incremental' ? 'auto' : 'full';
+  const scheduleLabel = summary.schedule ? 'Schedule' : 'Set schedule';
 
   function handleBackupNow() {
     toast.promise(createBackup.mutateAsync(kind), {
@@ -401,103 +449,124 @@ function SummaryRow({
   return (
     <>
       <div
-        className={cn('grid items-center gap-4 px-5 py-3.5 transition-colors', busy ? 'bg-muted/20' : 'hover:bg-muted/40')}
-        style={{ gridTemplateColumns: LIST_COLS, animationDelay: `${index * 30}ms` }}
+        className={cn('table-row grid items-center px-5 py-2.5', narrow ? 'gap-3' : 'gap-4', busy && 'bg-surface/70')}
+        style={{ gridTemplateColumns: narrow ? LIST_COLS_NARROW : LIST_COLS, animationDelay: `${index * 30}ms` }}
       >
         {/* Name */}
         <button
           type="button"
           onClick={() => onSelect(summary.vmUuid)}
-          className="flex min-w-0 items-center gap-2.5 text-left"
+          className="group/name flex min-w-0 items-center gap-3 rounded-sm text-left"
         >
-          <div className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
-            summary.backupCount > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-          )}>
-            {busy ? <Spinner className="h-3.5 w-3.5" /> : <HardDrive size={14} />}
-          </div>
-          <div className="min-w-0">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate font-mono text-sm font-semibold text-foreground transition-colors hover:text-primary">
-                {summary.vmName}
-              </span>
-              {orphaned && (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
-                  <ShieldAlert size={8} />Orphaned
-                </span>
-              )}
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+            {busy ? <Spinner className="h-4 w-4" /> : <VmLogo slug={logoSlug} size={20} />}
+          </span>
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span
+              className="truncate text-[13.5px] font-medium text-foreground transition-colors group-hover/name:text-primary"
+              title={summary.vmName}
+            >
+              {summary.vmName}
             </span>
-            {busy && (
-              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
-                <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
-              </div>
+            {orphaned && (
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+                <WarnGlyph size={9} />
+                Orphaned
+              </span>
             )}
-          </div>
+          </span>
         </button>
 
-        {/* Count */}
+        {/* Count — an empty cell's dash stays in the sans face so every blank in the row matches */}
         <span className={cn(
-          'font-mono text-sm',
-          summary.backupCount > 0 ? 'font-semibold text-foreground' : 'text-muted-foreground'
+          'text-[12.5px] tabular-nums',
+          summary.backupCount > 0 ? 'font-mono text-foreground' : 'text-muted-foreground'
         )}>
           {summary.backupCount > 0 ? summary.backupCount : '—'}
         </span>
 
         {/* Size */}
-        <span className="font-mono text-sm text-muted-foreground">
+        <span className={cn(
+          'text-[12.5px] tabular-nums',
+          summary.totalSizeBytes > 0 ? 'font-mono text-foreground' : 'text-muted-foreground'
+        )}>
           {summary.totalSizeBytes > 0 ? formatBytes(summary.totalSizeBytes) : '—'}
         </span>
 
         {/* Last backup */}
-        <span className="text-sm text-muted-foreground">
+        <span
+          className="text-[13px] text-muted-foreground"
+          title={!busy && summary.lastBackupAt ? formatDate(summary.lastBackupAt) : undefined}
+        >
           {busy ? 'Backing up…' : (summary.lastBackupAt ? formatRelative(summary.lastBackupAt) : '—')}
         </span>
 
         {/* Schedule */}
-        <span>
+        <span className="min-w-0">
           {summary.schedule?.enabled ? (
-            <span className="inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-              <CalendarClock size={9} />
-              {frequencyLabel(summary.schedule.frequency)}
-              {summary.schedule.mode === 'incremental' && <span className="opacity-70">· Inc</span>}
+            <span className="inline-flex max-w-full items-center gap-1.5 text-[13px] text-foreground">
+              <CalendarClock size={13} className="shrink-0 text-muted-foreground" />
+              <span className="truncate">
+                {frequencyLabel(summary.schedule.frequency)}
+                {summary.schedule.mode === 'incremental' && (
+                  <span className="text-muted-foreground" title="Incremental"> · Inc</span>
+                )}
+              </span>
+            </span>
+          ) : summary.schedule ? (
+            // A schedule exists but is switched off — say so, rather than "None".
+            <span className="inline-flex items-center gap-1.5 text-[13px] text-amber-700 dark:text-amber-300">
+              <StatusGlyph status="paused" size={7} />
+              Paused
             </span>
           ) : (
-            <span className="text-xs text-muted-foreground/80">None</span>
+            <span className="text-[13px] text-muted-foreground">None</span>
           )}
         </span>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-1.5">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="h-7 gap-1 px-2.5 text-xs"
-            onClick={() => setScheduleOpen(true)}
-            disabled={orphaned}
-          >
-            <CalendarClock size={12} />
-            {summary.schedule ? 'Schedule' : 'Set Schedule'}
-          </Button>
-          <Button
-            size="sm"
-            className="h-7 gap-1 px-2.5 text-xs"
-            onClick={handleBackupNow}
-            disabled={busy || orphaned}
-          >
-            {busy
-              ? <Spinner className="h-3 w-3" />
-              : <Play size={12} />}
-            Back Up
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onSelect(summary.vmUuid)}
-            className="ml-1 h-7 px-1.5 text-[11px]"
-            aria-label={`View backups for ${summary.vmName}`}
-          >
-            History →
-          </Button>
+        <div className={cn('flex items-center justify-end', narrow ? 'gap-1' : 'gap-1.5')}>
+          {withTip(scheduleLabel, narrow,
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setScheduleOpen(true)}
+              disabled={orphaned}
+              aria-label={narrow ? scheduleLabel : undefined}
+              className={narrow ? 'w-8 px-0' : undefined}
+            >
+              <CalendarClock size={narrow ? 14 : 13} />
+              {!narrow && scheduleLabel}
+            </Button>
+          )}
+          {withTip('Back up', narrow,
+            // Secondary, like its neighbours: a column of solid ink buttons drowns the
+            // table. Ink is kept for the one main action on a page.
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleBackupNow}
+              disabled={busy || orphaned}
+              aria-label={narrow ? 'Back up' : undefined}
+              className={narrow ? 'w-8 px-0' : undefined}
+            >
+              {busy
+                ? <Spinner className="h-3.5 w-3.5 text-current" />
+                : <Play size={narrow ? 14 : 13} />}
+              {!narrow && 'Back up'}
+            </Button>
+          )}
+          {withTip('History', narrow,
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onSelect(summary.vmUuid)}
+              className={narrow ? 'w-8 px-0' : 'px-2.5'}
+              aria-label={`History for ${summary.vmName}`}
+            >
+              {narrow ? <HistoryIcon size={14} /> : <>History<ArrowRight size={13} /></>}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -515,19 +584,23 @@ function SummaryRow({
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-        <Server className="h-6 w-6 text-muted-foreground" />
-      </div>
-      <p className="text-sm font-semibold text-foreground">No virtual machines</p>
-      <p className="mt-1 text-xs text-muted-foreground">Create a VM first, then come back to set up backups.</p>
+    <div className="px-6 py-12 text-center">
+      <p className="text-[13.5px] font-medium text-foreground">No virtual machines</p>
+      <p className="mt-1 text-[12.5px] text-muted-foreground">Create a VM first, then come back to set up backups.</p>
     </div>
   );
 }
 
 // ─── Per-VM panel ─────────────────────────────────────────────────────────────
 
-const BACKUP_COLS = 'minmax(0,1fr) 90px 60px 170px 110px 80px';
+// Actions hold Verify · Restore · Delete; at 80px they ran over the Trigger column.
+const BACKUP_COLS = 'minmax(0,1fr) 92px 52px 136px 108px 160px';
+const BACKUP_COLS_NARROW = 'minmax(0,1fr) 80px 44px 124px 92px 108px';
+const BACKUP_FULL_MIN = 900;
+
+function backupCols(narrow: boolean) {
+  return narrow ? BACKUP_COLS_NARROW : BACKUP_COLS;
+}
 
 function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void }) {
   const { data, isLoading } = useVmBackups(vmUuid);
@@ -569,6 +642,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
   const lastBackupAt = backups[0]?.createdAt ?? null;
   const unusableSize = summary?.unusableSizeBytes ?? 0;
   const unusableCount = summary?.unusableCount ?? 0;
+  const nextRunAt = schedule?.enabled ? schedule.nextRunAt : null;
 
   // Taking a full backup by hand on an incremental-mode VM leaves no
   // checkpoint, so the next scheduled run cannot chain onto it and takes a
@@ -591,6 +665,9 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
       ? 'No checkpoint to measure changes against yet — this run takes a full backup and, if the VM is running, records one so the next can be a true incremental'
       : 'Copy only the blocks that changed since the last backup';
 
+  const emptyTable = !isLoading && backups.length === 0 && !busy;
+  const [tableRef, narrow] = useNarrow<HTMLDivElement>(BACKUP_FULL_MIN);
+
   return (
     <Layout>
       <div className="space-y-6 animate-slide-up">
@@ -599,76 +676,71 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded-sm text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft size={14} />
           Backups
         </button>
 
-        {/* Hero */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-              <HardDrive className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-foreground">{vmName}</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {isLoading ? 'Loading…' : `${backups.length} backup${backups.length !== 1 ? 's' : ''}${totalSize > 0 ? ` · ${formatBytes(totalSize)} total` : ''}`}
-              </p>
-            </div>
+        {/* Title + actions */}
+        <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-[26px] font-semibold leading-8 tracking-[-0.024em] text-foreground">{vmName}</h1>
+            <p className="mt-1 text-[13.5px] text-muted-foreground">
+              {isLoading ? 'Loading…' : `${backups.length} backup${backups.length !== 1 ? 's' : ''}${totalSize > 0 ? ` · ${formatBytes(totalSize)} total` : ''}`}
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setScheduleOpen(true)} disabled={isLoading}>
-              <CalendarClock size={14} className="mr-1.5" />
-              {schedule ? 'Edit Schedule' : 'Set Schedule'}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => setScheduleOpen(true)} disabled={isLoading}>
+              <CalendarClock size={14} />
+              {schedule ? 'Edit schedule' : 'Set schedule'}
             </Button>
             <Tooltip label={incrementalHint}>
               <Button
                 variant="secondary"
-                size="sm"
                 onClick={() => handleBackupNow('incremental')}
                 disabled={busy || !incremental.supported}
               >
-                <Layers size={13} className="mr-1.5" />
+                <Layers size={14} />
                 Incremental
               </Button>
             </Tooltip>
             <Button
-              size="sm"
               onClick={() => (fullWouldEndChain ? setConfirmFullOpen(true) : handleBackupNow('full'))}
               disabled={busy}
             >
               {busy ? (
-                <><Spinner className="mr-1.5 h-3.5 w-3.5" />Backing up…</>
+                <><Spinner className="h-3.5 w-3.5 text-current" />Backing up…</>
               ) : (
-                <><Play size={13} className="mr-1.5" />Full Backup</>
+                <><Play size={14} />Full backup</>
               )}
             </Button>
           </div>
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard icon={Archive} label="Backups" value={isLoading ? '—' : String(backups.length)} iconClass="bg-primary/10 text-primary" />
-          <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : (totalSize > 0 ? formatBytes(totalSize) : '—')} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
-          <StatCard icon={Clock} label="Last Backup" value={isLoading ? '—' : (lastBackupAt ? formatRelative(lastBackupAt) : 'Never')} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
-          <StatCard
-            icon={CalendarClock}
-            label="Next Scheduled"
-            value={schedule?.enabled && schedule.nextRunAt ? formatRelative(schedule.nextRunAt).replace('ago', '').trim() || 'Soon' : '—'}
-            iconClass={schedule?.enabled ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}
+        {/* Readouts */}
+        <StatStrip>
+          <Stat label="Backups" value={isLoading ? '—' : String(backups.length)} />
+          <Stat label="Total size" value={isLoading ? '—' : (totalSize > 0 ? formatBytes(totalSize) : '—')} />
+          <Stat
+            label="Last backup"
+            value={isLoading ? '—' : (lastBackupAt ? formatRelative(lastBackupAt) : 'Never')}
+            sub={!isLoading && lastBackupAt ? formatDate(lastBackupAt) : undefined}
+            tone={!isLoading && !lastBackupAt ? 'muted' : undefined}
           />
-        </div>
+          <Stat
+            label="Next scheduled"
+            value={nextRunAt ? formatUntil(nextRunAt) : '—'}
+            sub={nextRunAt ? formatDate(nextRunAt) : undefined}
+          />
+        </StatStrip>
 
         {/* Chain banner */}
         {incremental.chainLength > 0 && (
-          <div className="flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10">
-              <Layers size={14} className="text-violet-700 dark:text-violet-400" />
-            </div>
-            <p className="flex-1 text-xs text-muted-foreground">
-              <span className="font-semibold text-foreground">
+          <div className={cn(CALLOUT_INFO, 'flex items-start gap-2.5')}>
+            <Layers size={14} className="mt-[3px] shrink-0 text-muted-foreground" />
+            <p>
+              <span className="font-medium text-foreground">
                 {incremental.chainLength} incremental{incremental.chainLength !== 1 ? 's' : ''}
               </span>{' '}
               currently sit on top of the most recent full backup. Restoring any of them rebuilds the whole chain
@@ -684,12 +756,10 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
             they are filtered out of every listing, so the disk they occupied
             never appeared in any total the product showed. */}
         {unusableCount > 0 && (
-          <div className="flex items-center gap-4 rounded-xl border border-amber-500/25 bg-amber-500/5 px-5 py-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
-              <ShieldAlert size={14} className="text-amber-700 dark:text-amber-400" />
-            </div>
-            <p className="flex-1 text-xs text-muted-foreground">
-              <span className="font-semibold text-foreground">
+          <div className={cn(CALLOUT_ATTENTION, 'flex items-start gap-2.5')}>
+            <WarnGlyph size={10} className="mt-[5px]" />
+            <p>
+              <span className="font-semibold">
                 {unusableCount} backup director{unusableCount !== 1 ? 'ies' : 'y'} ({formatBytes(unusableSize)})
               </span>{' '}
               hold data no backup can use — left by a run that was interrupted, or by a manifest that has become
@@ -699,47 +769,54 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
         )}
 
         {/* Backup table */}
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <div
-            className="grid items-center gap-4 border-b border-border bg-muted/40 px-5 py-2.5 text-[12px] font-medium text-muted-foreground"
-            style={{ gridTemplateColumns: BACKUP_COLS }}
-          >
-            <span>Date</span>
-            <span>Size</span>
-            <span>Disks</span>
-            <span>State</span>
-            <span>Trigger</span>
-            <span className="text-right">Actions</span>
+        <Panel className="overflow-hidden">
+          <div ref={tableRef} className="overflow-x-auto">
+            <div className={narrow ? 'min-w-[680px]' : undefined}>
+              <div
+                className={cn('table-head grid items-center px-5 py-2.5', narrow ? 'gap-3' : 'gap-4')}
+                style={{ gridTemplateColumns: backupCols(narrow) }}
+              >
+                <span>Date</span>
+                <span>Size</span>
+                <span>Disks</span>
+                <span>State</span>
+                <span>Trigger</span>
+                <span className="text-right">Actions</span>
+              </div>
+
+              {!isLoading && !emptyTable && (
+                <div className="divide-y divide-border">
+                  {busy && <BackupInProgressRow triggerType={runningEntry?.triggerType ?? 'manual'} narrow={narrow} />}
+                  {backups.map((b, i) => (
+                    <BackupRow
+                      key={b.id}
+                      backup={b}
+                      index={i}
+                      narrow={narrow}
+                      vmUuid={vmUuid}
+                      onDelete={() => setDeleteTarget(b)}
+                      onRestore={() => setRestoreTarget(b)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          {isLoading ? (
-            <div className="space-y-px p-3">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[56px] rounded-xl" />)}
-            </div>
-          ) : backups.length === 0 && !busy ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-                <HardDrive className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <p className="text-sm font-semibold text-foreground">No backups yet</p>
-              <p className="mt-1 text-xs text-muted-foreground">Click "Back Up Now" to create the first backup.</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border/60">
-              {busy && <BackupInProgressRow triggerType={runningEntry?.triggerType ?? 'manual'} />}
-              {backups.map((b, i) => (
-                <BackupRow
-                  key={b.id}
-                  backup={b}
-                  index={i}
-                  vmUuid={vmUuid}
-                  onDelete={() => setDeleteTarget(b)}
-                  onRestore={() => setRestoreTarget(b)}
-                />
-              ))}
+          {isLoading && (
+            <div className="space-y-2 p-4">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 rounded-md" />)}
             </div>
           )}
-        </div>
+
+          {emptyTable && (
+            <div className="px-6 py-12 text-center">
+              <p className="text-[13.5px] font-medium text-foreground">No backups yet</p>
+              {/* Named the button that exists: there has never been a "Back Up Now" on this page. */}
+              <p className="mt-1 text-[12.5px] text-muted-foreground">Click “Full backup” to create the first backup.</p>
+            </div>
+          )}
+        </Panel>
       </div>
 
       {scheduleOpen && (
@@ -772,17 +849,17 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
               size="sm"
               onClick={() => { setConfirmFullOpen(false); handleBackupNow('full'); }}
             >
-              Take Full Backup
+              Take full backup
             </Button>
           </>
         }
       >
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[13.5px] leading-relaxed text-muted-foreground">
           A full backup taken by hand records no checkpoint, so the next scheduled run will have nothing to measure
           changes against and will take a full backup too. Existing backups are unaffected, and the chain resumes on
           the run after that.
         </p>
-        <p className="mt-3 text-sm text-muted-foreground">
+        <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">
           To take a backup now <em>and</em> keep the chain going, use <span className="font-medium text-foreground">Incremental</span> instead.
         </p>
       </Dialog>
@@ -820,20 +897,19 @@ function ScheduleBanner({
 
   return (
     <>
-      <div className="flex items-center gap-4 rounded-xl border border-primary/20 bg-primary/5 px-5 py-3.5">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-          <CalendarClock size={14} className="text-primary" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-foreground">
+      <Panel className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-3.5">
+        <CalendarClock size={16} className="shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="flex flex-wrap items-center gap-x-3 text-[13.5px] font-semibold text-foreground">
             {frequencyLabel(schedule.frequency)} backups
             {!schedule.enabled && (
-              <span className="ml-2 inline-flex items-center rounded border border-border bg-muted/50 px-2 py-px text-[10px] font-semibold text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+                <StatusGlyph status="paused" size={8} />
                 Paused
               </span>
             )}
           </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
+          <p className="mt-0.5 text-[12.5px] text-muted-foreground">
             {schedule.nextRunAt && `Next run: ${formatDate(schedule.nextRunAt)}`}
             {schedule.retentionDays != null && ` · Keep ${schedule.retentionDays} days`}
             {schedule.mode === 'incremental'
@@ -841,37 +917,39 @@ function ScheduleBanner({
               : ' · Always full'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" className="h-7 px-2.5 text-xs" onClick={onEdit}>
+        <div className="flex items-center gap-1">
+          <Button variant="secondary" size="sm" onClick={onEdit}>
             Edit
           </Button>
-          <button
-            type="button"
-            onClick={() => setConfirmOpen(true)}
-            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:text-destructive"
-            aria-label="Remove schedule"
-          >
-            <Trash2 size={13} />
-          </button>
+          <Tooltip label="Remove schedule">
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(true)}
+              className={ROW_ACTION_DANGER}
+              aria-label="Remove schedule"
+            >
+              <Trash2 size={14} />
+            </button>
+          </Tooltip>
         </div>
-      </div>
+      </Panel>
 
       <Dialog
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
-        title="Remove Schedule"
+        title="Remove schedule"
         description="This will stop future automatic backups for this VM."
         size="sm"
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setConfirmOpen(false)}>Cancel</Button>
             <Button variant="danger" size="sm" onClick={handleConfirmDelete} disabled={deleteSchedule.isPending}>
-              Remove Schedule
+              Remove schedule
             </Button>
           </>
         }
       >
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[13.5px] leading-relaxed text-muted-foreground">
           Remove the <span className="font-medium text-foreground">{frequencyLabel(schedule.frequency).toLowerCase()}</span> backup
           schedule? Existing backups will not be deleted.
         </p>
@@ -880,28 +958,21 @@ function ScheduleBanner({
   );
 }
 
-// ─── Backup row ───────────────────────────────────────────────────────────────
-
 // ─── In-progress row ─────────────────────────────────────────────────────────
 
-function BackupInProgressRow({ triggerType }: { triggerType: 'manual' | 'scheduled' }) {
+function BackupInProgressRow({ triggerType, narrow }: { triggerType: 'manual' | 'scheduled'; narrow: boolean }) {
   return (
     <div
-      className="grid items-center gap-4 bg-muted/20 px-5 py-3.5"
-      style={{ gridTemplateColumns: BACKUP_COLS }}
+      className={cn('grid items-center bg-surface/70 px-5 py-3', narrow ? 'gap-3' : 'gap-4')}
+      style={{ gridTemplateColumns: backupCols(narrow) }}
     >
-      {/* Date cell: spinner + label + progress bar */}
-      <div>
-        <div className="mb-1.5 flex items-center gap-2">
-          <Spinner className="h-3 w-3 shrink-0" />
-          <span className="text-sm font-medium text-muted-foreground">Backing up…</span>
-        </div>
-        <div className="h-1 overflow-hidden rounded-full bg-muted">
-          <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
-        </div>
-      </div>
+      {/* Date cell */}
+      <span className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
+        <Spinner className="h-3.5 w-3.5 shrink-0" />
+        Backing up…
+      </span>
       {/* Size */}
-      <span className="font-mono text-sm text-muted-foreground/80">—</span>
+      <span className="text-[12.5px] text-muted-foreground">—</span>
       {/* Disks */}
       <span />
       {/* State */}
@@ -909,12 +980,12 @@ function BackupInProgressRow({ triggerType }: { triggerType: 'manual' | 'schedul
       {/* Trigger */}
       <span>
         {triggerType === 'scheduled' ? (
-          <span className="inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-            <CalendarClock size={9} />
+          <span className="inline-flex items-center gap-1.5 text-[12.5px] text-foreground">
+            <CalendarClock size={13} className="shrink-0 text-muted-foreground" />
             Scheduled
           </span>
         ) : (
-          <span className="text-xs text-muted-foreground">Manual</span>
+          <span className="text-[12.5px] text-muted-foreground">Manual</span>
         )}
       </span>
       {/* Actions */}
@@ -923,39 +994,45 @@ function BackupInProgressRow({ triggerType }: { triggerType: 'manual' | 'schedul
   );
 }
 
+// ─── Backup row ───────────────────────────────────────────────────────────────
+
+// Each state wears the app's status-glyph language: a solid disc for a copy taken
+// from a running guest with its filesystems frozen, an open ring for a VM that was
+// off, the warning triangle where nothing was frozen.
 const consistencyConfig: Record<BackupConsistency, {
-  icon: React.ReactNode;
+  glyph: React.ReactNode;
   label: string;
-  badge?: React.ReactNode;
+  tone: string;
 }> = {
   'app-consistent': {
-    icon: <Check size={12} className="text-emerald-700 dark:text-emerald-400" />,
+    glyph: <StatusGlyph status="running" size={8} />,
     label: 'App-consistent',
+    tone: 'text-emerald-700 dark:text-emerald-300',
   },
   'offline': {
-    icon: <Power size={12} className="text-muted-foreground" />,
+    glyph: <StatusGlyph status="stopped" size={8} />,
     label: 'VM offline',
+    tone: 'text-muted-foreground',
   },
   'crash-consistent': {
-    icon: <ShieldAlert size={12} className="text-amber-700 dark:text-amber-400" />,
+    glyph: <WarnGlyph size={9} />,
     label: 'No guest agent',
-    badge: (
-      <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
-        <ShieldAlert size={8} />No guest agent
-      </span>
-    ),
+    tone: 'text-amber-700 dark:text-amber-300',
   },
 };
 
 function BackupRow({
   backup,
   index,
+  narrow,
   vmUuid,
   onDelete,
   onRestore,
 }: {
   backup: BackupEntry;
   index: number;
+  /** The table is too narrow for a labelled Restore: show it as an icon button. */
+  narrow: boolean;
   vmUuid: string;
   onDelete: () => void;
   onRestore: () => void;
@@ -973,135 +1050,126 @@ function BackupRow({
 
   return (
     <div
-      className="grid items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/40"
-      style={{ gridTemplateColumns: BACKUP_COLS, animationDelay: `${index * 20}ms` }}
+      className={cn('table-row grid items-center px-5 py-2.5', narrow ? 'gap-3' : 'gap-4')}
+      style={{ gridTemplateColumns: backupCols(narrow), animationDelay: `${index * 20}ms` }}
     >
       {/* Date + kind */}
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{formatDate(backup.createdAt)}</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-[13px] font-medium tabular-nums text-foreground">{formatDate(backup.createdAt)}</span>
           {backup.kind === 'incremental' ? (
-            <span className="inline-flex items-center gap-1 rounded border border-border bg-violet-500/10 px-1.5 py-px text-[10px] font-semibold text-violet-700 dark:text-violet-400">
-              <Layers size={8} />Incremental
+            <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
+              <Layers size={12} className="shrink-0" />
+              Incremental
             </span>
           ) : (
-            <span className="inline-flex items-center rounded border border-border bg-muted/50 px-1.5 py-px text-[10px] font-semibold text-muted-foreground">
-              Full
-            </span>
+            <span className="text-[12px] text-muted-foreground">Full</span>
           )}
           {/* Which backup carries a checkpoint is the difference between "the
               next run will be incremental" and "it will be another full", and
               nothing in the UI used to say. */}
           {backup.hasCheckpoint && (
             <Tooltip label="This backup recorded a checkpoint, so an incremental can be layered on top of it">
-              <span className="inline-flex items-center gap-1 rounded border border-border bg-violet-500/5 px-1.5 py-px text-[10px] font-semibold text-violet-400/90">
-                <Link2 size={8} />Chainable
+              <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
+                <Link2 size={12} className="shrink-0" />
+                Chainable
               </span>
             </Tooltip>
           )}
           {backup.chainBroken && (
-            <span className="inline-flex items-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-px text-[10px] font-semibold text-destructive">
-              <Unlink size={8} />Chain broken
+            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-red-700 dark:text-red-300">
+              <Unlink size={12} className="shrink-0" />
+              Chain broken
             </span>
           )}
           {backup.lastVerify && (
             <Tooltip label={`${backup.lastVerify.summary} · checked ${formatRelative(backup.lastVerify.checkedAt)}`}>
               <span className={cn(
-                'inline-flex items-center gap-1 rounded border px-1.5 py-px text-[10px] font-semibold',
+                'inline-flex items-center gap-1 text-[12px] font-medium',
                 backup.lastVerify.ok
-                  ? 'border-border bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                  : 'border-destructive/30 bg-destructive/10 text-destructive',
+                  ? 'text-emerald-700 dark:text-emerald-300'
+                  : 'text-red-700 dark:text-red-300',
               )}>
-                <ShieldCheck size={8} />
+                <ShieldCheck size={12} className="shrink-0" />
                 {backup.lastVerify.ok ? 'Verified' : 'Verify failed'}
               </span>
             </Tooltip>
           )}
         </div>
         {backup.chainBroken && (
-          <p className="mt-1 text-[11px] leading-snug text-destructive">
+          <p className="mt-1 text-[12px] leading-snug text-red-700 dark:text-red-300">
             A backup this one builds on is missing — it can no longer be restored.
           </p>
         )}
         {!backup.chainBroken && backup.notes?.length ? (
-          <p className="mt-1 text-[11px] leading-snug text-amber-700 dark:text-amber-400">{backup.notes.join(' ')}</p>
+          <p className="mt-1 text-[12px] leading-snug text-amber-700 dark:text-amber-300">{backup.notes.join(' ')}</p>
         ) : null}
       </div>
 
       {/* Size — for an incremental, its own delta plus what the full chain costs */}
-      <span className="font-mono text-sm text-muted-foreground">
+      <span className="font-mono text-[12.5px] tabular-nums text-foreground">
         {formatBytes(backup.sizeBytes)}
         {backup.kind === 'incremental' && backup.chainSizeBytes > backup.sizeBytes && (
-          <span className="block text-[10px] text-muted-foreground/80">
+          <span className="block font-sans text-[11.5px] text-muted-foreground">
             {formatBytes(backup.chainSizeBytes)} chain
           </span>
         )}
       </span>
 
       {/* Disks */}
-      <span className="font-mono text-sm text-muted-foreground">
+      <span className="font-mono text-[12.5px] tabular-nums text-muted-foreground">
         {backup.disks.length}
       </span>
 
       {/* Consistency */}
-      <div className="flex items-center gap-2">
-        <div className={cn(
-          'flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
-          backup.consistency === 'app-consistent' && 'bg-emerald-500/10',
-          backup.consistency === 'offline' && 'bg-muted',
-          backup.consistency === 'crash-consistent' && 'bg-amber-500/10',
-        )}>
-          {cons.icon}
-        </div>
-        {cons.badge ?? (
-          <span className={cn(
-            'text-xs font-medium',
-            backup.consistency === 'app-consistent' && 'text-emerald-700 dark:text-emerald-400',
-            backup.consistency === 'offline' && 'text-muted-foreground',
-          )}>
-            {cons.label}
-          </span>
-        )}
-      </div>
+      <span className={cn('inline-flex items-center gap-1.5 text-[12.5px] font-medium', cons.tone)}>
+        {cons.glyph}
+        {cons.label}
+      </span>
 
       {/* Trigger */}
       <span>
         {backup.triggerType === 'scheduled' && backup.scheduleFrequency ? (
-          <span className="inline-flex items-center gap-1 rounded border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-            <CalendarClock size={9} />
+          <span className="inline-flex items-center gap-1.5 text-[12.5px] text-foreground">
+            <CalendarClock size={13} className="shrink-0 text-muted-foreground" />
             {frequencyLabel(backup.scheduleFrequency)}
           </span>
         ) : (
-          <span className="text-xs text-muted-foreground">Manual</span>
+          <span className="text-[12.5px] text-muted-foreground">Manual</span>
         )}
       </span>
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-1">
         <Tooltip label="Read every image this backup depends on and check it for corruption">
+          <button
+            type="button"
+            onClick={handleVerify}
+            disabled={verify.isPending}
+            className={ROW_ACTION}
+            aria-label="Verify backup"
+          >
+            {verify.isPending ? <Spinner className="h-3.5 w-3.5" /> : <ShieldCheck size={14} />}
+          </button>
+        </Tooltip>
+        {withTip('Restore', narrow,
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleVerify}
-            disabled={verify.isPending}
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            aria-label="Verify backup"
+            onClick={onRestore}
+            disabled={backup.chainBroken}
+            aria-label={narrow ? 'Restore' : undefined}
+            className={narrow ? 'w-8 px-0' : 'px-2.5'}
           >
-            {verify.isPending ? <Spinner className="h-3 w-3" /> : <ShieldCheck size={13} />}
+            <ArchiveRestore size={narrow ? 14 : 13} />
+            {!narrow && 'Restore'}
           </Button>
+        )}
+        <Tooltip label="Delete backup">
+          <button type="button" onClick={onDelete} className={ROW_ACTION_DANGER} aria-label="Delete backup">
+            <Trash2 size={14} />
+          </button>
         </Tooltip>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onRestore}
-          disabled={backup.chainBroken}
-          className="h-7 gap-1 px-2 text-xs"
-        >
-          <ArchiveRestore size={12} />Restore
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onDelete} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
-          <Trash2 size={13} />
-        </Button>
       </div>
     </div>
   );
@@ -1163,93 +1231,129 @@ function ScheduleDialog({
     <Dialog
       open
       onClose={onClose}
-      title={existing ? 'Edit Backup Schedule' : 'Set Backup Schedule'}
+      title={existing ? 'Edit backup schedule' : 'Set backup schedule'}
       description={`Automated backups for ${vmName}`}
       size="sm"
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={handleSave} disabled={saveSchedule.isPending}>Save Schedule</Button>
+          <Button size="sm" onClick={handleSave} disabled={saveSchedule.isPending}>Save schedule</Button>
         </>
       }
     >
       <div className="space-y-4">
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Frequency</label>
-          <Select value={frequency} onChange={(e) => setFrequency(e.target.value as BackupFrequency)}>
-            <option value="hourly">Hourly</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-          </Select>
-        </div>
+        <Select
+          id="schedule-frequency"
+          label="Frequency"
+          value={frequency}
+          onChange={(e) => setFrequency(e.target.value as BackupFrequency)}
+        >
+          <option value="hourly">Hourly</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+        </Select>
 
         {frequency !== 'hourly' && (
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Hour (0–23)</label>
-              <Input type="number" min={0} max={23} value={hour} onChange={(e) => setHour(e.target.value)} />
-            </div>
-            <div className="flex-1">
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Minute</label>
-              <Input type="number" min={0} max={59} value={minute} onChange={(e) => setMinute(e.target.value)} />
-            </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              id="schedule-hour"
+              label="Hour (0–23)"
+              type="number"
+              min={0}
+              max={23}
+              value={hour}
+              onChange={(e) => setHour(e.target.value)}
+              className="font-mono tabular-nums"
+            />
+            <Input
+              id="schedule-minute"
+              label="Minute"
+              type="number"
+              min={0}
+              max={59}
+              value={minute}
+              onChange={(e) => setMinute(e.target.value)}
+              className="font-mono tabular-nums"
+            />
           </div>
         )}
 
         {frequency === 'hourly' && (
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Minute past the hour</label>
-            <Input type="number" min={0} max={59} value={minute} onChange={(e) => setMinute(e.target.value)} />
-          </div>
+          <Input
+            id="schedule-minute"
+            label="Minute past the hour"
+            type="number"
+            min={0}
+            max={59}
+            value={minute}
+            onChange={(e) => setMinute(e.target.value)}
+            className="font-mono tabular-nums"
+          />
         )}
 
         {frequency === 'weekly' && (
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Day of week</label>
-            <Select value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)}>
-              {DAY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </Select>
-          </div>
+          <Select
+            id="schedule-day-of-week"
+            label="Day of week"
+            value={dayOfWeek}
+            onChange={(e) => setDayOfWeek(e.target.value)}
+          >
+            {DAY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
         )}
 
         {frequency === 'monthly' && (
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Day of month (1–28)</label>
-            <Input type="number" min={1} max={28} value={dayOfMonth} onChange={(e) => setDayOfMonth(e.target.value)} />
-          </div>
+          <Input
+            id="schedule-day-of-month"
+            label="Day of month (1–28)"
+            type="number"
+            min={1}
+            max={28}
+            value={dayOfMonth}
+            onChange={(e) => setDayOfMonth(e.target.value)}
+            className="font-mono tabular-nums"
+          />
         )}
 
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-            Retention (days) <span className="text-muted-foreground/80">— leave blank to use global default</span>
+        <div className="space-y-1.5">
+          <label htmlFor="schedule-retention" className="block text-[12.5px] font-medium text-foreground">
+            Retention (days) <span className="font-normal text-muted-foreground">— leave blank to use global default</span>
           </label>
           <Input
+            id="schedule-retention"
             type="number"
             min={0}
             placeholder="Use global default"
             value={retentionDays}
             onChange={(e) => setRetentionDays(e.target.value)}
+            className="font-mono tabular-nums"
           />
         </div>
 
-        <div className="border-t border-border/60 pt-4">
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Backup type</label>
-          <Select value={mode} onChange={(e) => setMode(e.target.value as BackupScheduleMode)}>
+        <div className="space-y-3 border-t border-border pt-4">
+          <Select
+            id="schedule-mode"
+            label="Backup type"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as BackupScheduleMode)}
+          >
             <option value="full">Always full — a complete copy every run</option>
             <option value="incremental">Incremental — copy only what changed</option>
           </Select>
           {mode === 'incremental' && (
-            <div className="mt-3 space-y-2">
+            <div className="space-y-2.5">
               <Input
+                id="schedule-full-every"
                 label="Take a fresh full backup every"
                 type="number"
                 min={1}
                 max={60}
                 value={fullEvery}
                 onChange={(e) => setFullEvery(e.target.value)}
+                className="font-mono tabular-nums"
               />
-              <p className="text-[11px] leading-snug text-muted-foreground">
+              <p className="text-[12px] leading-relaxed text-muted-foreground">
                 Counted in backups, not days. Capping the chain keeps restores quick and limits how much a single
                 damaged link can cost. A run that cannot produce an incremental — the VM was off, the host does not
                 support it, or the previous run recorded no checkpoint — falls back to a full backup rather than
@@ -1263,16 +1367,19 @@ function ScheduleDialog({
                   that cannot do incrementals at all, promising "everything
                   after it copies just what has changed" would be untrue. */}
               {incremental?.supported && !incremental.canChain && (
-                <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+                <p className={CALLOUT_INFO}>
                   <span className="font-medium text-foreground">The first run will still be a full backup.</span>{' '}
                   Only a backup taken with this setting on records the checkpoint an incremental measures changes
                   against, so the first run lays one down and everything after it copies just what has changed.
                 </p>
               )}
               {incremental && !incremental.supported && (
-                <p className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
-                  <span className="font-medium text-foreground">This host cannot take incremental backups.</span>{' '}
-                  Its libvirt/qemu does not report backup support, so every run will fall back to a full backup.
+                <p className={cn(CALLOUT_ATTENTION, 'flex items-start gap-2.5')}>
+                  <WarnGlyph size={10} className="mt-[5px]" />
+                  <span>
+                    <span className="font-semibold">This host cannot take incremental backups.</span>{' '}
+                    Its libvirt/qemu does not report backup support, so every run will fall back to a full backup.
+                  </span>
                 </p>
               )}
             </div>
@@ -1312,7 +1419,7 @@ function DeleteBackupDialog({
     <Dialog
       open
       onClose={onClose}
-      title="Delete Backup"
+      title="Delete backup"
       description="This cannot be undone."
       size="sm"
       footer={
@@ -1330,25 +1437,28 @@ function DeleteBackupDialog({
       }
     >
       <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[13.5px] leading-relaxed text-muted-foreground">
           Delete backup from <span className="font-medium text-foreground">{formatDate(backup.createdAt)}</span>?{' '}
-          ({formatBytes(backup.sizeBytes)})
+          <span className="font-mono text-[12.5px]">({formatBytes(backup.sizeBytes)})</span>
         </p>
 
         {/* Deleting a link mid-chain silently corrupts every incremental above
             it, so the destructive option has to be asked for explicitly. */}
         {backup.hasDependents && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-            <p className="text-xs text-amber-700 dark:text-amber-400">
-              Later incremental backups are built on top of this one. Deleting it on its own would leave them
-              unrestorable, so it is only possible together with them.
+          <div className={CALLOUT_ATTENTION}>
+            <p className="flex items-start gap-2.5">
+              <WarnGlyph size={10} className="mt-[5px]" />
+              <span>
+                Later incremental backups are built on top of this one. Deleting it on its own would leave them
+                unrestorable, so it is only possible together with them.
+              </span>
             </p>
-            <label className="mt-2 flex items-start gap-2 text-xs text-foreground">
+            <label className="mt-2.5 flex items-start gap-2 pl-[19px] text-[12.5px] font-medium text-foreground">
               <input
                 type="checkbox"
                 checked={cascade}
                 onChange={(e) => setCascade(e.target.checked)}
-                className="mt-0.5"
+                className="mt-[2px] h-3.5 w-3.5 shrink-0 accent-primary"
               />
               <span>Also delete every backup built on this one</span>
             </label>
@@ -1423,7 +1533,7 @@ function RestoreDialog({
     <Dialog
       open
       onClose={onClose}
-      title="Restore Backup"
+      title="Restore backup"
       description={`${backup.kind === 'incremental' ? 'Incremental backup' : 'Full backup'} from ${formatDate(backup.createdAt)}`}
       size="sm"
       footer={
@@ -1435,7 +1545,7 @@ function RestoreDialog({
             onClick={handleRestore}
             disabled={pending || (mode === 'new' && !newName.trim())}
           >
-            <Zap size={13} className="mr-1.5" />
+            <ArchiveRestore size={13} />
             {mode === 'overwrite' ? 'Overwrite' : 'Create VM'}
           </Button>
         </>
@@ -1460,28 +1570,34 @@ function RestoreDialog({
         </div>
 
         {mode === 'overwrite' ? (
-          <p className="text-sm text-muted-foreground">
-            Restoring will overwrite <strong className="text-foreground">{vmName}</strong>'s current disk(s).
-            The VM must be <strong className="text-foreground">stopped</strong> before restoring.
+          <p className="text-[13.5px] leading-relaxed text-muted-foreground">
+            Restoring will overwrite <strong className="font-semibold text-foreground">{vmName}</strong>'s current disk(s).
+            The VM must be <strong className="font-semibold text-foreground">stopped</strong> before restoring.
           </p>
         ) : (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+          <div className="space-y-3.5">
+            <p className="text-[13.5px] leading-relaxed text-muted-foreground">
               Builds a complete new machine from this backup — its own UUID, MAC addresses and IP. Works even if
               the original VM has been deleted.
             </p>
             <Input
+              id="restore-new-name"
               label="New VM name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="restored-vm"
             />
             <StorageDirSelect purpose="vmDisks" value={storageDirId} onChange={setStorageDirId} />
-            <label className="flex items-center gap-2 text-xs text-foreground">
-              <input type="checkbox" checked={startAfter} onChange={(e) => setStartAfter(e.target.checked)} />
+            <label className="flex items-center gap-2 text-[13px] text-foreground">
+              <input
+                type="checkbox"
+                checked={startAfter}
+                onChange={(e) => setStartAfter(e.target.checked)}
+                className="h-3.5 w-3.5 shrink-0 accent-primary"
+              />
               <span>Start the VM once it is created</span>
             </label>
-            <p className="text-[11px] leading-snug text-muted-foreground">
+            <p className="text-[12px] leading-relaxed text-muted-foreground">
               cloud-init runs again on first boot so the guest picks up the new hostname and network settings.
               Attached ISOs are carried over; the original's cloud-init seed is not.
             </p>
@@ -1492,6 +1608,7 @@ function RestoreDialog({
   );
 }
 
+// A selectable option card (DESIGN.md): hairline at rest, steel border and wash when chosen.
 function ModeCard({
   active,
   onClick,
@@ -1509,16 +1626,19 @@ function ModeCard({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
-        'rounded-lg border px-3 py-2.5 text-left transition-colors',
-        active ? 'border-primary bg-primary/10' : 'border-border bg-card hover:bg-muted/40',
+        'rounded-lg border px-3 py-2.5 text-left transition-[border-color,background-color] duration-150',
+        active
+          ? 'border-primary bg-accent ring-1 ring-primary/30'
+          : 'border-border bg-card hover:border-muted-foreground/40',
       )}
     >
-      <span className={cn('flex items-center gap-1.5 text-xs font-semibold', active ? 'text-primary' : 'text-foreground')}>
-        {icon}
+      <span className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+        <span className={cn('flex shrink-0', active ? 'text-primary' : 'text-muted-foreground')}>{icon}</span>
         {title}
       </span>
-      <span className="mt-0.5 block text-[11px] text-muted-foreground">{body}</span>
+      <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">{body}</span>
     </button>
   );
 }

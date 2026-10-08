@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronDown, Monitor, Palette, Play, Power, RefreshCw, Square, Terminal, Wifi, Zap } from 'lucide-react';
 import { Spinner } from '@/components/ui/Spinner';
+import { StatusGlyph } from '@/components/ui/Badge';
+import type { VmStatus } from '@/types';
 import { toast } from 'sonner';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -25,12 +27,14 @@ const connLabel: Record<ConnState, string> = {
   error:        'Error',
 };
 
-const connDotClass: Record<ConnState, string> = {
-  connecting:   'bg-amber-400 animate-pulse',
-  reconnecting: 'bg-amber-400 animate-pulse',
-  connected:    'bg-emerald-500',
-  closed:       'bg-slate-500',
-  error:        'bg-red-500',
+// Connection state as a static mark (the progress bar under the header shows motion
+// while connecting): a disc when connected, a ring when closed, a diamond on error.
+const connMark: Record<ConnState, VmStatus> = {
+  connecting:   'paused',
+  reconnecting: 'paused',
+  connected:    'running',
+  closed:       'stopped',
+  error:        'crashed',
 };
 
 interface TerminalPaneProps {
@@ -324,17 +328,19 @@ function ThemePicker({ themeId, onChange }: ThemePickerProps) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[12px] text-muted-foreground transition-colors hover:border-input hover:text-foreground"
         title="Terminal theme"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
-        <Palette size={11} className="text-white/50" />
-        <span className="tracking-tight">{active.name}</span>
-        <ChevronDown size={11} className={cn('text-white/55 transition-transform', open && 'rotate-180')} />
+        <Palette size={13} />
+        <span>{active.name}</span>
+        <ChevronDown size={12} className={cn('transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-20 mt-1.5 w-56 overflow-hidden rounded-lg border border-white/10 bg-[#121721] shadow-[0_8px_24px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.04] backdrop-blur"
+          className="absolute right-0 top-full z-20 mt-1.5 w-60 overflow-hidden rounded-lg border border-border bg-card shadow-pop"
         >
           <ul className="py-1">
             {THEME_ORDER.map((id) => {
@@ -348,17 +354,17 @@ function ThemePicker({ themeId, onChange }: ThemePickerProps) {
                     aria-checked={isActive}
                     onClick={() => { onChange(id); setOpen(false); }}
                     className={cn(
-                      'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white',
-                      isActive && 'text-white',
+                      'flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground',
+                      isActive && 'text-foreground',
                     )}
                   >
-                    <Check size={11} className={cn('shrink-0', isActive ? 'text-emerald-400' : 'invisible')} />
+                    <Check size={12} className={cn('shrink-0', isActive ? 'text-[#86AEDA]' : 'invisible')} />
                     <span className="flex-1 truncate">{t.name}</span>
                     <span className="flex shrink-0 items-center gap-0.5">
                       {[t.palette.red, t.palette.yellow, t.palette.green, t.palette.blue, t.palette.magenta].map((c, i) => (
                         <span
                           key={i}
-                          className="h-2 w-2 rounded-full ring-1 ring-black/30"
+                          className="h-2 w-2 rounded-[2px] ring-1 ring-black/30"
                           style={{ background: c }}
                         />
                       ))}
@@ -373,6 +379,9 @@ function ThemePicker({ themeId, onChange }: ThemePickerProps) {
     </div>
   );
 }
+
+const consoleAction =
+  'inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40';
 
 function VncPane({ name, onConnState }: { name: string; onConnState: (s: ConnState) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -459,151 +468,119 @@ export function VmConsolePage() {
 
   return (
     <div className="flex h-screen flex-col" style={{ background: themeBg }}>
-      {/* Header bar */}
-      <div
-        className="flex h-11 shrink-0 items-center gap-3 border-b border-white/[0.07] bg-[#121721] px-5"
-      >
+      {/* Header bar — always dark: it sits on a terminal. */}
+      <div className="dark flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 text-foreground">
         {/* Brand mark */}
         <img src="/brand/virtpilot-symbol-small-dark.svg" alt="VirtPilot" className="h-5 w-5 shrink-0" />
 
-        <span className="h-4 w-px bg-white/8" />
+        <span className="h-5 w-px bg-border" />
 
         {/* Back link — hidden in popup mode (no parent dashboard to return to) */}
         {isPopup ? (
-          <span className="text-xs font-medium text-white/70">
+          <span className="text-[13px] font-medium text-foreground">
             {vm?.name ?? uuid}
           </span>
         ) : (
           <Link
             to={`/vms/${uuid}`}
-            className="flex items-center gap-1.5 text-xs text-white/55 transition-colors hover:text-white/70"
+            className="flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ArrowLeft size={12} />
+            <ArrowLeft size={14} />
             {vm?.name ?? uuid}
           </Link>
         )}
 
-        <span className="h-4 w-px bg-white/8" />
+        <span className="h-5 w-px bg-border" />
 
         {/* Tab switcher */}
-        <div
-          className="flex items-center gap-0.5 rounded-md p-0.5"
-          style={{ background: 'rgba(255,255,255,0.05)' }}
-        >
-          <button
-            onClick={() => setTab('console')}
-            className={cn(
-              'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors',
-              tab === 'console'
-                ? 'bg-white/10 text-white/80'
-                : 'text-white/55 hover:text-white/60'
-            )}
-          >
-            <Terminal size={11} />
+        <div className="segmented" role="group" aria-label="Console type">
+          <button type="button" onClick={() => setTab('console')} aria-pressed={tab === 'console'} className="flex items-center gap-1.5">
+            <Terminal size={12} />
             Console
           </button>
-          <button
-            onClick={() => setTab('ssh')}
-            className={cn(
-              'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors',
-              tab === 'ssh'
-                ? 'bg-white/10 text-white/80'
-                : 'text-white/55 hover:text-white/60'
-            )}
-          >
-            <Wifi size={11} />
+          <button type="button" onClick={() => setTab('ssh')} aria-pressed={tab === 'ssh'} className="flex items-center gap-1.5">
+            <Wifi size={12} />
             SSH
           </button>
-          <button
-            onClick={() => setTab('vnc')}
-            className={cn(
-              'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors',
-              tab === 'vnc'
-                ? 'bg-white/10 text-white/80'
-                : 'text-white/55 hover:text-white/60'
-            )}
-          >
-            <Monitor size={11} />
+          <button type="button" onClick={() => setTab('vnc')} aria-pressed={tab === 'vnc'} className="flex items-center gap-1.5">
+            <Monitor size={12} />
             VNC
           </button>
         </div>
 
-        <span className="h-4 w-px bg-white/8" />
+        <span className="h-5 w-px bg-border" />
 
         {/* Connection state */}
-        <div className="flex items-center gap-2">
-          <span
-            className={cn('h-1.5 w-1.5 rounded-full', connDotClass[connState])}
-            style={
-              connState === 'connected'
-                ? { boxShadow: '0 0 5px 1px rgb(52 211 153 / 0.5)' }
-                : undefined
-            }
-          />
-          <span className="font-mono text-xs text-white/55">{connLabel[connState]}</span>
+        <div className="flex items-center gap-2" role="status">
+          <StatusGlyph status={connMark[connState]} size={7} />
+          <span className="font-mono text-[12px] text-muted-foreground">{connLabel[connState]}</span>
         </div>
 
         {/* VM action buttons — right aligned */}
         <div className="ml-auto flex items-center gap-1">
           {vm && vm.status !== 'running' && (
             <button
+              type="button"
               onClick={action.start}
               disabled={action.isPending}
               title="Start"
-              className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs text-emerald-400/70 transition-colors hover:bg-white/5 hover:text-emerald-400 disabled:opacity-40"
+              className={cn(consoleAction, 'text-emerald-300 hover:text-emerald-200')}
             >
-              {action.isPending ? <Spinner className="h-2.5 w-2.5 text-white/60" /> : <Play size={11} />}
+              {action.isPending ? <Spinner className="h-3 w-3" /> : <Play size={13} />}
               Start
             </button>
           )}
           {vm?.status === 'running' && (
             <>
               <button
+                type="button"
                 onClick={action.reboot}
                 disabled={action.isPending}
                 title="Reboot"
-                className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs text-amber-400/70 transition-colors hover:bg-white/5 hover:text-amber-400 disabled:opacity-40"
+                className={consoleAction}
               >
-                {action.isPending ? <Spinner className="h-2.5 w-2.5 text-white/60" /> : <RefreshCw size={11} />}
+                {action.isPending ? <Spinner className="h-3 w-3" /> : <RefreshCw size={13} />}
                 Reboot
               </button>
               <button
+                type="button"
                 onClick={action.stop}
                 disabled={action.isPending}
                 title="Stop"
-                className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs text-red-400/70 transition-colors hover:bg-white/5 hover:text-red-400 disabled:opacity-40"
+                className={consoleAction}
               >
-                {action.isPending ? <Spinner className="h-2.5 w-2.5 text-white/60" /> : <Square size={11} />}
+                {action.isPending ? <Spinner className="h-3 w-3" /> : <Square size={13} />}
                 Stop
               </button>
               <button
+                type="button"
                 onClick={action.forceStop}
                 disabled={action.isPending}
                 title="Force stop (virsh destroy)"
-                className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs text-red-500/50 transition-colors hover:bg-white/5 hover:text-red-500 disabled:opacity-40"
+                className={cn(consoleAction, 'hover:bg-red-500/10 hover:text-red-300')}
               >
-                {action.isPending ? <Spinner className="h-2.5 w-2.5 text-white/60" /> : <Zap size={11} />}
-                Force Stop
+                {action.isPending ? <Spinner className="h-3 w-3" /> : <Zap size={13} />}
+                Force stop
               </button>
             </>
           )}
-          <span className="ml-1 font-mono text-xs text-white/45">{tab}/{vm?.name ?? uuid}</span>
+          <span className="mx-2 hidden font-mono text-[12px] text-muted-foreground lg:inline">{tab}/{vm?.name ?? uuid}</span>
           <ThemePicker themeId={themeId} onChange={handleThemeChange} />
         </div>
       </div>
 
       {/* Indeterminate progress bar during (re)connect. */}
-      <div className="relative h-0.5 shrink-0 bg-white/[0.04]">
+      <div className="relative h-0.5 shrink-0 overflow-hidden bg-white/[0.04]">
         {(connState === 'connecting' || connState === 'reconnecting') && (
-          <div className="absolute inset-y-0 left-0 w-1/3 animate-[vp-progress_1.4s_ease-in-out_infinite] bg-primary/80" />
+          <div className="absolute inset-y-0 left-0 w-1/3 animate-[vp-progress_1.4s_ease-in-out_infinite] bg-[#86AEDA]" />
         )}
       </div>
 
       {/* Pane — remounts on tab switch via key */}
       {isNotRunning ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2">
-          <Power size={24} className="text-white/15" />
-          <p className="text-sm text-white/55">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3">
+          <Power size={22} className="text-[#8B95A5]" />
+          <p className="text-[13.5px] text-[#B5BDC9]">
             VM is <span className="font-mono">{vm.status}</span> — use Start above to boot it.
           </p>
         </div>

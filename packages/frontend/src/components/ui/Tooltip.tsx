@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
+import { Children, cloneElement, isValidElement, useState, useRef, useEffect, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/cn';
 
@@ -6,6 +6,27 @@ interface TooltipProps {
   label: string;
   side?: 'top' | 'right' | 'bottom' | 'left';
   children: ReactNode;
+}
+
+// True when a subtree renders any text of its own (so it already has a visible name).
+function hasText(node: ReactNode): boolean {
+  let found = false;
+  Children.forEach(node, (c) => {
+    if (found) return;
+    if (typeof c === 'string' || typeof c === 'number') found = String(c).trim().length > 0;
+    else if (isValidElement<{ children?: ReactNode }>(c)) found = hasText(c.props.children);
+  });
+  return found;
+}
+
+// An icon-only button or link wrapped in a tooltip is named by the tooltip: the label a
+// sighted user sees on hover is the one a screen reader announces. Children that
+// already carry text or an aria-label are left alone.
+function withName(child: ReactNode, label: string): ReactNode {
+  if (!isValidElement<{ children?: ReactNode; 'aria-label'?: string }>(child)) return child;
+  if (typeof child.type !== 'string' || !['button', 'a'].includes(child.type)) return child;
+  if (child.props['aria-label'] || hasText(child.props.children)) return child;
+  return cloneElement(child as ReactElement<{ 'aria-label'?: string }>, { 'aria-label': label });
 }
 
 export function Tooltip({ label, side = 'top', children }: TooltipProps) {
@@ -45,20 +66,23 @@ export function Tooltip({ label, side = 'top', children }: TooltipProps) {
   return (
     <span
       ref={anchorRef}
-      className="relative inline-flex"
+      // A disabled control fires no mouse events, so it lets them through to this
+      // wrapper — otherwise the hint that explains *why* it is disabled never shows.
+      className="relative inline-flex [&>:disabled]:pointer-events-none"
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}
       onFocusCapture={() => setVisible(true)}
       onBlurCapture={() => setVisible(false)}
     >
-      {children}
+      {Children.count(children) === 1 ? withName(children, label) : children}
       {visible &&
         createPortal(
           <span
             style={{ top: coords.top, left: coords.left, transform: transformMap[side] }}
             className={cn(
-              'pointer-events-none fixed z-[9999] animate-fade-in whitespace-nowrap rounded-md',
-              'bg-[#121721] px-2 py-1 text-[11.5px] font-medium text-[#E6EAF0] shadow-pop ring-1 ring-white/10'
+              'pointer-events-none fixed z-[9999] max-w-[20rem] animate-fade-in rounded-md',
+              label.length > 48 ? 'w-max whitespace-normal leading-snug' : 'whitespace-nowrap',
+              'bg-[#1B2433] px-2 py-1 text-[12px] font-medium text-[#F1F3F6] shadow-pop dark:bg-[#E6EAF0] dark:text-[#1B2433]'
             )}
           >
             {label}

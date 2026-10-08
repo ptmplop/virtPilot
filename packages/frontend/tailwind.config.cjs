@@ -14,7 +14,15 @@ module.exports = {
       },
       colors: {
         ...scales,
+        canvas: 'hsl(var(--canvas))',
         surface: 'hsl(var(--surface))',
+        'sheet-border': 'hsl(var(--sheet-border))',
+        'gauge-track': 'hsl(var(--gauge-track))',
+        action: {
+          DEFAULT: 'hsl(var(--action))',
+          hover: 'hsl(var(--action-hover))',
+          foreground: 'hsl(var(--action-foreground))',
+        },
         field: 'hsl(var(--field))',
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
@@ -41,14 +49,13 @@ module.exports = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        sidebar: {
-          DEFAULT: 'hsl(var(--sidebar-background))',
-          border: 'hsl(var(--sidebar-border))',
-        },
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
       },
       borderRadius: {
+        // Instruments, not cushions: 8px panels, 6px controls. The old 12px card
+        // corner (rounded-xl) is folded onto the panel radius so nothing looks pillowy.
+        xl: 'var(--radius)',
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
@@ -58,6 +65,8 @@ module.exports = {
         'glow-primary': '0 0 0 0 transparent',
         'glow-emerald': '0 0 0 0 transparent',
         'card': 'var(--shadow-card)',
+        'sheet': 'var(--shadow-sheet)',
+        'nav': 'var(--nav-active-shadow)',
         'card-hover': 'var(--shadow-pop)',
         'pop': 'var(--shadow-pop)',
         'inner-border': 'inset 0 0 0 1px hsl(var(--border))',

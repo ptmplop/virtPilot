@@ -61,7 +61,7 @@ export function CloneVmDialog({ open, vmUuid, vmName, vmStatus, onClose }: Props
     <Dialog
       open={open}
       onClose={onClose}
-      title="Clone Virtual Machine"
+      title="Clone virtual machine"
       description={`A complete, independent copy of ${vmName}`}
       size="sm"
       footer={

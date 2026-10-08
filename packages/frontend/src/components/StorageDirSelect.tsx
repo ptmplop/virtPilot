@@ -34,7 +34,7 @@ export function StorageDirSelect({ purpose, value, onChange, label = 'Storage', 
     return (
       <div className="space-y-1">
         <label className="text-xs font-medium text-foreground">{label}</label>
-        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-[12.5px] text-amber-800 dark:text-amber-200">
           {excludeId
             ? `No other storage directory configured for ${purpose}. Add one on the Storage page.`
             : `No storage directory configured for ${purpose}. Add one on the Storage page.`}

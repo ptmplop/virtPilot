@@ -86,25 +86,25 @@ export function LoginPage() {
   }
 
   const fieldClass =
-    'block h-10 w-full rounded-md border border-input bg-background px-3 text-[14px] text-foreground ' +
-    'placeholder:text-muted-foreground/60 transition-[border-color,box-shadow] duration-150 ' +
-    'focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/25';
+    'block h-10 w-full rounded-md border border-input bg-field px-3 text-[14px] text-foreground ' +
+    'placeholder:text-muted-foreground/70 transition-[border-color,box-shadow] duration-150 ' +
+    'hover:border-muted-foreground/40 focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/20';
 
   return (
-    // Always dark: the sign-in screen is the app-icon tile, the same ink as the sidebar.
-    <div className="dark flex min-h-screen flex-col items-center justify-center bg-background px-4 py-12 text-foreground">
-      <div className="w-full max-w-[360px] animate-fade-in">
-        <img
-          src="/brand/virtpilot-stacked-dark.svg"
-          alt="VirtPilot"
-          className="mx-auto mb-10 h-[92px] w-auto"
-        />
+    // The sign-in screen is the canvas with one sheet on it — the same frame as the app.
+    <div className="flex min-h-screen flex-col items-center justify-center bg-canvas px-4 py-12 text-foreground">
+      <div className="w-full max-w-[380px] animate-fade-in">
+        <div className="mb-9 flex flex-col items-center">
+          <img src="/brand/virtpilot-horizontal.svg" alt="VirtPilot" className="h-[38px] w-auto dark:hidden" />
+          <img src="/brand/virtpilot-horizontal-dark.svg" alt="VirtPilot" className="hidden h-[38px] w-auto dark:block" />
+          <p className="mt-3 text-[13px] text-muted-foreground">KVM, steered from the browser</p>
+        </div>
 
-        <div className="rounded-lg border border-border bg-card p-7 shadow-pop">
+        <div className="rounded-[12px] border border-sheet-border bg-card p-8 shadow-[0_1px_2px_rgb(27_36_51/0.05),0_12px_32px_-16px_rgb(27_36_51/0.18)] dark:shadow-none">
           {step === 'password' ? (
             <>
-              <h1 className="text-[17px] font-semibold text-foreground">Sign in</h1>
-              <p className="mt-1 text-[13px] text-muted-foreground">Enter the admin password for this host.</p>
+              <h1 className="text-[20px] font-semibold tracking-[-0.018em] text-foreground">Sign in</h1>
+              <p className="mt-1 text-[13.5px] text-muted-foreground">Enter the admin password for this host.</p>
 
               <form onSubmit={handlePasswordSubmit} className="mt-6 space-y-5">
                 <div className="space-y-1.5">
@@ -145,9 +145,9 @@ export function LoginPage() {
             <>
               <div className="flex items-center gap-2">
                 <ShieldCheck size={16} className="text-primary" />
-                <h1 className="text-[17px] font-semibold text-foreground">Two-factor authentication</h1>
+                <h1 className="text-[20px] font-semibold tracking-[-0.018em] text-foreground">Two-factor authentication</h1>
               </div>
-              <p className="mt-1 text-[13px] text-muted-foreground">
+              <p className="mt-1 text-[13.5px] text-muted-foreground">
                 Enter the 6-digit code from your authenticator app.
               </p>
 
@@ -189,8 +189,8 @@ export function LoginPage() {
           )}
         </div>
 
-        <p className="mt-8 text-center font-mono text-[11px] text-muted-foreground/80">
-          VirtPilot {APP_VERSION} · KVM manager
+        <p className="mt-8 text-center font-mono text-[11.5px] text-muted-foreground">
+          VirtPilot {APP_VERSION}
         </p>
       </div>
     </div>

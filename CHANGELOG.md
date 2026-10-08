@@ -3,6 +3,62 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.11.0] — 2026-10-08
+
+### Changed
+
+- **A new design, built from the logo rather than recoloured around it.** Every page keeps its layout — each section, table, tab and button is where it was — but the interface around it is new. The sidebar now follows your theme (light in light mode, with the full-colour logo), and each page sits on its own sheet, inset from the window. Boxes are instruments with a title bar and a hairline frame; rows of figures are one ruled strip instead of a grid of identical cards with tinted icon tiles; primary buttons are ink (frost in dark mode), and the steel blue is kept for what your eye should follow — focus, selection, links and data.
+
+- **The dashboard opens on an instrument cluster.** CPU, memory, disk and running VMs are drawn as gauges in the shape of the logo's own dial — a ring with a gap at 45° — beside a one-line verdict for the host and the installed VirtPilot version. Host details are a ruled plate, the VM list shows each machine's state as a mark and a word, the update card carries the logo, and the metric charts sit in titled panels with their live reading in the title bar.
+
+- **Status reads by shape as well as colour.** A solid disc is running, an open ring is stopped, two bars are paused and a diamond has crashed; warnings that are not a VM state use a small triangle. It still reads in greyscale and for colour-blind eyes.
+
+- **Headlines use Inter Display**, the logo's own face, through Inter's optical-size axis; body text stays Inter and identifiers stay JetBrains Mono. Both are still bundled with the app.
+
+- **The sign-in screen follows your theme** and carries the logo and its line, "KVM, steered from the browser".
+
+- **Native controls follow the theme.** Drop-down menus and other built-in browser controls render dark in dark mode, checkboxes and radio buttons take the brand steel instead of the browser's blue, and the browser's own toolbar colour (on phones and installed apps) matches the app.
+
+### Added
+
+- **What the running VMs have been given, against the host.** The dashboard's VM panel ends with two meters — vCPUs and memory allocated to running guests against the host's cores and RAM — and turns amber when the host is over-committed.
+
+- **A Backups filter on the Logs page**, next to VMs, Networks and System.
+
+### Fixed
+
+- **Three "back" links went to the wrong page.** The *Virtual machines* breadcrumb on a VM's page, the *Back to list* button on a VM that no longer exists, and the back link on *Create virtual machine* all led to the Dashboard instead of the VM list. *Back to list* was also a button nested inside a link, which is invalid markup.
+
+- **A backup's next scheduled run always read "just now".** The per-VM page formatted a future time with the "time ago" helper, so the difference came out negative. It now says "in 3h", "in 2d" or "Soon".
+
+- **Backup row actions spilled over their neighbours.** On the Backups list the three row buttons needed about 290 px in a 186 px column and drew over the Schedule column, and the per-VM history table did the same to Trigger. The columns are sized for their contents, and on narrow windows the actions become icon buttons with tooltips instead of scrolling out of reach.
+
+- **A paused backup schedule was listed as "None"** while its own button said *Schedule*. It now reads *Paused*.
+
+- **The VM page counted an empty CD-ROM drive as a disk** — *Disks: 2* on the Overview while the Disks tab listed one — and a VM whose only drives were the cloud-init seed and an empty CD-ROM showed a bare table header instead of *No disks attached*. Both now use the same filter.
+
+- **A running VM was told to "Start VM to resolve" its IP address.** It now says *Not resolved yet* until the address appears; a stopped VM keeps the original hint.
+
+- **Idle charts repeated their axis labels** ("1 B/s, 1 B/s, 1 B/s, 0 B/s") because an all-zero series was scaled to a 0–1 axis. Byte-rate charts on the dashboard and the VM Metrics tab now keep a 1 KB/s floor, and their labels no longer wrap onto two lines.
+
+- **The new-VM wizard** labelled every disk "(blank)" on the Review step, including template-based VMs whose disk is the cloud image; showed its ISO-install notes in a light amber that was close to invisible on white; and showed neither an IP picker nor the "assigned by DHCP" note for an existing OS bridge on DHCP.
+
+- **The same SSH key could be saved twice.** The server accepted an identical public key under any name, so a VM provisioned with both entries got the key twice in `authorized_keys`. A duplicate is now refused with a message naming the entry that already holds it, and the form shows the server's reason (a malformed key, or a duplicate) instead of "Failed to add SSH key".
+
+- **About twenty kinds of log entry showed their internal key.** Backups, restores, verification and pruning, clones, renames, disk resize/move/download, device attach/detach, NIC rate limits, autostart, resource changes, hard resets and VirtPilot's own upgrades appeared as `backup.create`, `vm.clone` and so on. Every action the server records now has a name.
+
+- **The VM list showed a generic server icon** for VMs whose operating system the dashboard already showed, and the dashboard ignored a logo picked by hand for a VM. Both now use the chosen logo first and the one implied by the VM's template otherwise.
+
+- **Lines that should have divided the terminal windows were drawn in the light theme's border colour** across the dark apt-upgrade and self-upgrade windows, and the console header's separators never appeared: both used a colour class (`white/8`) that does not exist. The upgrade windows are now proper dialogs, and a finished job's window closes with Escape.
+
+- **Tooltips never appeared on disabled buttons** — exactly when they explain why the button is disabled, such as the incremental-backup hint — and a long hint ran off the screen on one line. Disabled buttons now show their tooltip, and long ones wrap.
+
+- **Controls a screen reader could not name or reach.** About thirty icon-only buttons (VM power actions, disk, snapshot, NIC, port-forward, firewall and boot-order actions, row actions on Storage, Templates, ISOs and Networks, several close buttons) were announced as just "button"; the wizard's switches had no names; several form labels were not tied to their fields; and saved SSH keys in the wizard could only be added with a mouse. A button inside a tooltip is now named by it, the rest are labelled, and the key list works from the keyboard.
+
+- **Dates were written four different ways**, and snapshot and template dates followed the browser's locale (`10/8/2026, 4:33:17 PM` in an American-English browser). Every date now reads `8 Oct 2026`, with `16:33` where the time matters.
+
+- **Smaller things:** the backups banner said "1 backup problem need attention"; an empty backup history told you to click a "Back Up Now" button that does not exist; and the VM list and VM page said "Active" and "Off" where every other page says Running and Stopped.
+
 ## [2.10.0] — 2026-10-08
 
 ### Changed

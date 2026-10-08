@@ -169,12 +169,12 @@ export function SettingsPage() {
   }
 
   const configRows: [string, string][] = settings ? [
-    ['Storage Root',        settings.storageRoot],
-    ['Templates Directory', settings.templatesDir],
-    ['ISOs Directory',      settings.isosDir],
-    ['VMs Directory',       settings.vmsDir],
-    ['Backup Root',         settings.backupRoot],
-    ['Default Bridge',      settings.defaultBridge],
+    ['Storage root',        settings.storageRoot],
+    ['Templates directory', settings.templatesDir],
+    ['ISOs directory',      settings.isosDir],
+    ['VMs directory',       settings.vmsDir],
+    ['Backup root',         settings.backupRoot],
+    ['Default bridge',      settings.defaultBridge],
     ['Libvirt URI',         settings.libvirtUri],
   ] : [];
 
@@ -185,13 +185,13 @@ export function SettingsPage() {
       {/* Host configuration */}
       <section className="space-y-3">
         <div>
-          <SectionHeading label="Host Configuration" />
+          <SectionHeading label="Host configuration" />
           <p className="mt-2 text-xs text-muted-foreground">
             Read-only. Set via environment variables in the backend{' '}
             <span className="font-mono">.env</span> file.
           </p>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="panel overflow-hidden">
           {isLoading ? (
             <div className="space-y-px p-4">
               {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
@@ -200,7 +200,7 @@ export function SettingsPage() {
             <dl className="divide-y divide-border">
               {configRows.map(([label, value]) => (
                 <div key={label} className="flex items-baseline gap-4 px-5 py-3 hover:bg-muted/20 transition-colors">
-                  <dt className="w-44 shrink-0 text-[12px] font-medium text-muted-foreground/80">{label}</dt>
+                  <dt className="w-44 shrink-0 text-[12px] font-medium text-muted-foreground">{label}</dt>
                   <dd className="min-w-0 truncate font-mono text-xs text-foreground" title={value}>{value}</dd>
                 </div>
               ))}
@@ -216,13 +216,13 @@ export function SettingsPage() {
       {/* Log retention */}
       <section className="space-y-3">
         <div>
-          <SectionHeading label="Log Retention" />
+          <SectionHeading label="Log retention" />
           <p className="mt-2 text-xs text-muted-foreground">
             Maximum number of log entries to keep. Oldest entries are pruned automatically. Range: 10 – 10,000.
           </p>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
           {isLoading ? (
             <Skeleton className="h-10 w-48 rounded-lg" />
           ) : (
@@ -260,7 +260,7 @@ export function SettingsPage() {
             Set retention to <span className="font-mono">0</span> to keep backups forever.
           </p>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
           {isLoading ? (
             <Skeleton className="h-10 rounded-lg" />
           ) : (
@@ -302,17 +302,17 @@ export function SettingsPage() {
       {/* IP Access Control */}
       <section className="space-y-3">
         <div>
-          <SectionHeading label="IP Access Control" />
+          <SectionHeading label="IP access control" />
           <p className="mt-2 text-xs text-muted-foreground">
             Restrict login and API access to specific IP addresses or CIDR ranges (e.g.{' '}
             <span className="font-mono">203.0.113.1</span> or{' '}
             <span className="font-mono">10.0.0.0/8</span>). Leave empty to allow all IPs.
           </p>
-          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300 font-medium">
             Ensure your own IP is listed before saving, or you will be locked out.
           </p>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
           {isLoading ? (
             <Skeleton className="h-24 rounded-lg" />
           ) : (
@@ -373,12 +373,12 @@ export function SettingsPage() {
       {/* Two-factor authentication */}
       <section className="space-y-3">
         <div>
-          <SectionHeading label="Two-Factor Authentication" />
+          <SectionHeading label="Two-factor authentication" />
           <p className="mt-2 text-xs text-muted-foreground">
             Require a time-based one-time code from an authenticator app (Google Authenticator, Authy, etc.) on every login.
           </p>
         </div>
-        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
           {isLoading ? (
             <Skeleton className="h-10 rounded-lg" />
           ) : settings?.totpEnabled ? (
@@ -428,7 +428,7 @@ export function SettingsPage() {
                   />
                 )}
                 <div className="flex flex-col justify-center gap-2 min-w-0">
-                  <p className="text-[12px] font-medium text-muted-foreground/80">Manual entry key</p>
+                  <p className="text-[12px] font-medium text-muted-foreground">Manual entry key</p>
                   <p className="break-all font-mono text-xs text-foreground select-all">{totpSecret}</p>
                 </div>
               </div>

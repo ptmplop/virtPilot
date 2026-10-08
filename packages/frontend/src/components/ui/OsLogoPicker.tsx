@@ -124,7 +124,7 @@ export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
 
   return (
     <div ref={ref} className="relative">
-      <p className="mb-1.5 text-xs font-medium text-muted-foreground">OS Logo (optional)</p>
+      <p className="mb-1.5 text-[12.5px] font-medium text-foreground">OS logo <span className="font-normal text-muted-foreground">(optional)</span></p>
 
       {/* Trigger button */}
       <button
@@ -157,7 +157,7 @@ export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-border bg-card shadow-lg shadow-black/20">
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-full overflow-hidden rounded-lg border border-border bg-card shadow-pop">
           {/* Search */}
           <div className="border-b border-border p-2">
             <div className="relative">
@@ -233,7 +233,7 @@ export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
                           )}
                         >
                           <LogoTile logo={logo} size={28} />
-                          <span className="line-clamp-2 text-center text-[9px] leading-tight text-muted-foreground">
+                          <span className="line-clamp-2 text-center text-[10.5px] leading-tight text-muted-foreground">
                             {logo.name}
                           </span>
                         </button>
@@ -267,7 +267,7 @@ export function VmLogo({ slug, size = 20, fallbackIcon: FallbackIcon = Server }:
         className="flex shrink-0 items-center justify-center rounded-md bg-muted"
         style={{ width: size, height: size }}
       >
-        <FallbackIcon size={size * 0.55} className="text-muted-foreground/80" />
+        <FallbackIcon size={size * 0.55} className="text-muted-foreground" />
       </div>
     );
   }

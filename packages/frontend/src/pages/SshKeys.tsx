@@ -1,35 +1,14 @@
 import { useState } from 'react';
-import { Check, Clock, KeyRound, Plus, Trash2, X } from 'lucide-react';
+import { Check, KeyRound, Plus, Trash2, X } from 'lucide-react';
+import axios from 'axios';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
+import { Stat, StatStrip } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
 import { useSshKeys, useAddSshKey, useDeleteSshKey } from '@/hooks/useSshKeys';
-
-// ─── Stat card ────────────────────────────────────────────────────────────────
-
-function StatCard({ icon: Icon, label, value, iconClass }: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  iconClass: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
-          <Icon size={15} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Add key form ──────────────────────────────────────────────────────────────
 
@@ -46,19 +25,22 @@ function AddKeyForm({ onDone }: { onDone: () => void }) {
       await addKey.mutateAsync({ name: name.trim(), publicKey: publicKey.trim() });
       toast.success('SSH key added');
       onDone();
-    } catch {
-      toast.error('Failed to add SSH key');
+    } catch (err) {
+      // The server says why (not an OpenSSH key, or already saved under another name).
+      const reason = axios.isAxiosError(err) ? (err.response?.data as { error?: string } | undefined)?.error : undefined;
+      toast.error(reason ?? 'Failed to add SSH key');
     }
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <div className="flex items-center justify-between border-b border-border bg-[hsl(var(--surface))] px-5 py-3">
-        <p className="text-sm font-semibold text-foreground">Add SSH Key</p>
+    <div className="panel overflow-hidden">
+      <div className="panel-head">
+        <h3 className="panel-title">Add SSH key</h3>
         <button
           type="button"
           onClick={onDone}
-          className="rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          aria-label="Close"
+          className="ml-auto rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <X size={14} />
         </button>
@@ -96,7 +78,7 @@ function AddKeyForm({ onDone }: { onDone: () => void }) {
           onClick={handleSubmit}
         >
           {addKey.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Check size={13} />}
-          Add Key
+          Add key
         </Button>
       </div>
     </div>
@@ -132,31 +114,30 @@ function KeyRow({ id, name, publicKey, createdAt }: { id: string; name: string; 
   });
 
   return (
-    <div className="flex items-center gap-4 px-5 py-4">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-        <KeyRound className="h-3.5 w-3.5 text-primary" />
-      </div>
+    <div className="flex items-center gap-4 px-5 py-3.5">
+      <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-foreground">{name}</p>
-        <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/80 truncate">{keyPreview}</p>
+        <p className="text-[13.5px] font-semibold text-foreground">{name}</p>
+        <p className="mt-0.5 truncate font-mono text-[11.5px] text-muted-foreground">{keyPreview}</p>
       </div>
-      <p className="shrink-0 text-xs text-muted-foreground/80">{dateAdded}</p>
+      <p className="shrink-0 text-[12.5px] text-muted-foreground">{dateAdded}</p>
       <button
         type="button"
         onClick={handleDelete}
         disabled={deleteKey.isPending}
         className={cn(
-          'shrink-0 rounded p-1.5 text-xs font-medium transition-colors',
+          'inline-flex h-8 shrink-0 items-center justify-center rounded-md text-xs font-medium transition-colors',
           confirming
-            ? 'bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20'
-            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+            ? 'bg-destructive/10 px-2.5 text-destructive hover:bg-destructive/15'
+            : 'w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
         )}
         title={confirming ? 'Click again to confirm deletion' : 'Remove key'}
+        aria-label={confirming ? `Confirm removing key ${name}` : `Remove key ${name}`}
       >
         {deleteKey.isPending ? (
           <Spinner className="h-3.5 w-3.5" />
         ) : confirming ? (
-          <span className="flex items-center gap-1 text-[11px]"><Trash2 size={12} /> Confirm</span>
+          <span className="flex items-center gap-1.5 text-[12px]"><Trash2 size={13} /> Confirm</span>
         ) : (
           <Trash2 size={14} />
         )}
@@ -179,35 +160,33 @@ export function SshKeysPage() {
 
   return (
     <Layout
-      title="SSH Keys"
+      title="SSH keys"
       subtitle="Manage public keys available for VM provisioning."
       actions={
         !showForm && (
           <Button size="sm" onClick={() => setShowForm(true)}>
-            <Plus size={13} /> Add Key
+            <Plus size={13} /> Add key
           </Button>
         )
       }
     >
       {/* Stats */}
-      <div className="mb-6 grid grid-cols-2 gap-3">
-        <StatCard icon={KeyRound} label="Saved Keys" value={isLoading ? '—' : String(keys?.length ?? 0)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
-        <StatCard icon={Clock} label="Last Added" value={isLoading ? '—' : lastAdded} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
-      </div>
+      <StatStrip className="mb-6">
+        <Stat label="Saved keys" value={isLoading ? '—' : String(keys?.length ?? 0)} />
+        <Stat label="Last added" value={isLoading ? '—' : lastAdded} />
+      </StatStrip>
 
       <div className="space-y-4">
         {showForm && <AddKeyForm onDone={() => setShowForm(false)} />}
 
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="panel overflow-hidden">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Spinner className="h-5 w-5 text-muted-foreground" />
             </div>
           ) : !keys?.length ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-                <KeyRound className="h-6 w-6 text-muted-foreground" />
-              </div>
+              <KeyRound className="mb-3 h-5 w-5 text-muted-foreground" />
               <p className="text-sm font-semibold text-foreground">No SSH keys saved</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Add a key above to use it when provisioning VMs.

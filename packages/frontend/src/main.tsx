@@ -4,7 +4,9 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import App from './App';
-import '@fontsource-variable/inter';
+// The opsz build carries Inter's optical-size axis: text sizes get Inter, headline
+// sizes get Inter Display (the wordmark's face) automatically. Bundled, never a CDN.
+import '@fontsource-variable/inter/opsz.css';
 import '@fontsource-variable/jetbrains-mono';
 import './index.css';
 

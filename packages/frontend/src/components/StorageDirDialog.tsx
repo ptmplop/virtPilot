@@ -152,7 +152,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
           <label className="text-xs font-medium text-foreground">Holds</label>
           <div className="space-y-1.5">
             {ALL_PURPOSES.map((p) => (
-              <label key={p.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-muted/30">
+              <label key={p.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-surface/70">
                 <input
                   type="checkbox"
                   checked={purposes.has(p.id)}

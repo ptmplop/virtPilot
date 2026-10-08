@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { BookOpen, Globe, Network, Plus, Trash2, Wifi } from 'lucide-react';
+import { BookOpen, Globe, Network, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
+import { Stat, StatStrip } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
@@ -11,27 +12,6 @@ import { useNetworks, useCreateNetwork, useDeleteNetwork, useNetwork, useSystemN
 import { cn } from '@/lib/cn';
 import { NetworkGuide } from './NetworkGuide';
 import type { Network as NetworkType } from '@/types';
-
-function StatCard({ icon: Icon, label, value, iconClass }: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  iconClass: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
-          <Icon size={15} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function IpPoolDetail({ networkId }: { networkId: string }) {
   const { data } = useNetwork(networkId);
@@ -56,12 +36,6 @@ function networkTypeColor(n: NetworkType): string {
   return 'text-emerald-600 dark:text-emerald-400';
 }
 
-function networkIconBg(n: NetworkType): string {
-  if (n.type === 'nat') return 'bg-blue-500/10';
-  if (n.ipMode === 'dhcp') return 'bg-violet-500/10';
-  return 'bg-emerald-500/10';
-}
-
 function NetworkIcon({ n, className }: { n: NetworkType; className?: string }) {
   if (n.type === 'nat') return <Network className={cn('h-4 w-4 text-blue-600 dark:text-blue-400', className)} />;
   if (n.ipMode === 'dhcp') return <Globe className={cn('h-4 w-4 text-violet-600 dark:text-violet-400', className)} />;
@@ -70,42 +44,42 @@ function NetworkIcon({ n, className }: { n: NetworkType; className?: string }) {
 
 function NetworkRow({ network, onDelete }: { network: NetworkType; onDelete: () => void }) {
   return (
-    <tr className="transition-colors hover:bg-muted/30">
-      <td className="px-5 py-3.5">
-        <div className="flex items-center gap-3">
-          <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', networkIconBg(network))}>
-            <NetworkIcon n={network} />
-          </div>
-          <span className="text-sm font-semibold text-foreground">{network.name}</span>
+    <tr className="transition-colors hover:bg-surface/70">
+      <td className="px-5 py-3">
+        <div className="flex items-center gap-2.5">
+          <NetworkIcon n={network} className="h-4 w-4 text-muted-foreground dark:text-muted-foreground" />
+          <span className="text-[13.5px] font-semibold text-foreground">{network.name}</span>
         </div>
       </td>
-      <td className="px-5 py-3.5">
-        <span className={cn('text-xs font-medium', networkTypeColor(network))}>
+      <td className="px-5 py-3">
+        <span className={cn('text-[12.5px] font-medium', networkTypeColor(network))}>
           {networkTypeLabel(network)}
         </span>
       </td>
-      <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{network.cidr}</td>
-      <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">
+      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{network.cidr}</td>
+      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">
         {network.bridge}
         {network.physicalNic && (
-          <span className="ml-1.5 text-muted-foreground/80">← {network.physicalNic}</span>
+          <span className="ml-1.5 text-muted-foreground">← {network.physicalNic}</span>
         )}
         {network.type === 'existing-bridge' && (
-          <span className="ml-1.5 text-muted-foreground/80">(OS)</span>
+          <span className="ml-1.5 text-muted-foreground">(OS)</span>
         )}
       </td>
-      <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{network.gateway}</td>
-      <td className="px-5 py-3.5 text-xs text-muted-foreground">
+      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{network.gateway}</td>
+      <td className="px-5 py-3 text-xs text-muted-foreground">
         {network.type === 'bridge' && network.ipMode === 'static'
           ? <IpPoolDetail networkId={network.id} />
           : <span>DHCP</span>
         }
       </td>
-      <td className="px-5 py-3.5 text-right">
+      <td className="px-5 py-3 text-right">
         <button
           type="button"
           onClick={onDelete}
-          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          aria-label={`Delete network ${network.name}`}
+          title="Delete network"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -265,40 +239,38 @@ export function NetworksPage() {
             <BookOpen className="h-3.5 w-3.5" /> Setup guide
           </Button>
           <Button onClick={openCreate}>
-            <Plus className="h-3.5 w-3.5" /> New Network
+            <Plus className="h-3.5 w-3.5" /> New network
           </Button>
         </div>
       }
     >
       {/* Stats */}
-      <div className="mb-6 grid grid-cols-3 gap-3">
-        <StatCard icon={Network} label="Networks" value={isLoading ? '—' : String(networks?.length ?? 0)} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
-        <StatCard icon={Wifi} label="NAT" value={isLoading ? '—' : String(natCount)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
-        <StatCard icon={Globe} label="Bridge" value={isLoading ? '—' : String(bridgeCount)} iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
-      </div>
+      <StatStrip className="mb-6">
+        <Stat label="Networks" value={isLoading ? '—' : String(networks?.length ?? 0)} />
+        <Stat label="NAT" value={isLoading ? '—' : String(natCount)} />
+        <Stat label="Bridge" value={isLoading ? '—' : String(bridgeCount)} />
+      </StatStrip>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="panel overflow-hidden">
         {isLoading ? (
           <div className="space-y-px p-3">
             {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[60px] rounded-lg" />)}
           </div>
         ) : !networks?.length ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-              <Network className="h-6 w-6 text-muted-foreground" />
-            </div>
+            <Network className="mb-3 h-5 w-5 text-muted-foreground" />
             <p className="text-sm font-semibold text-foreground">No networks configured</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Create a NAT network or bridge to an upstream network.
             </p>
             <Button size="sm" className="mt-5" onClick={openCreate}>
-              <Plus className="h-3.5 w-3.5" /> New Network
+              <Plus className="h-3.5 w-3.5" /> New network
             </Button>
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/40">
+              <tr className="table-head">
                 {['Name', 'Type', 'CIDR', 'Bridge', 'Gateway', 'IPs', ''].map((h) => (
                   <th
                     key={h}
@@ -325,14 +297,14 @@ export function NetworksPage() {
       <Dialog
         open={createOpen}
         onClose={() => { setCreateOpen(false); setForm(defaultForm); }}
-        title="New Network"
+        title="New network"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => { setCreateOpen(false); setForm(defaultForm); }}>
               Cancel
             </Button>
             <Button size="sm" onClick={handleCreate} disabled={createDisabled}>
-              {createNetwork.isPending ? 'Creating…' : 'Create Network'}
+              {createNetwork.isPending ? 'Creating…' : 'Create network'}
             </Button>
           </>
         }

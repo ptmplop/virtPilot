@@ -20,10 +20,10 @@ function CodeBlock({ code }: { code: string }) {
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <li className="flex gap-3">
-      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-[10px] text-primary">
-        {n}
+      <span className="mt-px w-4 shrink-0 text-right font-mono text-[12.5px] font-semibold tabular-nums text-primary">
+        {n}.
       </span>
-      <div className="flex-1 text-sm leading-relaxed text-foreground">{children}</div>
+      <div className="flex-1 text-[13.5px] leading-relaxed text-foreground">{children}</div>
     </li>
   );
 }
@@ -32,9 +32,10 @@ function Steps({ children }: { children: React.ReactNode }) {
   return <ol className="mt-3 space-y-4">{children}</ol>;
 }
 
+// Difficulty is a word in the option's own colour — not a tinted chip.
 function SectionBadge({ label, color }: { label: string; color: string }) {
   return (
-    <span className={cn('rounded px-2.5 py-0.5 text-[12px] font-medium', color)}>
+    <span className={cn('text-[12.5px] font-medium', color.split(' ').filter((c) => c.startsWith('text-') || c.startsWith('dark:text-')).join(' '))}>
       {label}
     </span>
   );
@@ -62,27 +63,29 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
     <>
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 z-40 bg-[#1B2433]/40 animate-fade-in dark:bg-black/70"
           onClick={onClose}
         />
       )}
       <div
         className={cn(
-          'fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col bg-card border-l border-border shadow-2xl transition-transform duration-200',
+          'fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col border-l border-border bg-card shadow-pop transition-transform duration-200',
           open ? 'translate-x-0' : 'translate-x-full'
         )}
       >
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Network Setup Guide</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">Network setup guide</h2>
+            <p className="mt-0.5 text-[13px] text-muted-foreground">
               Step-by-step instructions for every network configuration
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Close guide"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
@@ -121,7 +124,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
 
             {/* Option 1 — NAT */}
             <section className="space-y-3">
-              <SectionBadge label="Easiest" color="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
+              <SectionBadge label="Easiest" color="text-emerald-700 dark:text-emerald-300" />
               <h3 className="text-sm font-semibold text-foreground">Option 1 — NAT Network</h3>
               <p className="text-sm text-muted-foreground">
                 VirtPilot creates an isolated network using libvirt's built-in NAT. VMs receive private IPs via DHCP
@@ -133,14 +136,14 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
                 internal services, anything that doesn't need a public IP.
               </p>
               <Steps>
-                <Step n={1}>Click <strong>New Network</strong>.</Step>
+                <Step n={1}>Click <strong>New network</strong>.</Step>
                 <Step n={2}>Set <strong>Type</strong> to <Code>NAT</Code>.</Step>
                 <Step n={3}>
                   Leave the CIDR as suggested (e.g. <Code>10.0.1.0/24</Code>), or enter any
                   private range that doesn't conflict with your existing networks.
                 </Step>
                 <Step n={4}>
-                  Click <strong>Create</strong>. VirtPilot creates a libvirt network, bridge, and DHCP
+                  Click <strong>Create network</strong>. VirtPilot creates a libvirt network, bridge, and DHCP
                   server automatically. VMs attached to this network will receive addresses like{' '}
                   <Code>10.0.1.2</Code> when they boot.
                 </Step>
@@ -151,7 +154,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
 
             {/* Option 2 — Bridge with dedicated NIC */}
             <section className="space-y-3">
-              <SectionBadge label="Medium" color="bg-amber-500/10 text-amber-600 dark:text-amber-400" />
+              <SectionBadge label="Medium" color="text-amber-700 dark:text-amber-300" />
               <h3 className="text-sm font-semibold text-foreground">Option 2 — Bridge with a dedicated NIC</h3>
               <p className="text-sm text-muted-foreground">
                 VirtPilot creates a Linux bridge and enslaves a physical NIC to it. VMs plugged into this bridge
@@ -170,7 +173,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
               </Callout>
 
               <Steps>
-                <Step n={1}>Click <strong>New Network</strong>.</Step>
+                <Step n={1}>Click <strong>New network</strong>.</Step>
                 <Step n={2}>Set <strong>Type</strong> to <Code>Bridge</Code>.</Step>
                 <Step n={3}>
                   Set <strong>IP Mode</strong>:
@@ -182,7 +185,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
                 <Step n={4}>
                   Under <strong>Physical NIC</strong>, select the dedicated NIC (the one with no active IP).
                 </Step>
-                <Step n={5}>Click <strong>Create</strong>.</Step>
+                <Step n={5}>Click <strong>Create network</strong>.</Step>
               </Steps>
             </section>
 
@@ -190,7 +193,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
 
             {/* Option 3 — Single NIC cloud server */}
             <section className="space-y-3">
-              <SectionBadge label="Advanced" color="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
+              <SectionBadge label="Advanced" color="text-blue-700 dark:text-blue-300" />
               <h3 className="text-sm font-semibold text-foreground">
                 Option 3 — Bridge on a single-NIC server (most cloud servers)
               </h3>
@@ -281,7 +284,7 @@ network:
 ip route show" />
                 </Step>
                 <Step n={6}>
-                  In VirtPilot: go to <strong>New Network → Existing OS bridge</strong> and enter <Code>br0</Code> as the bridge name (see Option 4).
+                  In VirtPilot: go to <strong>New network → Existing OS bridge</strong> and enter <Code>br0</Code> as the bridge name (see Option 4).
                 </Step>
               </Steps>
 
@@ -333,7 +336,7 @@ iface br0 inet static
 brctl show br0" />
                 </Step>
                 <Step n={5}>
-                  In VirtPilot: go to <strong>New Network → Existing OS bridge</strong> and enter <Code>br0</Code> as the bridge name (see Option 4).
+                  In VirtPilot: go to <strong>New network → Existing OS bridge</strong> and enter <Code>br0</Code> as the bridge name (see Option 4).
                 </Step>
               </Steps>
             </section>
@@ -342,7 +345,7 @@ brctl show br0" />
 
             {/* Option 4 — Existing OS bridge */}
             <section className="space-y-3">
-              <SectionBadge label="Any server" color="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
+              <SectionBadge label="Any server" color="text-violet-700 dark:text-violet-300" />
               <h3 className="text-sm font-semibold text-foreground">Option 4 — Existing OS bridge</h3>
               <p className="text-sm text-muted-foreground">
                 If you already have a Linux bridge configured at the OS level (via Option 3 above, or any
@@ -354,7 +357,7 @@ brctl show br0" />
                   Confirm the bridge exists.
                   <CodeBlock code="ip link show type bridge" />
                 </Step>
-                <Step n={2}>Click <strong>New Network</strong>.</Step>
+                <Step n={2}>Click <strong>New network</strong>.</Step>
                 <Step n={3}>Set <strong>Type</strong> to <Code>Existing OS bridge</Code>.</Step>
                 <Step n={4}>
                   Set <strong>IP Mode</strong>:
@@ -367,7 +370,7 @@ brctl show br0" />
                   Enter the <strong>Bridge name</strong> exactly as it appears on the host (e.g. <Code>br0</Code>).
                   VirtPilot will verify the bridge exists before saving.
                 </Step>
-                <Step n={6}>Click <strong>Create</strong>.</Step>
+                <Step n={6}>Click <strong>Create network</strong>.</Step>
               </Steps>
             </section>
 

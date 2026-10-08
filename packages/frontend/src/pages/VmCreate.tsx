@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState, type FormEvent, Fragment } from 're
 import { createPortal } from 'react-dom';
 import { useNavigate, Link } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowRight, Check, ChevronDown, Copy, Cpu, Database, Disc, Eye, EyeOff, Globe,
-  GripVertical, HardDrive, KeyRound, Network, Power, RefreshCw, Server, Shield, User, X,
+  ArrowLeft, ArrowRight, Check, ChevronDown, Copy, Cpu, Disc, Eye, EyeOff,
+  GripVertical, HardDrive, Network, Power, RefreshCw, Server, Shield, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,6 +12,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { Panel, PanelHeader } from '@/components/ui/Panel';
+import { WarnGlyph } from '@/components/ui/Badge';
 import { StorageDirSelect } from '@/components/StorageDirSelect';
 import { useCreateVm } from '@/hooks/useVms';
 import { useSshKeys } from '@/hooks/useSshKeys';
@@ -100,7 +103,7 @@ const DISK_PRESETS = ['10', '20', '40', '80', '100'];
 
 const CPU_MODES: Array<{ id: CpuMode; label: string; desc: string }> = [
   { id: 'host-passthrough', label: 'Host CPU',    desc: 'Exposes host CPU directly. Best performance on a single hypervisor.' },
-  { id: 'host-model',       label: 'Host Model',  desc: 'Copies host model. Safer if you plan to live-migrate VMs.' },
+  { id: 'host-model',       label: 'Host model',  desc: 'Copies host model. Safer if you plan to live-migrate VMs.' },
   { id: 'maximum',          label: 'Maximum',     desc: 'All features QEMU supports. Most compatible with unusual guests.' },
 ];
 
@@ -114,6 +117,29 @@ const FIRMWARE_MODES: Array<{ id: FirmwareMode; label: string; desc: string }> =
   { id: 'uefi', label: 'UEFI (OVMF)', desc: 'Modern firmware. Required for Windows 11, ARM images, and Secure Boot. Recommended for all new VMs.' },
   { id: 'bios', label: 'SeaBIOS',     desc: 'Legacy BIOS firmware. Use only for older guests or images that do not support UEFI.' },
 ];
+
+// ─── Shared chrome ────────────────────────────────────────────────────────────
+
+// A text field (DESIGN.md "Fields"), for the two inputs this page builds by hand.
+const FIELD =
+  'block h-9 w-full rounded-md border border-input bg-field px-3 text-[13.5px] text-foreground ' +
+  'transition-[border-color,box-shadow] duration-150 hover:border-muted-foreground/40 ' +
+  'focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/20';
+
+// Selectable option cards (DESIGN.md): a hairline at rest, steel border and wash when chosen.
+const OPTION = 'text-left transition-[border-color,background-color,box-shadow] duration-150';
+const OPTION_REST = 'border-border bg-card hover:border-muted-foreground/40';
+const OPTION_CHOSEN = 'border-primary bg-accent ring-1 ring-primary/30';
+
+// A long step reads as ruled sections: a hairline between each, none at the ends.
+const SECTIONS = 'divide-y divide-border [&>*]:py-6 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0';
+
+const CALLOUT_ATTENTION =
+  'flex items-start gap-2.5 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-800 dark:text-amber-200';
+const CALLOUT_INFO =
+  'rounded-md border border-border bg-surface px-3.5 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground';
+
+const LINK = 'font-medium text-primary underline-offset-4 hover:underline';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -153,32 +179,80 @@ function matchPreset(cpus: string, memoryMb: string): string | null {
   return SIZE_PRESETS.find((p) => p.cpus === cpus && p.memoryMb === memoryMb)?.id ?? null;
 }
 
+// ─── Small controls ───────────────────────────────────────────────────────────
+
+function Switch({ checked, onClick, label }: { checked: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onClick}
+      className={cn(
+        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card',
+        checked ? 'bg-primary' : 'bg-input'
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.22)] transition-transform duration-200',
+          checked ? 'translate-x-4' : 'translate-x-0'
+        )}
+      />
+    </button>
+  );
+}
+
+// One option card's heading: its name, and a quiet "default" where it is one.
+function OptionTitle({ label, isDefault }: { label: string; isDefault?: boolean }) {
+  return (
+    <span className="flex items-baseline gap-2">
+      <span className="text-[13px] font-semibold text-foreground">{label}</span>
+      {isDefault && <span className="text-[11.5px] text-muted-foreground">default</span>}
+    </span>
+  );
+}
+
+function EmptySource({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-dashed border-input px-5 py-10 text-center">
+      <p className="text-[13.5px] font-medium text-foreground">{title}</p>
+      <p className="mt-1 text-[12.5px] text-muted-foreground">{children}</p>
+    </div>
+  );
+}
+
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
+// Progress speaks steel, the selection colour: the current step wears the chosen-card
+// wash, finished steps a check, steps ahead a hairline ring.
 function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
   const currentIndex = steps.indexOf(current);
   return (
-    <div className="mb-8 flex items-center">
+    <div className="mb-6 flex items-center">
       {steps.map((s, i) => {
         const done   = i < currentIndex;
         const active = s === current;
         return (
           <Fragment key={s}>
-            <div className="flex shrink-0 items-center gap-2.5">
+            <div className="flex shrink-0 items-center gap-2.5" aria-current={active ? 'step' : undefined}>
               <div
                 className={cn(
-                  'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-all duration-300',
-                  done   && 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400',
-                  active && 'bg-primary text-primary-foreground shadow-[0_0_14px_2px_hsl(214_100%_62%_/_0.35)]',
-                  !done && !active && 'bg-muted text-muted-foreground/80'
+                  'flex h-6 w-6 items-center justify-center rounded-full border text-[12px] font-semibold tabular-nums transition-colors duration-200',
+                  done   && 'border-primary/45 text-primary',
+                  active && 'border-primary bg-accent text-primary',
+                  !done && !active && 'border-border bg-card text-muted-foreground'
                 )}
               >
-                {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                {done ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : i + 1}
               </div>
               <span
                 className={cn(
-                  'text-sm font-medium transition-colors',
-                  active ? 'text-foreground' : done ? 'text-muted-foreground' : 'text-muted-foreground/80'
+                  'text-[13px] transition-colors',
+                  active ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground'
                 )}
               >
                 {STEP_META[s].label}
@@ -188,7 +262,7 @@ function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
               <div
                 className={cn(
                   'mx-4 h-px flex-1 transition-colors duration-500',
-                  done ? 'bg-emerald-500/30' : 'bg-border'
+                  done ? 'bg-primary/40' : 'bg-border'
                 )}
               />
             )}
@@ -211,72 +285,66 @@ function SummarySidebar({
   networkSummary?: string;
 }) {
   const sourceLabel = form.sourceType === 'iso' ? 'Install ISO' : 'Template';
-  const sourceIcon  = form.sourceType === 'iso' ? Disc : HardDrive;
-  const rows: [string, string, typeof Cpu][] = [
-    ['Name',      form.name || '—',          Server],
-    [sourceLabel, sourceName || '—',          sourceIcon],
-    ['vCPU',      form.cpus,                  Cpu],
-    ['RAM',       mbToDisplay(form.memoryMb), Database],
-    ['Disk',      `${form.diskGb} GB`,        HardDrive],
-    ['Networks',  networkSummary || '—',      Network],
+  const rows: [string, string][] = [
+    ['Name',      form.name || '—'],
+    [sourceLabel, sourceName || '—'],
+    ['vCPU',      form.cpus],
+    ['RAM',       mbToDisplay(form.memoryMb)],
+    ['Disk',      `${form.diskGb} GB`],
+    ['Networks',  networkSummary || '—'],
     ...(form.sourceType === 'template'
       ? ([
-          ['Hostname', form.hostname || form.name || '—', Globe],
-          ['Username', form.username,                     User],
-        ] as [string, string, typeof Cpu][])
+          ['Hostname', form.hostname || form.name || '—'],
+          ['Username', form.username],
+        ] as [string, string][])
       : []),
   ];
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-      <div className="border-b border-border bg-[hsl(var(--surface))] px-4 py-3">
-        <p className="text-[12px] font-medium text-muted-foreground/80">
-          VM Summary
-        </p>
-      </div>
-      <div className="divide-y divide-border/50">
-        {rows.map(([label, value, Icon]) => (
-          <div key={label} className="flex items-center justify-between gap-3 px-4 py-2.5">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Icon className="h-3 w-3 shrink-0 text-muted-foreground/80" />
-              {label}
-            </div>
-            <span
+    <Panel>
+      <PanelHeader title="VM summary" />
+      <dl className="divide-y divide-border px-5 py-1">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-center gap-x-3 py-[9px]">
+            <dt className="text-[12.5px] text-muted-foreground">{label}</dt>
+            <dd
               className={cn(
-                'max-w-[140px] truncate text-right text-xs',
-                value === '—' ? 'text-muted-foreground/80' : 'font-mono font-medium text-foreground'
+                'min-w-0 truncate text-right font-mono text-[12px] tabular-nums',
+                value === '—' ? 'text-muted-foreground' : 'text-foreground'
               )}
+              title={value !== '—' ? value : undefined}
             >
               {value}
-            </span>
+            </dd>
           </div>
         ))}
-      </div>
-    </div>
+      </dl>
+    </Panel>
   );
 }
 
 // ─── Section label ────────────────────────────────────────────────────────────
 
 function FieldLabel({
-  icon: Icon,
   children,
   hint,
+  htmlFor,
 }: {
-  icon?: typeof Cpu;
   children: React.ReactNode;
   hint?: string;
+  /** Makes the heading the field's label when the section is a single field. */
+  htmlFor?: string;
 }) {
+  const Tag = htmlFor ? 'label' : 'div';
   return (
-    <div className="flex items-center gap-2">
-      {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground/80" />}
-      <span className="text-[12px] font-medium text-muted-foreground/80">
+    <Tag htmlFor={htmlFor} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="text-[13px] font-semibold text-foreground">
         {children}
       </span>
       {hint && (
-        <span className="text-[10px] normal-case font-normal text-muted-foreground/80">{hint}</span>
+        <span className="text-[12px] text-muted-foreground">{hint}</span>
       )}
-    </div>
+    </Tag>
   );
 }
 
@@ -338,9 +406,9 @@ function SourceDropdown({
     <div
       ref={panelRef}
       style={panelStyle}
-      className="overflow-hidden rounded-xl border border-border bg-card shadow-lg shadow-black/20"
+      className="overflow-hidden rounded-lg border border-border bg-card shadow-pop animate-fade-in"
     >
-      <div className="max-h-60 overflow-y-auto p-1.5">
+      <div className="max-h-60 overflow-y-auto p-1">
         {items.map((item) => {
           const isSel = item.filename === value;
           return (
@@ -349,14 +417,14 @@ function SourceDropdown({
               type="button"
               onClick={() => select(item.filename)}
               className={cn(
-                'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors',
-                isSel ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted'
+                'flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-[13.5px] transition-colors',
+                isSel ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-muted'
               )}
             >
               <VmLogo slug={slugs[item.filename]} size={22} fallbackIcon={fallbackIcon} />
-              <span className="flex-1 truncate text-left">{item.name}</span>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground/80">{item.sizeGb} GB</span>
-              {isSel && <Check size={14} className="shrink-0 text-primary" />}
+              <span className={cn('flex-1 truncate text-left', isSel && 'font-medium')}>{item.name}</span>
+              <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">{item.sizeGb} GB</span>
+              {isSel ? <Check size={14} className="shrink-0 text-primary" /> : <span className="w-[14px] shrink-0" />}
             </button>
           );
         })}
@@ -371,17 +439,18 @@ function SourceDropdown({
         ref={triggerRef}
         type="button"
         onClick={toggle}
+        aria-expanded={open}
         className={cn(
-          'flex w-full items-center gap-3 rounded-lg border bg-card px-3 py-2.5 text-sm transition-all',
-          'hover:border-border/80 focus:outline-none focus:ring-2 focus:ring-ring',
-          open ? 'border-primary ring-2 ring-primary/20' : 'border-border'
+          'flex h-11 w-full items-center gap-3 rounded-md border bg-field px-3 text-[13.5px] transition-[border-color,box-shadow] duration-150',
+          'focus:outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/20',
+          open ? 'border-ring ring-[3px] ring-ring/20' : 'border-input hover:border-muted-foreground/40'
         )}
       >
         {selected ? (
           <>
             <VmLogo slug={slugs[selected.filename]} size={22} fallbackIcon={fallbackIcon} />
             <span className="flex-1 truncate text-left text-foreground">{selected.name}</span>
-            <span className="shrink-0 font-mono text-xs text-muted-foreground/80">{selected.sizeGb} GB</span>
+            <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">{selected.sizeGb} GB</span>
           </>
         ) : (
           <>
@@ -390,8 +459,8 @@ function SourceDropdown({
           </>
         )}
         <ChevronDown
-          size={14}
-          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
+          size={15}
+          className={cn('shrink-0 text-muted-foreground transition-transform duration-200', open && 'rotate-180')}
         />
       </button>
       {panel}
@@ -427,30 +496,25 @@ function ResourcesStep({
   };
 
   return (
-    <div className="space-y-8">
+    <div className={SECTIONS}>
       {/* VM Name */}
-      <div className="space-y-2">
-        <FieldLabel icon={Server}>VM Name</FieldLabel>
-        <div className="relative">
-          <Server className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/80" />
-          <input
-            type="text"
-            placeholder="my-server"
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            required
-            className={cn(
-              'block w-full rounded-lg border border-input bg-background py-2.5 pl-10 pr-4 text-sm text-foreground',
-              'placeholder:text-muted-foreground/35 focus:outline-none focus:ring-2 focus:ring-ring'
-            )}
-          />
-        </div>
+      <div className="space-y-2.5">
+        <FieldLabel htmlFor="vm-name">VM name</FieldLabel>
+        <input
+          id="vm-name"
+          type="text"
+          placeholder="my-server"
+          value={form.name}
+          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          required
+          className={FIELD}
+        />
       </div>
 
       {/* Size presets */}
       <div className="space-y-3">
-        <FieldLabel icon={Cpu}>Choose a Size</FieldLabel>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <FieldLabel>Choose a size</FieldLabel>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           {SIZE_PRESETS.map((p) => {
             const sel = !customSize && activePreset === p.id;
             return (
@@ -458,20 +522,20 @@ function ResourcesStep({
                 key={p.id}
                 type="button"
                 onClick={() => selectPreset(p)}
+                aria-pressed={sel}
                 className={cn(
-                  'flex flex-col items-start rounded-lg border p-3.5 text-left transition-all duration-150',
-                  sel
-                    ? 'border-primary bg-primary/[0.07] ring-1 ring-primary/20'
-                    : 'border-border bg-card/50 hover:border-border/80 hover:bg-muted/25'
+                  OPTION,
+                  'flex flex-col items-start rounded-lg border px-3.5 py-3',
+                  sel ? OPTION_CHOSEN : OPTION_REST
                 )}
               >
-                <span className={cn('mb-2 text-xs font-semibold', sel ? 'text-foreground' : 'text-muted-foreground')}>
+                <span className="text-[13px] font-semibold text-foreground">
                   {p.label}
                 </span>
-                <span className={cn('font-mono text-xs', sel ? 'text-primary' : 'text-muted-foreground/80')}>
+                <span className={cn('mt-1.5 font-mono text-[12px] tabular-nums', sel ? 'text-accent-foreground' : 'text-muted-foreground')}>
                   {p.cpus} vCPU
                 </span>
-                <span className={cn('font-mono text-xs', sel ? 'text-primary/80' : 'text-muted-foreground/80')}>
+                <span className={cn('font-mono text-[12px] tabular-nums', sel ? 'text-accent-foreground' : 'text-muted-foreground')}>
                   {mbToDisplay(p.memoryMb)}
                 </span>
               </button>
@@ -490,6 +554,7 @@ function ResourcesStep({
                 value={form.cpus}
                 onChange={(e) => setForm((f) => ({ ...f, cpus: e.target.value }))}
                 required
+                className="font-mono tabular-nums"
               />
               <Input
                 label="Memory (MB)"
@@ -499,6 +564,7 @@ function ResourcesStep({
                 value={form.memoryMb}
                 onChange={(e) => setForm((f) => ({ ...f, memoryMb: e.target.value }))}
                 required
+                className="font-mono tabular-nums"
               />
             </div>
             <button
@@ -508,7 +574,7 @@ function ResourcesStep({
                 if (p) setCustomSize(false);
                 else setCustomSize(false);
               }}
-              className="text-xs text-muted-foreground/80 underline underline-offset-2 hover:text-foreground"
+              className={cn(LINK, 'rounded-sm text-[12.5px]')}
             >
               Use a preset instead
             </button>
@@ -517,7 +583,7 @@ function ResourcesStep({
           <button
             type="button"
             onClick={() => setCustomSize(true)}
-            className="text-xs text-muted-foreground/80 underline underline-offset-2 hover:text-foreground"
+            className={cn(LINK, 'rounded-sm text-[12.5px]')}
           >
             Set custom CPU / RAM
           </button>
@@ -526,7 +592,7 @@ function ResourcesStep({
 
       {/* Disk size */}
       <div className="space-y-3">
-        <FieldLabel>Disk Size</FieldLabel>
+        <FieldLabel>Disk size</FieldLabel>
         <div className="flex flex-wrap gap-2">
           {DISK_PRESETS.map((gb) => {
             const sel = !customDisk && form.diskGb === gb;
@@ -535,11 +601,11 @@ function ResourcesStep({
                 key={gb}
                 type="button"
                 onClick={() => { setForm((f) => ({ ...f, diskGb: gb })); setCustomDisk(false); }}
+                aria-pressed={sel}
                 className={cn(
-                  'rounded-lg border px-4 py-2 text-sm font-medium transition-all',
-                  sel
-                    ? 'border-primary bg-primary/[0.07] text-primary ring-1 ring-primary/20'
-                    : 'border-border bg-card/50 text-muted-foreground hover:border-border/80 hover:bg-muted/25 hover:text-foreground'
+                  OPTION,
+                  'h-9 rounded-md border px-4 text-[13px] font-medium tabular-nums',
+                  sel ? cn(OPTION_CHOSEN, 'text-accent-foreground') : cn(OPTION_REST, 'text-foreground')
                 )}
               >
                 {gb} GB
@@ -549,11 +615,11 @@ function ResourcesStep({
           <button
             type="button"
             onClick={() => setCustomDisk((v) => !v)}
+            aria-pressed={customDisk}
             className={cn(
-              'rounded-lg border px-4 py-2 text-sm font-medium transition-all',
-              customDisk
-                ? 'border-primary bg-primary/[0.07] text-primary ring-1 ring-primary/20'
-                : 'border-border bg-card/50 text-muted-foreground hover:border-border/80 hover:bg-muted/25 hover:text-foreground'
+              OPTION,
+              'h-9 rounded-md border px-4 text-[13px] font-medium',
+              customDisk ? cn(OPTION_CHOSEN, 'text-accent-foreground') : cn(OPTION_REST, 'text-foreground')
             )}
           >
             Custom
@@ -568,10 +634,11 @@ function ResourcesStep({
               value={form.diskGb}
               onChange={(e) => setForm((f) => ({ ...f, diskGb: e.target.value }))}
               required
+              className="font-mono tabular-nums"
             />
           </div>
         )}
-        <div className="max-w-sm">
+        <div className="max-w-sm pt-1">
           <StorageDirSelect
             purpose="vmDisks"
             value={form.storageDirId}
@@ -582,8 +649,8 @@ function ResourcesStep({
 
       {/* CPU Mode */}
       <div className="space-y-3">
-        <FieldLabel icon={Cpu} hint="— affects performance and migration compatibility">CPU Mode</FieldLabel>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <FieldLabel hint="— affects performance and migration compatibility">CPU mode</FieldLabel>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
           {CPU_MODES.map((m) => {
             const sel = form.cpuMode === m.id;
             return (
@@ -591,24 +658,15 @@ function ResourcesStep({
                 key={m.id}
                 type="button"
                 onClick={() => setForm((f) => ({ ...f, cpuMode: m.id }))}
+                aria-pressed={sel}
                 className={cn(
-                  'flex flex-col items-start rounded-lg border p-3.5 text-left transition-all duration-150',
-                  sel
-                    ? 'border-primary bg-primary/[0.07] ring-1 ring-primary/20'
-                    : 'border-border bg-card/50 hover:border-border/80 hover:bg-muted/25'
+                  OPTION,
+                  'flex flex-col items-start rounded-lg border px-3.5 py-3',
+                  sel ? OPTION_CHOSEN : OPTION_REST
                 )}
               >
-                <div className="mb-1.5 flex items-center gap-1.5">
-                  <span className={cn('text-xs font-semibold', sel ? 'text-foreground' : 'text-muted-foreground')}>
-                    {m.label}
-                  </span>
-                  {m.id === 'host-passthrough' && (
-                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[12px] font-medium text-primary">
-                      default
-                    </span>
-                  )}
-                </div>
-                <span className="text-[10px] leading-relaxed text-muted-foreground/80">{m.desc}</span>
+                <OptionTitle label={m.label} isDefault={m.id === 'host-passthrough'} />
+                <span className="mt-1 text-[12px] leading-[1.45] text-muted-foreground">{m.desc}</span>
               </button>
             );
           })}
@@ -617,8 +675,8 @@ function ResourcesStep({
 
       {/* Firmware */}
       <div className="space-y-3">
-        <FieldLabel icon={Shield} hint="— affects OS compatibility and Secure Boot">Firmware</FieldLabel>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <FieldLabel hint="— affects OS compatibility and Secure Boot">Firmware</FieldLabel>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {FIRMWARE_MODES.map((m) => {
             const sel = form.firmware === m.id;
             return (
@@ -626,83 +684,46 @@ function ResourcesStep({
                 key={m.id}
                 type="button"
                 onClick={() => setForm((f) => ({ ...f, firmware: m.id, ...(m.id === 'bios' ? { secureBoot: false } : {}) }))}
+                aria-pressed={sel}
                 className={cn(
-                  'flex flex-col items-start rounded-lg border p-3.5 text-left transition-all duration-150',
-                  sel
-                    ? 'border-primary bg-primary/[0.07] ring-1 ring-primary/20'
-                    : 'border-border bg-card/50 hover:border-border/80 hover:bg-muted/25'
+                  OPTION,
+                  'flex flex-col items-start rounded-lg border px-3.5 py-3',
+                  sel ? OPTION_CHOSEN : OPTION_REST
                 )}
               >
-                <div className="mb-1.5 flex items-center gap-1.5">
-                  <span className={cn('text-xs font-semibold', sel ? 'text-foreground' : 'text-muted-foreground')}>
-                    {m.label}
-                  </span>
-                  {m.id === 'uefi' && (
-                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[12px] font-medium text-primary">
-                      default
-                    </span>
-                  )}
-                </div>
-                <span className="text-[10px] leading-relaxed text-muted-foreground/80">{m.desc}</span>
+                <OptionTitle label={m.label} isDefault={m.id === 'uefi'} />
+                <span className="mt-1 text-[12px] leading-[1.45] text-muted-foreground">{m.desc}</span>
               </button>
             );
           })}
         </div>
         {form.firmware === 'uefi' && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
-              <div>
-                <p className="text-xs font-semibold text-foreground">Secure Boot</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground/80">
+          <div className="divide-y divide-border rounded-lg border border-border bg-card">
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-foreground">Secure Boot</p>
+                <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
                   Enforces signed bootloaders. Required for Windows 11; disable for most Linux guests.
                 </p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={form.secureBoot}
+              <Switch
+                checked={form.secureBoot}
+                label="Secure Boot"
                 onClick={() => setForm((f) => ({ ...f, secureBoot: !f.secureBoot, vtpm: !f.secureBoot ? true : f.vtpm }))}
-                className={cn(
-                  'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent',
-                  'transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-card',
-                  form.secureBoot ? 'bg-primary' : 'bg-muted'
-                )}
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
-                    form.secureBoot ? 'translate-x-4' : 'translate-x-0'
-                  )}
-                />
-              </button>
+              />
             </div>
-            <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
-              <div>
-                <p className="text-xs font-semibold text-foreground">Virtual TPM 2.0</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground/80">
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-foreground">Virtual TPM 2.0</p>
+                <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
                   Emulated TPM chip via swtpm. Required for Windows 11; optional for other guests.
                 </p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={form.vtpm}
+              <Switch
+                checked={form.vtpm}
+                label="Virtual TPM 2.0"
                 onClick={() => setForm((f) => ({ ...f, vtpm: !f.vtpm }))}
-                className={cn(
-                  'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent',
-                  'transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-card',
-                  form.vtpm ? 'bg-primary' : 'bg-muted'
-                )}
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
-                    form.vtpm ? 'translate-x-4' : 'translate-x-0'
-                  )}
-                />
-              </button>
+              />
             </div>
           </div>
         )}
@@ -710,10 +731,10 @@ function ResourcesStep({
 
       {/* Boot Source */}
       <div className="space-y-3">
-        <FieldLabel icon={HardDrive}>Boot Source</FieldLabel>
+        <FieldLabel>Boot source</FieldLabel>
 
         {/* Source type toggle */}
-        <div className="flex rounded-lg border border-border bg-muted/20 p-1 gap-1">
+        <div className="segmented flex w-full" role="group" aria-label="Boot source">
           {(['template', 'iso'] as SourceType[]).map((type) => {
             const sel = form.sourceType === type;
             return (
@@ -721,15 +742,11 @@ function ResourcesStep({
                 key={type}
                 type="button"
                 onClick={() => switchSource(type)}
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-all',
-                  sel
-                    ? 'bg-card shadow-sm text-foreground border border-border'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
+                aria-pressed={sel}
+                className="flex flex-1 items-center justify-center gap-2 py-1.5"
               >
                 {type === 'template' ? (
-                  <><HardDrive className="h-3.5 w-3.5" /> Cloud Image</>
+                  <><HardDrive className="h-3.5 w-3.5" /> Cloud image</>
                 ) : (
                   <><Disc className="h-3.5 w-3.5" /> Install from ISO</>
                 )}
@@ -741,18 +758,12 @@ function ResourcesStep({
         {/* Template picker */}
         {form.sourceType === 'template' && (
           templates.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border bg-muted/20 px-5 py-10 text-center">
-              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-                <HardDrive className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <p className="text-sm font-semibold text-foreground">No templates available</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                <Link to="/templates" className="text-primary underline underline-offset-2">
-                  Upload a qcow2 image
-                </Link>{' '}
-                on the Templates page first.
-              </p>
-            </div>
+            <EmptySource title="No templates available">
+              <Link to="/templates" className={LINK}>
+                Upload a qcow2 image
+              </Link>{' '}
+              on the Templates page first.
+            </EmptySource>
           ) : (
             <SourceDropdown
               items={templates}
@@ -768,18 +779,12 @@ function ResourcesStep({
         {form.sourceType === 'iso' && (
           <>
             {isos.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border bg-muted/20 px-5 py-10 text-center">
-                <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-                  <Disc className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <p className="text-sm font-semibold text-foreground">No ISOs available</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  <Link to="/isos" className="text-primary underline underline-offset-2">
-                    Upload an ISO
-                  </Link>{' '}
-                  on the ISOs page first.
-                </p>
-              </div>
+              <EmptySource title="No ISOs available">
+                <Link to="/isos" className={LINK}>
+                  Upload an ISO
+                </Link>{' '}
+                on the ISOs page first.
+              </EmptySource>
             ) : (
               <SourceDropdown
                 items={isos}
@@ -790,9 +795,12 @@ function ResourcesStep({
                 fallbackIcon={Disc}
               />
             )}
-            <p className="rounded-lg bg-amber-500/5 border border-amber-500/20 px-3 py-2.5 text-xs text-amber-400/80">
-              A blank disk will be created. The VM will boot from the ISO so you can install the OS manually.
-              Eject the ISO after installation and reboot to boot from disk.
+            <p className={CALLOUT_ATTENTION}>
+              <WarnGlyph size={10} className="mt-[5px]" />
+              <span>
+                A blank disk will be created. The VM will boot from the ISO so you can install the OS manually.
+                Eject the ISO after installation and reboot to boot from disk.
+              </span>
             </p>
           </>
         )}
@@ -830,93 +838,92 @@ function NetworkCard({
 }) {
   const checked = !!selection;
   const needsIp = isStaticBridge(network);
-
-  const typeBadgeClass = network.type === 'nat'
-    ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400'
-    : network.ipMode === 'dhcp'
-      ? 'bg-violet-500/10 text-violet-700 dark:text-violet-400'
-      : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400';
+  // The DHCP note has to cover both bridge kinds too: an existing bridge on DHCP
+  // used to get neither an IP picker nor this line.
+  const isBridge = network.type === 'bridge' || network.type === 'existing-bridge';
 
   const prefix = network.type === 'existing-bridge' ? 'OS Bridge' : 'Bridge';
   const typeLabel = network.type === 'nat' ? 'NAT' : network.ipMode === 'dhcp' ? `${prefix} DHCP` : `${prefix} Static`;
 
   return (
     <div className={cn(
-      'rounded-lg border transition-all duration-150',
-      checked ? 'border-primary bg-primary/[0.04] ring-1 ring-primary/20' : 'border-border bg-card/50',
+      'rounded-lg border',
+      OPTION,
+      checked ? OPTION_CHOSEN : OPTION_REST,
     )}>
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-4 p-4 text-left"
+        aria-pressed={checked}
+        className="flex w-full items-center gap-3.5 rounded-lg px-4 py-3.5 text-left"
       >
-        <div className={cn(
-          'flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors',
-          checked ? 'border-primary bg-primary' : 'border-border bg-transparent'
+        <span className={cn(
+          'flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors',
+          checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-field'
         )}>
-          {checked && <Check className="h-3 w-3 text-primary-foreground" />}
-        </div>
+          {checked && <Check className="h-3 w-3" strokeWidth={3} />}
+        </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-foreground">{network.name}</p>
-            <span className={cn('rounded px-2 py-0.5 text-[10px] font-semibold', typeBadgeClass)}>
+          <div className="flex flex-wrap items-baseline gap-x-2.5">
+            <p className="text-[13.5px] font-semibold text-foreground">{network.name}</p>
+            <span className="text-[12px] font-medium text-muted-foreground">
               {typeLabel}
             </span>
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground/80">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[12px] text-muted-foreground">
             <span>{network.cidr}</span>
-            <span className="text-muted-foreground/80">·</span>
+            <span aria-hidden>·</span>
             <span>br: {network.bridge}</span>
-            {network.physicalNic && <><span className="text-muted-foreground/80">·</span><span>{network.physicalNic}</span></>}
-            <span className="text-muted-foreground/80">·</span>
+            {network.physicalNic && <><span aria-hidden>·</span><span>{network.physicalNic}</span></>}
+            <span aria-hidden>·</span>
             <span>gw: {network.gateway}</span>
           </div>
         </div>
       </button>
 
       {checked && (
-        <div className="border-t border-border/50 px-4 pb-4 pt-3 space-y-3">
+        <div className="space-y-3 border-t border-primary/20 px-4 pb-4 pt-3">
           <button
             type="button"
             onClick={onSetPrimary}
+            aria-pressed={selection.isPrimary}
             className={cn(
-              'flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-all',
+              'inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-3 text-[12.5px] font-medium transition-colors',
               selection.isPrimary
-                ? 'border-primary/40 bg-primary/10 text-primary'
-                : 'border-border text-muted-foreground hover:bg-muted/30'
+                ? 'border-primary/40 text-primary'
+                : 'border-input text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground'
             )}
           >
-            <div className={cn(
-              'h-2 w-2 rounded-full',
-              selection.isPrimary ? 'bg-primary' : 'bg-muted-foreground/30'
-            )} />
+            {selection.isPrimary && <Check className="h-3.5 w-3.5" strokeWidth={2.5} />}
             {selection.isPrimary ? 'Primary interface (default gateway)' : 'Set as primary interface'}
           </button>
 
           {needsIp && (
-            <div className="space-y-2">
-              <p className="text-[12px] font-medium text-muted-foreground">IP Address</p>
-              {availableIps.length === 0 ? (
-                <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
+            availableIps.length === 0 ? (
+              <div className="space-y-1.5">
+                <p className="text-[12.5px] font-medium text-foreground">IP address</p>
+                <p className="rounded-md border border-destructive/30 bg-destructive/[0.06] px-3.5 py-2.5 text-[12.5px] text-red-800 dark:text-red-200">
                   No available IPs — all addresses are allocated.
                 </p>
-              ) : (
-                <Select
-                  value={selection.staticIp}
-                  onChange={(e) => onSetIp(e.target.value)}
-                  className="font-mono"
-                >
-                  <option value="">Select an IP…</option>
-                  {availableIps.map((ip) => (
-                    <option key={ip.ip} value={ip.ip}>{ip.ip}</option>
-                  ))}
-                </Select>
-              )}
-            </div>
+              </div>
+            ) : (
+              <Select
+                id={`ip-${network.id}`}
+                label="IP address"
+                value={selection.staticIp}
+                onChange={(e) => onSetIp(e.target.value)}
+                className="font-mono"
+              >
+                <option value="">Select an IP…</option>
+                {availableIps.map((ip) => (
+                  <option key={ip.ip} value={ip.ip}>{ip.ip}</option>
+                ))}
+              </Select>
+            )
           )}
 
-          {(network.type === 'nat' || (network.type === 'bridge' && network.ipMode === 'dhcp')) && (
-            <p className="text-xs text-muted-foreground">
+          {(network.type === 'nat' || (isBridge && network.ipMode === 'dhcp')) && (
+            <p className="text-[12.5px] text-muted-foreground">
               IP assigned via DHCP
               {network.type === 'nat' ? ' by libvirt' : ' by upstream network'}.
             </p>
@@ -938,7 +945,7 @@ function NetworkStep({
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 py-10 text-[13px] text-muted-foreground">
         <Spinner className="h-4 w-4" /> Loading networks…
       </div>
     );
@@ -946,18 +953,12 @@ function NetworkStep({
 
   if (!networks?.length) {
     return (
-      <div className="rounded-xl border border-dashed border-border bg-muted/20 px-5 py-10 text-center">
-        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-          <Network className="h-5 w-5 text-muted-foreground" />
-        </div>
-        <p className="text-sm font-semibold text-foreground">No networks configured</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          <Link to="/networks" className="text-primary underline underline-offset-2">
-            Create a network
-          </Link>{' '}
-          before provisioning a VM.
-        </p>
-      </div>
+      <EmptySource title="No networks configured">
+        <Link to="/networks" className={LINK}>
+          Create a network
+        </Link>{' '}
+        before provisioning a VM.
+      </EmptySource>
     );
   }
 
@@ -991,10 +992,10 @@ function NetworkStep({
   };
 
   return (
-    <div className="space-y-6">
+    <div className={SECTIONS}>
       <div className="space-y-3">
-        <FieldLabel icon={Network} hint="— applies to all interfaces">NIC Model</FieldLabel>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <FieldLabel hint="— applies to all interfaces">NIC model</FieldLabel>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
           {NIC_MODELS.map((m) => {
             const sel = form.nicModel === m.id;
             return (
@@ -1002,24 +1003,15 @@ function NetworkStep({
                 key={m.id}
                 type="button"
                 onClick={() => setForm((f) => ({ ...f, nicModel: m.id }))}
+                aria-pressed={sel}
                 className={cn(
-                  'flex flex-col items-start rounded-lg border p-3.5 text-left transition-all duration-150',
-                  sel
-                    ? 'border-primary bg-primary/[0.07] ring-1 ring-primary/20'
-                    : 'border-border bg-card/50 hover:border-border/80 hover:bg-muted/25'
+                  OPTION,
+                  'flex flex-col items-start rounded-lg border px-3.5 py-3',
+                  sel ? OPTION_CHOSEN : OPTION_REST
                 )}
               >
-                <div className="mb-1.5 flex items-center gap-1.5">
-                  <span className={cn('text-xs font-semibold', sel ? 'text-foreground' : 'text-muted-foreground')}>
-                    {m.label}
-                  </span>
-                  {m.id === 'virtio' && (
-                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[12px] font-medium text-primary">
-                      default
-                    </span>
-                  )}
-                </div>
-                <span className="text-[10px] leading-relaxed text-muted-foreground/80">{m.desc}</span>
+                <OptionTitle label={m.label} isDefault={m.id === 'virtio'} />
+                <span className="mt-1 text-[12px] leading-[1.45] text-muted-foreground">{m.desc}</span>
               </button>
             );
           })}
@@ -1027,10 +1019,10 @@ function NetworkStep({
       </div>
 
       <div className="space-y-3">
-        <FieldLabel icon={Network} hint="Select one or more — tick to add, set one as primary">
+        <FieldLabel hint="Select one or more — tick to add, set one as primary">
           Networks
         </FieldLabel>
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {networks.map((n) => (
             <NetworkCardWithIps
               key={n.id}
@@ -1042,15 +1034,15 @@ function NetworkStep({
             />
           ))}
         </div>
-      </div>
 
-      {form.networks.length > 1 && (
-        <p className="rounded-lg bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">{form.networks.length} NICs</span> will be created.
-          The primary interface receives the default gateway. Additional interfaces are reachable but do not route
-          internet traffic by default. NICs added after VM creation require manual configuration inside the VM.
-        </p>
-      )}
+        {form.networks.length > 1 && (
+          <p className={CALLOUT_INFO}>
+            <span className="font-medium text-foreground">{form.networks.length} NICs</span> will be created.
+            The primary interface receives the default gateway. Additional interfaces are reachable but do not route
+            internet traffic by default. NICs added after VM creation require manual configuration inside the VM.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -1126,16 +1118,16 @@ function SshKeyPicker({
 
   return (
     <div className="space-y-3">
-      <FieldLabel icon={KeyRound} hint="— optional">SSH Keys</FieldLabel>
+      <FieldLabel hint="— optional">SSH keys</FieldLabel>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
           <Spinner className="h-3.5 w-3.5" /> Loading keys…
         </div>
       ) : !keys.length ? (
-        <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center">
-          <p className="text-xs text-muted-foreground/80">No SSH keys saved.</p>
-          <Link to="/ssh-keys" className="mt-1 inline-block text-xs text-primary hover:underline">
+        <div className="rounded-lg border border-dashed border-input px-4 py-5 text-center">
+          <p className="text-[12.5px] text-muted-foreground">No SSH keys saved.</p>
+          <Link to="/ssh-keys" className={cn(LINK, 'mt-1 inline-block text-[12.5px]')}>
             Add keys in SSH Keys settings →
           </Link>
         </div>
@@ -1143,29 +1135,35 @@ function SshKeyPicker({
         <div className="grid grid-cols-2 gap-3">
           {/* Available */}
           <div className="space-y-1.5">
-            <p className="px-0.5 text-[12px] font-medium text-muted-foreground/80">
+            <p className="text-[12.5px] font-medium text-foreground">
               Available
             </p>
-            <div className="min-h-[88px] overflow-hidden rounded-lg border border-border">
+            <div className="min-h-[88px] overflow-hidden rounded-lg border border-border bg-card">
               {available.length === 0 ? (
                 <div className="flex min-h-[88px] items-center justify-center">
-                  <p className="text-xs text-muted-foreground/80">All keys added</p>
+                  <p className="text-[12.5px] text-muted-foreground">All keys added</p>
                 </div>
               ) : (
-                <div className="divide-y divide-border/60">
+                <div className="divide-y divide-border">
                   {available.map((key) => (
                     <div
                       key={key.id}
                       draggable
                       onDragStart={(e) => onDragStart(e, key.id)}
                       onClick={() => addKey(key.id)}
-                      className="flex cursor-grab items-center gap-2 px-3 py-2.5 hover:bg-muted/40 active:cursor-grabbing select-none"
+                      // Keyboard users had no way to add a key: the row was mouse-only.
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addKey(key.id); }
+                      }}
+                      className="flex cursor-grab select-none items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-surface focus-visible:outline-offset-[-2px] active:cursor-grabbing"
                       title="Drag or click to add"
                     >
-                      <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/80" />
+                      <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-medium text-foreground">{key.name}</p>
-                        <p className="truncate font-mono text-[10px] text-muted-foreground/80">
+                        <p className="truncate text-[13px] font-medium text-foreground">{key.name}</p>
+                        <p className="truncate font-mono text-[11.5px] text-muted-foreground">
                           {key.publicKey.slice(0, 30)}…
                         </p>
                       </div>
@@ -1178,7 +1176,7 @@ function SshKeyPicker({
 
           {/* Drop target */}
           <div className="space-y-1.5">
-            <p className="px-0.5 text-[12px] font-medium text-muted-foreground/80">
+            <p className="text-[12.5px] font-medium text-foreground">
               Added
             </p>
             <div
@@ -1188,33 +1186,36 @@ function SshKeyPicker({
               className={cn(
                 'min-h-[88px] overflow-hidden rounded-lg border transition-colors duration-150',
                 dropActive
-                  ? 'border-primary/60 bg-primary/5'
+                  ? 'border-primary bg-accent'
                   : selected.length === 0
-                  ? 'border-dashed border-border/70'
-                  : 'border-border'
+                  ? 'border-dashed border-input'
+                  : 'border-border bg-card'
               )}
             >
               {selected.length === 0 ? (
-                <div className="flex min-h-[88px] flex-col items-center justify-center gap-1 pointer-events-none">
-                  <p className="text-xs text-muted-foreground/80">
+                <div className="pointer-events-none flex min-h-[88px] flex-col items-center justify-center gap-1">
+                  <p className="text-[12.5px] text-muted-foreground">
                     {dropActive ? 'Release to add' : 'Drag keys here'}
                   </p>
                 </div>
               ) : (
-                <div className="divide-y divide-border/60">
+                <div className="divide-y divide-border">
                   {selected.map((key) => (
-                    <div key={key.id} className="flex items-center gap-2 px-3 py-2.5">
-                      <Check className="h-3 w-3 shrink-0 text-primary" />
-                      <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+                    <div key={key.id} className="flex items-center gap-2.5 py-1.5 pl-3 pr-1.5">
+                      <Check className="h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.5} />
+                      <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
                         {key.name}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => removeKey(key.id)}
-                        className="shrink-0 rounded p-0.5 text-muted-foreground/80 hover:bg-muted hover:text-foreground"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      <Tooltip label="Remove key">
+                        <button
+                          type="button"
+                          onClick={() => removeKey(key.id)}
+                          aria-label={`Remove ${key.name}`}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </Tooltip>
                     </div>
                   ))}
                 </div>
@@ -1225,7 +1226,7 @@ function SshKeyPicker({
       )}
 
       {keys.length > 0 && (
-        <p className="text-xs text-muted-foreground/80">
+        <p className="text-[12.5px] text-muted-foreground">
           {selected.length === 0
             ? 'No keys added — password-only access.'
             : `${selected.length} key${selected.length !== 1 ? 's' : ''} will be authorised on this VM.`}
@@ -1236,6 +1237,9 @@ function SshKeyPicker({
 }
 
 // ─── Authentication step ──────────────────────────────────────────────────────
+
+const FIELD_ACTION =
+  'flex h-7 w-7 items-center justify-center rounded-[5px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground';
 
 function AuthStep({
   form,
@@ -1260,19 +1264,20 @@ function AuthStep({
   };
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-3">
-        <FieldLabel icon={Server}>Hostname</FieldLabel>
+    <div className={SECTIONS}>
+      <div className="space-y-2.5">
+        <FieldLabel htmlFor="vm-hostname">Hostname</FieldLabel>
         <Input
+          id="vm-hostname"
           placeholder={form.name || 'vm-hostname'}
           value={form.hostname}
           onChange={(e) => setForm((f) => ({ ...f, hostname: e.target.value }))}
         />
-        <p className="text-xs text-muted-foreground/80">Defaults to the VM name if left blank.</p>
+        <p className="text-[12.5px] text-muted-foreground">Defaults to the VM name if left blank.</p>
       </div>
 
       <div className="space-y-3">
-        <FieldLabel icon={User}>Login Account</FieldLabel>
+        <FieldLabel>Login account</FieldLabel>
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Username"
@@ -1280,45 +1285,48 @@ function AuthStep({
             onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
             required
           />
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground">Password</label>
+          <div className="space-y-1.5">
+            <label htmlFor="vm-password" className="block text-[12.5px] font-medium text-foreground">Password</label>
             <div className="relative">
               <input
+                id="vm-password"
                 type={showPassword ? 'text' : 'password'}
                 value={form.password}
                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                 required
-                className={cn(
-                  'block w-full rounded-lg border border-input bg-background py-2 pl-3 pr-[84px]',
-                  'font-mono text-sm text-foreground placeholder:text-muted-foreground/35',
-                  'focus:outline-none focus:ring-2 focus:ring-ring'
-                )}
+                className={cn(FIELD, 'pr-[100px] font-mono text-[13px]')}
               />
               <div className="absolute inset-y-0 right-1 flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  title={showPassword ? 'Hide password' : 'Show password'}
-                  className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={regenerate}
-                  title="Generate new password"
-                  className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <RefreshCw size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={copyPassword}
-                  title={copied ? 'Copied!' : 'Copy password'}
-                  className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  {copied ? <Check size={13} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={13} />}
-                </button>
+                <Tooltip label={showPassword ? 'Hide password' : 'Show password'}>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className={FIELD_ACTION}
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </Tooltip>
+                <Tooltip label="Generate new password">
+                  <button
+                    type="button"
+                    onClick={regenerate}
+                    aria-label="Generate new password"
+                    className={FIELD_ACTION}
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                </Tooltip>
+                <Tooltip label={copied ? 'Copied!' : 'Copy password'}>
+                  <button
+                    type="button"
+                    onClick={copyPassword}
+                    aria-label={copied ? 'Copied!' : 'Copy password'}
+                    className={FIELD_ACTION}
+                  >
+                    {copied ? <Check size={14} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={14} />}
+                  </button>
+                </Tooltip>
               </div>
             </div>
           </div>
@@ -1334,31 +1342,26 @@ function AuthStep({
 
 function ReviewSection({
   title,
-  icon: Icon,
   children,
 }: {
   title: string;
-  icon: typeof Cpu;
   children: React.ReactNode;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <div className="flex items-center gap-2 border-b border-border bg-[hsl(var(--surface))] px-5 py-2.5">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground/80" />
-        <span className="text-[12px] font-medium text-muted-foreground/80">
-          {title}
-        </span>
-      </div>
-      <div className="divide-y divide-border">{children}</div>
-    </div>
+    <Panel className="overflow-hidden">
+      <PanelHeader title={title} />
+      <dl className="divide-y divide-border">{children}</dl>
+    </Panel>
   );
 }
 
 function ReviewRow({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-3">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={cn('text-sm text-foreground', mono && 'font-mono')}>{value}</span>
+    <div className="flex items-center justify-between gap-4 px-5 py-2.5">
+      <dt className="shrink-0 text-[13px] text-muted-foreground">{label}</dt>
+      <dd className={cn('min-w-0 truncate text-right text-foreground', mono ? 'font-mono text-[12.5px] tabular-nums' : 'text-[13px]')}>
+        {value}
+      </dd>
     </div>
   );
 }
@@ -1380,17 +1383,18 @@ function ReviewStep({
   const isIso = form.sourceType === 'iso';
   return (
     <div className="space-y-4">
-      <ReviewSection title="Compute" icon={Cpu}>
-        <ReviewRow label="VM Name"  value={form.name} />
+      <ReviewSection title="Compute">
+        <ReviewRow label="VM name"  value={form.name} />
         <ReviewRow label={isIso ? 'Install ISO' : 'Template'} value={sourceName ?? (isIso ? form.isoFilename : form.templateFilename)} />
         <ReviewRow label="vCPU"     value={`${form.cpus} vCPU${parseInt(form.cpus) !== 1 ? 's' : ''}`} />
         <ReviewRow label="Memory"   value={mbToDisplay(form.memoryMb)} />
-        <ReviewRow label="Disk"     value={`${form.diskGb} GB (blank)`} />
+        {/* Only an ISO install starts from a blank disk; a template's disk is the image. */}
+        <ReviewRow label="Disk"     value={`${form.diskGb} GB${isIso ? ' (blank)' : ''}`} />
         <ReviewRow label="Firmware" value={form.firmware === 'uefi' ? (form.secureBoot ? 'UEFI + Secure Boot' : 'UEFI') : 'SeaBIOS'} mono={false} />
         {form.vtpm && <ReviewRow label="Virtual TPM" value="TPM 2.0 (emulated)" mono={false} />}
       </ReviewSection>
 
-      <ReviewSection title="Network" icon={Network}>
+      <ReviewSection title="Network">
         {networkRows.length === 0 ? (
           <ReviewRow label="Network" value="—" />
         ) : (
@@ -1405,12 +1409,12 @@ function ReviewStep({
       </ReviewSection>
 
       {!isIso && (
-        <ReviewSection title="Authentication" icon={Shield}>
+        <ReviewSection title="Authentication">
           <ReviewRow label="Hostname" value={form.hostname || form.name} />
           <ReviewRow label="Username" value={form.username} />
           <ReviewRow label="Password" value="••••••••" mono={false} />
           <ReviewRow
-            label="SSH Keys"
+            label="SSH keys"
             value={sshKeyCount > 0 ? `${sshKeyCount} key${sshKeyCount !== 1 ? 's' : ''}` : 'None'}
             mono={false}
           />
@@ -1418,41 +1422,24 @@ function ReviewStep({
       )}
 
       {isIso && (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-5 py-3">
-          <p className="text-xs text-amber-400/80">
+        <p className={CALLOUT_ATTENTION}>
+          <WarnGlyph size={10} className="mt-[5px]" />
+          <span>
             The VM will boot from the ISO. Use the VNC console to complete OS installation,
             then eject the ISO and reboot to boot from disk.
-          </p>
-        </div>
+          </span>
+        </p>
       )}
 
-      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-5 py-4">
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-5 py-4">
         <div className="flex items-center gap-3">
-          <Power className="h-4 w-4 shrink-0 text-muted-foreground/80" />
+          <Power className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div>
-            <p className="text-sm font-semibold text-foreground">Start after provisioning</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Automatically start the VM once it has been created.</p>
+            <p className="text-[13.5px] font-semibold text-foreground">Start after provisioning</p>
+            <p className="mt-0.5 text-[12.5px] text-muted-foreground">Automatically start the VM once it has been created.</p>
           </div>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={startAfterCreate}
-          onClick={onToggleStart}
-          className={cn(
-            'relative ml-4 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent',
-            'transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-card',
-            startAfterCreate ? 'bg-primary' : 'bg-muted'
-          )}
-        >
-          <span
-            aria-hidden="true"
-            className={cn(
-              'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
-              startAfterCreate ? 'translate-x-4' : 'translate-x-0'
-            )}
-          />
-        </button>
+        <Switch checked={startAfterCreate} onClick={onToggleStart} label="Start after provisioning" />
       </div>
     </div>
   );
@@ -1593,36 +1580,35 @@ export function VmCreatePage() {
 
   return (
     <Layout>
-      <div className="mb-6">
+      <div className="mb-5">
+        {/* Labelled "Virtual machines", so it goes there: it used to lead to the dashboard. */}
         <Link
-          to="/"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          to="/vms"
+          className="inline-flex items-center gap-1.5 rounded-sm text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Virtual Machines
+          Virtual machines
         </Link>
       </div>
 
-      <div className="mb-8">
-        <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-foreground">Create Virtual Machine</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+      <div className="mb-7">
+        <h1 className="text-[26px] font-semibold leading-8 tracking-[-0.024em] text-foreground">Create virtual machine</h1>
+        <p className="mt-1 text-[13.5px] text-muted-foreground">
           Provision a new KVM guest from a cloud image or install from ISO.
         </p>
       </div>
 
       <StepIndicator current={step} steps={activeSteps} />
 
-      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[1fr_260px]">
-        <form onSubmit={handleSubmit}>
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-            <div className="border-b border-border bg-[hsl(var(--surface))] px-6 py-4">
-              <h2 className="text-base font-semibold text-foreground">
-                {STEP_META[step].label}
-              </h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{STEP_META[step].desc}</p>
-            </div>
+      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[1fr_264px]">
+        <form onSubmit={handleSubmit} className="min-w-0">
+          <Panel className="overflow-hidden">
+            <PanelHeader
+              title={STEP_META[step].label}
+              meta={STEP_META[step].desc}
+            />
 
-            <div className="p-6">
+            <div className="px-5 py-6">
               {step === 'resources'   && <ResourcesStep form={form} setForm={setForm} templates={templates} isos={isos} />}
               {step === 'network'     && <NetworkStep   form={form} setForm={setForm} />}
               {step === 'cloud-init'  && <AuthStep      form={form} setForm={setForm} />}
@@ -1637,42 +1623,40 @@ export function VmCreatePage() {
               )}
             </div>
 
-            <div className="flex items-center justify-between border-t border-border bg-[hsl(var(--surface))] px-6 py-3">
+            <div className="flex items-center justify-between border-t border-border bg-surface px-5 py-3">
               <Button
                 type="button"
                 variant="secondary"
-                size="sm"
                 onClick={back}
                 disabled={currentIndex === 0}
               >
-                <ArrowLeft size={13} /> Back
+                <ArrowLeft size={14} /> Back
               </Button>
 
               {step !== 'review' ? (
                 <Button
                   type="button"
-                  size="sm"
                   onClick={next}
                   disabled={
                     (step === 'resources' && !resourcesStepValid) ||
                     (step === 'network'   && !networkStepValid)
                   }
                 >
-                  Continue <ArrowRight size={13} />
+                  Continue <ArrowRight size={14} />
                 </Button>
               ) : (
-                <Button type="button" size="sm" onClick={handleCreate} disabled={createVm.isPending}>
+                <Button type="button" onClick={handleCreate} disabled={createVm.isPending}>
                   {createVm.isPending ? (
-                    <><Spinner className="h-3.5 w-3.5" /> Creating…</>
+                    <><Spinner className="h-3.5 w-3.5 text-current" /> Creating…</>
                   ) : startAfterCreate ? (
-                    <><Power size={13} /> Create & Start</>
+                    <><Power size={14} /> Create & start</>
                   ) : (
-                    <><Check size={13} /> Create VM</>
+                    <><Check size={14} /> Create VM</>
                   )}
                 </Button>
               )}
             </div>
-          </div>
+          </Panel>
         </form>
 
         <div className="sticky top-6 hidden xl:block">

@@ -1,8 +1,10 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Database, Download, HardDrive, PackageOpen, Pencil, Trash2, Upload, X, FolderInput } from 'lucide-react';
+import { Download, HardDrive, PackageOpen, Pencil, Trash2, Upload, X, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
+import { formatDate } from '@/lib/format';
+import { Stat, StatStrip } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
@@ -20,7 +22,6 @@ import { useSettings, useDismissTemplateSet } from '@/hooks/useSettings';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
 import { useUploadProgressStore, type TemplateBulkState } from '@/store/uploadProgressStore';
-import { cn } from '@/lib/cn';
 import { TEMPLATE_SET } from '@/data/templateSets';
 import { startTemplateSetDownload, cancelTemplateSetDownload } from '@/lib/templateSetDownloader';
 
@@ -32,35 +33,14 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-function StatCard({ icon: Icon, label, value, iconClass }: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  iconClass: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
-          <Icon size={15} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ProgressBar({ pct, indeterminate = false }: { pct?: number; indeterminate?: boolean }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+    <div className="relative h-[5px] w-full overflow-hidden rounded-[2px] bg-gauge-track">
       {indeterminate ? (
-        <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
+        <div className="absolute inset-y-0 left-0 w-1/3 animate-[vp-progress_1.4s_ease-in-out_infinite] bg-[#4F7CAC] dark:bg-[#86AEDA]" />
       ) : (
         <div
-          className="h-full rounded-full bg-primary transition-all duration-200"
+          className="h-full bg-[#4F7CAC] transition-[width] duration-200 dark:bg-[#86AEDA]"
           style={{ width: `${pct ?? 0}%` }}
         />
       )}
@@ -166,31 +146,27 @@ function TemplateSetCard({
 
       <div className="relative px-6 py-5">
         <div className="flex items-start gap-4">
-          <div className="relative shrink-0">
-            <div className="bg-violet-500/10 relative flex h-12 w-12 items-center justify-center rounded-xl ring-1 ring-violet-400/30">
-              <PackageOpen className="h-5 w-5 text-violet-600 dark:text-violet-300" />
-            </div>
-          </div>
+          <PackageOpen className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="text-[12px] font-medium text-violet-700 dark:text-violet-300">
+              <span className="text-[12.5px] font-medium text-muted-foreground">
                 {templatesEmpty ? 'New install' : 'Starter set'}
               </span>
             </div>
-            <p className="mt-1.5 text-base font-semibold text-foreground">
+            <p className="mt-1 text-[15px] font-semibold tracking-[-0.01em] text-foreground">
               {TEMPLATE_SET.name}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-[13px] text-muted-foreground">
               {TEMPLATE_SET.description} {items.length} image{items.length === 1 ? '' : 's'}.
             </p>
 
             {/* Logo strip */}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {items.map((t) => (
-                <div key={t.filename} className="flex items-center gap-1.5 rounded-md border border-border bg-background/50 px-2 py-1">
+                <div key={t.filename} className="flex items-center gap-1.5 pr-2">
                   <VmLogo slug={t.logo} size={16} />
-                  <span className="text-[11px] text-muted-foreground">{t.name}</span>
+                  <span className="text-[12.5px] text-muted-foreground">{t.name}</span>
                 </div>
               ))}
             </div>
@@ -220,24 +196,19 @@ function TemplateSetCard({
                       type="button"
                       onClick={onCancel}
                       title="Cancel remaining downloads"
-                      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      aria-label="Cancel remaining downloads"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                     >
-                      <X size={12} />
+                      <X size={13} />
                     </button>
                   </div>
                 </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  {pct !== undefined ? (
-                    <div className="h-full rounded-full bg-violet-500 transition-all duration-200" style={{ width: `${pct}%` }} />
-                  ) : (
-                    <div className="h-full w-2/5 animate-pulse rounded-full bg-violet-500" />
-                  )}
-                </div>
+                <ProgressBar pct={pct} indeterminate={pct === undefined} />
                 {(bulk.succeeded > 0 || bulk.failed > 0) && (
                   <p className="text-[11px] text-muted-foreground">
                     {bulk.succeeded > 0 && <span className="text-emerald-600 dark:text-emerald-400">{bulk.succeeded} done</span>}
                     {bulk.succeeded > 0 && bulk.failed > 0 && ' · '}
-                    {bulk.failed > 0 && <span className="text-amber-600 dark:text-amber-400">{bulk.failed} failed</span>}
+                    {bulk.failed > 0 && <span className="text-amber-700 dark:text-amber-300">{bulk.failed} failed</span>}
                   </p>
                 )}
               </div>
@@ -447,16 +418,16 @@ export function TemplatesPage() {
           </Button>
           <Button onClick={() => fileRef.current?.click()} disabled={uploadTemplate.isPending}>
             {uploadTemplate.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
-            Upload Template
+            Upload template
           </Button>
         </>
       }
     >
       {/* Stats */}
-      <div className="mb-6 grid grid-cols-2 gap-3">
-        <StatCard icon={HardDrive} label="Templates" value={isLoading ? '—' : String(templates?.length ?? 0)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
-        <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : `${totalTemplateGb.toFixed(1)} GB`} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
-      </div>
+      <StatStrip className="mb-6">
+        <Stat label="Templates" value={isLoading ? '—' : String(templates?.length ?? 0)} />
+        <Stat label="Total size" value={isLoading ? '—' : `${totalTemplateGb.toFixed(1)} GB`} />
+      </StatStrip>
 
       {/* Starter template-set card (new installs only — auto-hides once any template exists or is dismissed) */}
       {showTemplateSet && (
@@ -521,16 +492,14 @@ export function TemplatesPage() {
       )}
 
       {/* Template list */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="panel overflow-hidden">
         {isLoading ? (
           <div className="space-y-px p-3">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[60px] rounded-lg" />)}
           </div>
         ) : !templates?.length ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-              <HardDrive className="h-6 w-6 text-muted-foreground" />
-            </div>
+            <HardDrive className="mb-3 h-5 w-5 text-muted-foreground" />
             <p className="text-sm font-semibold text-foreground">No templates yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Upload a .qcow2 cloud image or download one from a URL.
@@ -539,11 +508,11 @@ export function TemplatesPage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/40">
+              <tr className="table-head">
                 {['Name', 'File', 'Location', 'Size', 'Added', ''].map((h) => (
                   <th
                     key={h}
-                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' ? 'text-right' : 'text-left'}`}
+                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' ? 'text-right' : 'text-left'} ${h === 'File' ? 'hidden xl:table-cell' : ''}`}
                   >
                     {h}
                   </th>
@@ -552,8 +521,8 @@ export function TemplatesPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {templates.map((t) => (
-                <tr key={t.filename} className="transition-colors hover:bg-muted/30">
-                  <td className="px-5 py-3.5">
+                <tr key={t.filename} className="transition-colors hover:bg-surface/70">
+                  <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
@@ -561,7 +530,7 @@ export function TemplatesPage() {
                         onClick={() => setLogoTarget(t.filename)}
                         className="group relative shrink-0 rounded-md"
                       >
-                        <VmLogo slug={templateLogos[t.filename]} size={28} />
+                        <VmLogo slug={templateLogos[t.filename]} size={24} />
                         <div className="absolute inset-0 flex items-center justify-center rounded-md bg-black/0 transition-colors group-hover:bg-black/40">
                           <Pencil size={9} className="text-white opacity-0 transition-opacity group-hover:opacity-100" />
                         </div>
@@ -569,19 +538,20 @@ export function TemplatesPage() {
                       <InlineName filename={t.filename} name={t.name} />
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{t.filename}</td>
-                  <td className="px-5 py-3.5 text-xs text-muted-foreground">{t.storageDirName}</td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{t.sizeGb} GB</td>
-                  <td className="px-5 py-3.5 text-xs text-muted-foreground">
-                    {new Date(t.createdAt).toLocaleDateString()}
+                  <td className="hidden px-5 py-3 font-mono text-xs text-muted-foreground xl:table-cell">{t.filename}</td>
+                  <td className="whitespace-nowrap px-5 py-3 text-[12.5px] text-muted-foreground">{t.storageDirName}</td>
+                  <td className="whitespace-nowrap px-5 py-3 font-mono text-xs tabular-nums text-muted-foreground">{t.sizeGb} GB</td>
+                  <td className="whitespace-nowrap px-5 py-3 text-[12.5px] text-muted-foreground">
+                    {formatDate(t.createdAt)}
                   </td>
-                  <td className="px-5 py-3.5 text-right">
+                  <td className="px-5 py-3 text-right">
                     <div className="inline-flex items-center gap-1">
                       <Tooltip label="Move to another storage directory">
                         <button
                           type="button"
                           onClick={() => setMoveTarget({ filename: t.filename, storageDirId: t.storageDirId })}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                          aria-label={`Move ${t.name} to another storage directory`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
                           <FolderInput size={13} />
                         </button>
@@ -589,7 +559,8 @@ export function TemplatesPage() {
                       <button
                         type="button"
                         onClick={() => setDeleteTarget(t.filename)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        aria-label={`Delete ${t.name}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                       >
                         <Trash2 size={13} />
                       </button>
@@ -638,7 +609,7 @@ export function TemplatesPage() {
       <Dialog
         open={urlDialogOpen}
         onClose={resetUrlDialog}
-        title="Download Template from URL"
+        title="Download template from URL"
         description="The server will fetch the file directly. Supports HTTP and HTTPS with redirects."
         size="md"
         footer={
@@ -688,7 +659,7 @@ export function TemplatesPage() {
       <Dialog
         open={logoTarget !== null}
         onClose={() => setLogoTarget(null)}
-        title="Change Logo"
+        title="Change logo"
         size="sm"
         footer={
           <Button variant="secondary" size="sm" onClick={() => setLogoTarget(null)}>Done</Button>
@@ -726,7 +697,7 @@ export function TemplatesPage() {
       <Dialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
-        title="Delete Template"
+        title="Delete template"
         description={`Remove ${deleteTarget} from the templates directory?`}
         footer={
           <>

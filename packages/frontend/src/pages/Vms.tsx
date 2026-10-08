@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   CopyPlus,
-  Cpu,
-  MemoryStick,
   Plus,
   Power,
   PowerOff,
@@ -24,51 +22,16 @@ import { CloneVmDialog } from '@/components/CloneVmDialog';
 import { useVms, useDeleteVm, useVmAction } from '@/hooks/useVms';
 import { formatMemory } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import type { VmStatus, VmSummary } from '@/types';
+import type { VmSummary } from '@/types';
+import { Panel, Stat, StatStrip } from '@/components/ui/Panel';
+import { StatusBadge } from '@/components/ui/Badge';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
+import { osSlugFromImage } from '@/data/templateSets';
 import { useUserPrefsStore } from '@/store/userPrefsStore';
 import { openVmConsole } from '@/lib/consoleOpener';
 
-// ─── Stat card ────────────────────────────────────────────────────────────────
-
-function StatCard({ icon: Icon, label, value, iconClass }: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  iconClass: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
-          <Icon size={15} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Status config ────────────────────────────────────────────────────────────
-
-const statusConfig: Record<VmStatus, {
-  label: string;
-  dot: string;
-  bg: string;
-  text: string;
-}> = {
-  running: { label: 'Active',  dot: 'bg-emerald-500', bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400' },
-  stopped: { label: 'Off',     dot: 'bg-slate-400',   bg: 'bg-slate-500/8',    text: 'text-slate-500 dark:text-slate-400' },
-  paused:  { label: 'Paused',  dot: 'bg-amber-500',   bg: 'bg-amber-500/10',   text: 'text-amber-600 dark:text-amber-400' },
-  crashed: { label: 'Crashed', dot: 'bg-red-500',     bg: 'bg-red-500/10',     text: 'text-red-600 dark:text-red-400' },
-  unknown: { label: 'Unknown', dot: 'bg-muted-foreground/40', bg: 'bg-muted',  text: 'text-muted-foreground' },
-};
-
-const COLS = 'minmax(0,1fr) 120px 88px 108px 184px';
+const COLS = 'minmax(0,1fr) 120px 96px 112px 200px';
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -89,7 +52,7 @@ export function VmsPage() {
 
   return (
     <Layout
-      title="Virtual Machines"
+      title="Virtual machines"
       subtitle={subtitle}
       actions={
         <Link to="/vms/new">
@@ -101,33 +64,34 @@ export function VmsPage() {
       }
     >
       {/* Stats */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard icon={Server} label="Virtual Machines" value={isLoading ? '—' : String(total)} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
-        <StatCard icon={Power} label="Running" value={isLoading ? '—' : String(running)} iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
-        <StatCard icon={PowerOff} label="Stopped" value={isLoading ? '—' : String(stopped)} iconClass="bg-muted text-muted-foreground" />
-        <StatCard icon={Cpu} label="vCPUs Allocated" value={isLoading ? '—' : String(totalCpus)} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
-      </div>
+      <StatStrip className="mb-6">
+        <Stat label="Virtual machines" value={isLoading ? '—' : total} />
+        <Stat label="Running" value={isLoading ? '—' : running} tone={running > 0 ? 'ok' : undefined} />
+        <Stat label="Stopped" value={isLoading ? '—' : stopped} />
+        <Stat label="vCPUs allocated" value={isLoading ? '—' : totalCpus} />
+      </StatStrip>
 
       {/* Search + console-popup pref */}
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div className="relative max-w-sm flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/80" />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="relative w-full max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <input
-            type="text"
+            type="search"
             placeholder="Search virtual machines…"
+            aria-label="Search virtual machines"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 w-full rounded-md border border-input bg-field pl-9 pr-3 text-[13.5px] text-foreground transition-[border-color,box-shadow] duration-150 hover:border-muted-foreground/40 focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/20"
           />
         </div>
         {!isLoading && total > 0 && <ConsolePopupToggle />}
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <Panel className="overflow-hidden">
         {/* Header */}
         <div
-          className="grid items-center gap-4 border-b border-border bg-muted/40 px-5 py-2.5 text-[12px] font-medium text-muted-foreground"
+          className="table-head grid items-center gap-4 px-5 py-2.5"
           style={{ gridTemplateColumns: COLS }}
         >
           <span>Name</span>
@@ -139,32 +103,28 @@ export function VmsPage() {
 
         {/* Loading */}
         {isLoading && (
-          <div className="space-y-px p-3">
-            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[68px] rounded-xl" />)}
+          <div className="space-y-2 p-3">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[52px] rounded-md" />)}
           </div>
         )}
 
         {/* Error */}
         {!isLoading && error && (
           <div className="px-6 py-14 text-center">
-            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
-              <Server className="h-5 w-5 text-destructive" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">Backend unavailable</p>
-            <p className="mt-1 text-xs text-muted-foreground">Failed to load VMs. Is the backend running?</p>
+            <Server className="mx-auto mb-3 h-5 w-5 text-destructive" />
+            <p className="text-[13.5px] font-semibold text-foreground">Backend unavailable</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">Failed to load VMs. Is the backend running?</p>
           </div>
         )}
 
         {/* Empty — no VMs */}
         {!isLoading && !error && total === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-              <Server className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">No virtual machines yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">Create your first VM to get started.</p>
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <Server className="mb-3 h-5 w-5 text-muted-foreground" />
+            <p className="text-[13.5px] font-semibold text-foreground">No virtual machines yet</p>
+            <p className="mt-1 text-[13px] text-muted-foreground">Create your first VM to get started.</p>
             <Link to="/vms/new" className="mt-5">
-              <Button size="sm"><Plus size={12} /> Create VM</Button>
+              <Button size="sm"><Plus size={13} /> Create VM</Button>
             </Link>
           </div>
         )}
@@ -172,21 +132,21 @@ export function VmsPage() {
         {/* Empty — search */}
         {!isLoading && !error && total > 0 && filtered.length === 0 && (
           <div className="px-6 py-14 text-center">
-            <p className="text-sm text-muted-foreground">
-              No VMs matching <span className="font-semibold text-foreground">"{search}"</span>
+            <p className="text-[13px] text-muted-foreground">
+              No VMs matching <span className="font-semibold text-foreground">“{search}”</span>
             </p>
           </div>
         )}
 
         {/* Rows */}
         {!isLoading && !error && filtered.length > 0 && (
-          <div className="divide-y divide-border/60">
+          <div className="divide-y divide-border">
             {filtered.map((vm) => (
               <VmRow key={vm.id} vm={vm} />
             ))}
           </div>
         )}
-      </div>
+      </Panel>
     </Layout>
   );
 }
@@ -197,9 +157,9 @@ function ConsolePopupToggle() {
   const openConsoleInPopup = useUserPrefsStore((s) => s.openConsoleInPopup);
   const setOpenConsoleInPopup = useUserPrefsStore((s) => s.setOpenConsoleInPopup);
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-border bg-card/50 px-3 py-2">
-      <Terminal size={13} className="shrink-0 text-muted-foreground" />
-      <span className="text-xs text-foreground">Open consoles in popup</span>
+    <label className="flex cursor-pointer items-center gap-2.5 text-[13px] text-muted-foreground">
+      <Terminal size={14} className="shrink-0" />
+      <span>Open consoles in a popup</span>
       <button
         type="button"
         role="switch"
@@ -207,33 +167,18 @@ function ConsolePopupToggle() {
         aria-label="Open VM consoles in a popup window"
         onClick={() => setOpenConsoleInPopup(!openConsoleInPopup)}
         className={cn(
-          'relative h-5 w-9 shrink-0 rounded-full ring-1 ring-inset transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-          openConsoleInPopup
-            ? 'bg-primary ring-primary/30'
-            : 'bg-input ring-input hover:bg-input/90',
+          'relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          openConsoleInPopup ? 'bg-primary' : 'bg-input hover:bg-muted-foreground/40',
         )}
       >
         <span
           className={cn(
-            'absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-all duration-200',
+            'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-[left] duration-200',
             openConsoleInPopup ? 'left-[18px]' : 'left-0.5',
           )}
         />
       </button>
-    </div>
-  );
-}
-
-// ─── Status badge ─────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: VmStatus }) {
-  const { label, dot, text } = statusConfig[status];
-  // A static mark and a word: no tint box, no pulse. Every status reads the same way.
-  return (
-    <span className={cn('inline-flex items-center gap-1.5 text-[12.5px] font-medium', text)}>
-      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dot)} />
-      {label}
-    </span>
+    </label>
   );
 }
 
@@ -245,7 +190,8 @@ function VmRow({ vm }: { vm: VmSummary }) {
   const [flash, setFlash] = useState<'success' | 'error' | null>(null);
   const deleteVm = useDeleteVm();
   const action = useVmAction(vm.id);
-  const logoSlug = useLogoStore((s) => s.vms[vm.name]);
+  // The logo chosen for this VM, else the one its template implies (as on the dashboard).
+  const logoSlug = useLogoStore((s) => s.vms[vm.name]) ?? osSlugFromImage(vm.sourceTemplateFilename);
   const openConsoleInPopup = useUserPrefsStore((s) => s.openConsoleInPopup);
   const navigate = useNavigate();
 
@@ -287,23 +233,23 @@ function VmRow({ vm }: { vm: VmSummary }) {
     <>
       <div
         className={cn(
-          'group grid items-center gap-4 px-5 py-3.5 transition-colors duration-100 hover:bg-muted/40',
+          'group grid items-center gap-4 px-5 py-3 transition-colors duration-100 hover:bg-surface/70',
           flash === 'success' && 'bg-emerald-500/10',
           flash === 'error'   && 'bg-destructive/10',
         )}
         style={{ gridTemplateColumns: COLS }}
       >
         {/* Name */}
-        <div className="flex min-w-0 items-center gap-2.5">
-          <VmLogo slug={logoSlug} size={28} />
+        <div className="flex min-w-0 items-center gap-3">
+          <VmLogo slug={logoSlug} size={24} />
           <div className="min-w-0">
             <Link
               to={`/vms/${vm.id}`}
-              className="block truncate font-mono text-sm font-semibold text-foreground transition-colors hover:text-primary"
+              className="block truncate text-[13.5px] font-semibold text-foreground transition-colors hover:text-primary"
             >
               {vm.name}
             </Link>
-            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/80">
+            <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
               {vm.id}
             </p>
           </div>
@@ -315,18 +261,14 @@ function VmRow({ vm }: { vm: VmSummary }) {
         </div>
 
         {/* CPU */}
-        <div className="flex items-center gap-2">
-          <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
-          <div>
-            <span className="font-mono text-sm font-semibold text-foreground">{vm.cpus}</span>
-            <span className="ml-1 font-mono text-[10px] text-muted-foreground/80">vCPU</span>
-          </div>
+        <div className="font-mono text-[12.5px] tabular-nums">
+          <span className="font-semibold text-foreground">{vm.cpus}</span>
+          <span className="ml-1 text-[11.5px] text-muted-foreground">vCPU</span>
         </div>
 
         {/* Memory */}
-        <div className="flex items-center gap-2">
-          <MemoryStick className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
-          <span className="font-mono text-sm font-semibold text-foreground">{formatMemory(vm.memoryMb)}</span>
+        <div className="font-mono text-[12.5px] font-semibold tabular-nums text-foreground">
+          {formatMemory(vm.memoryMb)}
         </div>
 
         {/* Actions */}
@@ -334,9 +276,10 @@ function VmRow({ vm }: { vm: VmSummary }) {
           {vm.status === 'stopped' && (
             <Tooltip label="Power on">
               <ActionBtn
+                label="Power on"
                 onClick={() => handleAction('start')}
                 disabled={isPending}
-                className="hover:bg-emerald-500/10 hover:text-emerald-500 dark:hover:text-emerald-400"
+                className="hover:bg-emerald-500/10 hover:text-emerald-700 dark:hover:text-emerald-300"
               >
                 <Power className="h-3.5 w-3.5" />
               </ActionBtn>
@@ -346,6 +289,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
             <>
               <Tooltip label="Reboot (ACPI)">
                 <ActionBtn
+                  label="Reboot"
                   onClick={() => handleAction('reboot')}
                   disabled={isPending}
                   className="hover:bg-muted hover:text-foreground"
@@ -355,27 +299,30 @@ function VmRow({ vm }: { vm: VmSummary }) {
               </Tooltip>
               <Tooltip label="Hard reset (immediate)">
                 <ActionBtn
+                  label="Hard reset"
                   onClick={() => handleAction('reboot', true)}
                   disabled={isPending}
-                  className="hover:bg-amber-500/10 hover:text-amber-500 dark:hover:text-amber-400"
+                  className="hover:bg-amber-500/10 hover:text-amber-700 dark:hover:text-amber-300"
                 >
                   <Zap className="h-3.5 w-3.5" />
                 </ActionBtn>
               </Tooltip>
               <Tooltip label="Shutdown (ACPI)">
                 <ActionBtn
+                  label="Shut down"
                   onClick={() => handleAction('stop')}
                   disabled={isPending}
-                  className="hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400"
+                  className="hover:bg-muted hover:text-foreground"
                 >
                   <Power className="h-3.5 w-3.5" />
                 </ActionBtn>
               </Tooltip>
               <Tooltip label="Force off (kill immediately)">
                 <ActionBtn
+                  label="Force off"
                   onClick={() => handleAction('stop', true)}
                   disabled={isPending}
-                  className="hover:bg-red-500/20 hover:text-red-600 dark:hover:text-red-400"
+                  className="hover:bg-destructive/10 hover:text-destructive"
                 >
                   <PowerOff className="h-3.5 w-3.5" />
                 </ActionBtn>
@@ -394,13 +341,14 @@ function VmRow({ vm }: { vm: VmSummary }) {
                 e.preventDefault();
                 openVmConsole(vm.id, openConsoleInPopup, navigate);
               }}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <Terminal className="h-3.5 w-3.5" />
             </a>
           </Tooltip>
           <Tooltip label="Clone VM">
             <ActionBtn
+              label="Clone VM"
               onClick={() => setCloneOpen(true)}
               className="hover:bg-muted hover:text-foreground"
             >
@@ -409,6 +357,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
           </Tooltip>
           <Tooltip label="Delete VM">
             <ActionBtn
+              label="Delete VM"
               onClick={() => setDeleteOpen(true)}
               className="hover:bg-destructive/10 hover:text-destructive"
             >
@@ -442,8 +391,9 @@ function VmRow({ vm }: { vm: VmSummary }) {
 // ─── Action button ────────────────────────────────────────────────────────────
 
 function ActionBtn({
-  onClick, disabled, className, children,
+  label, onClick, disabled, className, children,
 }: {
+  label: string;
   onClick?: () => void;
   disabled?: boolean;
   className?: string;
@@ -454,8 +404,9 @@ function ActionBtn({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-label={label}
       className={cn(
-        'inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors disabled:opacity-40',
+        'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors disabled:opacity-40',
         className,
       )}
     >
@@ -495,7 +446,7 @@ function DeleteDialog({
         </>
       }
     >
-      <p className="text-sm text-foreground">
+      <p className="text-[13.5px] text-foreground">
         The VM will be stopped and removed. Choose whether to also delete its disk images.
       </p>
     </Dialog>

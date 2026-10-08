@@ -39,21 +39,21 @@ export function Dialog({ open, onClose, title, description, children, footer, si
       onClick={onClose}
     >
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-[#0B0E13]/45 dark:bg-black/65" />
+      <div className="fixed inset-0 bg-[#1B2433]/40 dark:bg-black/70" />
 
       {/* Panel */}
       <div
         className={cn(
-          'relative w-full rounded-lg border border-border bg-card animate-slide-up',
+          'relative w-full rounded-[10px] border border-border bg-card animate-slide-up',
           'shadow-pop',
           sizeClasses[size]
         )}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 border-b border-border px-6 pb-4 pt-5">
-          <div>
-            <h2 id={titleId} className="text-[15px] font-semibold text-foreground">
+        <div className="flex items-start justify-between gap-4 px-6 pb-1 pt-5">
+          <div className="min-w-0">
+            <h2 id={titleId} className="text-[16px] font-semibold leading-6 tracking-[-0.01em] text-foreground">
               {title}
             </h2>
             {description && (
@@ -64,18 +64,18 @@ export function Dialog({ open, onClose, title, description, children, footer, si
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="-mr-1 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="-mr-2 -mt-0.5 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X size={16} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5">{children}</div>
+        <div className="px-6 pb-5 pt-4">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-2 rounded-b-lg border-t border-border bg-surface px-6 py-3">
+          <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-[10px] border-t border-border bg-surface px-6 py-3.5">
             {footer}
           </div>
         )}

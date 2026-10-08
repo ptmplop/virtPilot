@@ -1,24 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Activity,
-  AlertTriangle,
   ArrowDown,
   ArrowRight,
   ArrowUp,
-  Boxes,
   CheckCircle2,
   ChevronDown,
-  Cpu,
   ExternalLink,
-  HardDrive,
-  MemoryStick,
-  PackageOpen,
   Power,
   RefreshCw,
-  Sparkles,
   X,
-  Zap,
-  ZapOff,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -28,6 +18,7 @@ import { MetricChart } from '@/components/ui/MetricChart';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
 import { osSlugFromImage } from '@/data/templateSets';
+import { useLogoStore } from '@/store/logoStore';
 import {
   useSystemStats, useSystemInfo, useAptPackages, useInvalidateApt,
   useVirtPilotVersion, useCheckVersionNow,
@@ -42,6 +33,9 @@ import type { VmStatus, VmSummary } from '@/types';
 import { cn } from '@/lib/cn';
 import { CHART } from '@/lib/chartColors';
 import { SectionHeading } from '@/components/ui/SectionHeading';
+import { Panel, PanelHeader } from '@/components/ui/Panel';
+import { RingGauge, type GaugeTone } from '@/components/ui/RingGauge';
+import { StatusGlyph, WarnGlyph } from '@/components/ui/Badge';
 import { streamSse } from '@/lib/sseStream';
 
 // ─── Formatters ────────────────────────────────────────────────────────────────
@@ -69,167 +63,54 @@ function cleanCpuModel(raw: string): string {
     .replace(/\s+/g, ' ').trim();
 }
 
-// ─── Section label ─────────────────────────────────────────────────────────────
-
 // ─── Legend item ───────────────────────────────────────────────────────────────
 
 function LegendItem({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
   return (
     <div className="flex items-center gap-1.5">
-      <svg width="18" height="8" aria-hidden>
+      <svg width="16" height="8" aria-hidden>
         <line
-          x1="0" y1="4" x2="18" y2="4"
+          x1="0" y1="4" x2="16" y2="4"
           stroke={color}
-          strokeWidth="1.5"
+          strokeWidth="2"
           strokeLinecap="round"
-          strokeDasharray={dashed ? '4 2' : undefined}
+          strokeDasharray={dashed ? '4 3' : undefined}
         />
       </svg>
-      <span className="text-[10px] text-muted-foreground">{label}</span>
+      <span className="text-[12px] text-muted-foreground">{label}</span>
     </div>
   );
 }
 
-// ─── Tile colour scheme ────────────────────────────────────────────────────────
-//
-// One source of truth for the visual language used by every tile on the
-// dashboard (StatTile, MetricCard, Host identity card). Mirrors the layered
-// look introduced by the VirtPilot update card: a subtle gradient wash, two
-// blurred colour orbs, a coloured top stripe, a glowing icon badge with
-// ring + gradient fill, and accent-coloured typography.
-
-type TileAccent = 'neutral' | 'ok' | 'warn' | 'blue' | 'violet';
-
-interface SchemeConfig {
-  // Chart line colour (hex) — used by SVG components
-  chartHex:       string;
-  // Card chrome
-  border:         string;
-  hoverBorder:    string;
-  // Icon badge
-  iconBadgeBg:    string;
-  iconBadgeRing:  string;
-  iconColor:      string;
-  // Typography
-  labelColor:     string;
-  valueColor:     string;
-  // Status dot + progress bar
-  dotColor:       string;
-  barColor:       string;
-  showDot:        boolean;
-}
-
-// Cards sit on neutral hairlines. Colour lives only in what carries meaning: the icon,
-// the live mark, the bar and the chart line — no washes, orbs, stripes or glows.
-const ACCENT_CFG: Record<TileAccent, SchemeConfig> = {
-  neutral: {
-    chartHex:      '#8592a6',
-    border:        'border-border',
-    hoverBorder:   'hover:border-muted-foreground/25',
-    iconBadgeBg:   'bg-surface',
-    iconBadgeRing: 'ring-border',
-    iconColor:     'text-muted-foreground',
-    labelColor:    'text-muted-foreground',
-    valueColor:    'text-foreground',
-    dotColor:      '',
-    barColor:      'bg-border',
-    showDot:       false,
-  },
-  ok: {
-    chartHex:      '#578c72',
-    border:        'border-border',
-    hoverBorder:   'hover:border-muted-foreground/25',
-    iconBadgeBg:   'bg-surface',
-    iconBadgeRing: 'ring-border',
-    iconColor:     'text-emerald-600 dark:text-emerald-400',
-    labelColor:    'text-muted-foreground',
-    valueColor:    'text-foreground',
-    dotColor:      'bg-emerald-500',
-    barColor:      'bg-emerald-500/70',
-    showDot:       true,
-  },
-  warn: {
-    chartHex:      '#b98a4c',
-    border:        'border-border',
-    hoverBorder:   'hover:border-muted-foreground/25',
-    iconBadgeBg:   'bg-surface',
-    iconBadgeRing: 'ring-border',
-    iconColor:     'text-amber-600 dark:text-amber-400',
-    labelColor:    'text-muted-foreground',
-    valueColor:    'text-foreground',
-    dotColor:      'bg-amber-500',
-    barColor:      'bg-amber-500/70',
-    showDot:       true,
-  },
-  blue: {
-    chartHex:      '#3d73b0',
-    border:        'border-border',
-    hoverBorder:   'hover:border-muted-foreground/25',
-    iconBadgeBg:   'bg-surface',
-    iconBadgeRing: 'ring-border',
-    iconColor:     'text-blue-600 dark:text-blue-400',
-    labelColor:    'text-muted-foreground',
-    valueColor:    'text-foreground',
-    dotColor:      'bg-blue-500',
-    barColor:      'bg-blue-500/70',
-    showDot:       true,
-  },
-  violet: {
-    chartHex:      '#7162aa',
-    border:        'border-border',
-    hoverBorder:   'hover:border-muted-foreground/25',
-    iconBadgeBg:   'bg-surface',
-    iconBadgeRing: 'ring-border',
-    iconColor:     'text-violet-600 dark:text-violet-400',
-    labelColor:    'text-muted-foreground',
-    valueColor:    'text-foreground',
-    dotColor:      'bg-violet-500',
-    barColor:      'bg-violet-500/70',
-    showDot:       true,
-  },
-};
-
 // ─── VM roster ───────────────────────────────────────────────────────────────
 //
-// Replaces the old 2×2 stat tiles in the Overview row. The health band above
-// owns the headline vitals (CPU/MEM/DISK/VM count); this card uses the freed
-// space for something the band can't show — the actual machines, grouped by
-// status, so you can see *which* VMs are up at a glance and jump straight in.
-
-const VM_STATUS: Record<VmStatus, { dot: string; label: string; live: boolean }> = {
-  running: { dot: 'bg-emerald-500', label: 'Running', live: true },
-  paused:  { dot: 'bg-amber-500',  label: 'Paused',  live: false },
-  crashed: { dot: 'bg-red-500',     label: 'Crashed', live: false },
-  stopped: { dot: 'bg-muted-foreground/25',                                   label: 'Stopped', live: false },
-  unknown: { dot: 'bg-muted-foreground/25',                                   label: 'Unknown', live: false },
-};
+// The machines themselves, running first, so you can see which are up at a glance
+// and jump straight in. The foot of the panel answers the question every KVM host
+// gets asked: how much of the box have the running guests been given?
 
 const STATUS_ORDER: VmStatus[] = ['running', 'paused', 'crashed', 'stopped', 'unknown'];
 
-// Tiny axis-less area+line chart for the roster rows — just enough to read the
-// shape of a VM's recent CPU. Unique gradient id per row via `idKey`.
+const STATUS_WORD: Record<VmStatus, string> = {
+  running: 'Running', paused: 'Paused', crashed: 'Crashed', stopped: 'Stopped', unknown: 'Unknown',
+};
+
+// Tiny axis-less line for the roster rows — just enough to read the shape of a VM's
+// recent CPU. A flat wash under the line, no gradient.
 function Sparkline({
-  data, color, idKey, width = 46, height = 16,
-}: { data: number[]; color: string; idKey: string; width?: number; height?: number }) {
+  data, color, width = 56, height = 18,
+}: { data: number[]; color: string; width?: number; height?: number }) {
   if (!data || data.length < 2) return null;
   const max = Math.max(...data, 1);
   const pts = data.map((v, i) => {
     const x = (i / (data.length - 1)) * width;
-    const y = height - (Math.min(v, max) / max) * height;
+    const y = height - 1 - (Math.min(v, max) / max) * (height - 2);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
   const line = `M${pts.join(' L')}`;
   const area = `${line} L${width},${height} L0,${height} Z`;
-  const gid = `spark-${idKey}`;
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden className="overflow-visible">
-      <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill={`url(#${gid})`} />
+      <path d={area} fill={color} fillOpacity={0.1} />
       <path
         d={line}
         fill="none"
@@ -243,92 +124,115 @@ function Sparkline({
   );
 }
 
-function VmRoster({ vms }: { vms: VmSummary[] }) {
+function AllocationMeter({ label, used, total, format }: {
+  label: string; used: number; total: number; format: (n: number) => string;
+}) {
+  const ratio = total > 0 ? used / total : 0;
+  const over = ratio > 1;
+  return (
+    <div className="min-w-0">
+      <div className="flex items-baseline justify-between gap-3 text-[12px]">
+        <span className="font-medium text-muted-foreground">{label}</span>
+        <span className="truncate tabular-nums text-muted-foreground">
+          <span className={cn('font-semibold', over ? 'text-amber-700 dark:text-amber-300' : 'text-foreground')}>{format(used)}</span>
+          {' '}of {format(total)}
+        </span>
+      </div>
+      {/* Thin strokes drawn as borders: they snap to whole pixels at any position. */}
+      <div className="mt-2 flex h-[5px] overflow-hidden rounded-[2px] bg-gauge-track">
+        <div
+          className={cn('h-full transition-[width] duration-700', over ? 'bg-amber-500' : 'bg-[#4F7CAC] dark:bg-[#86AEDA]')}
+          style={{ width: `${Math.min(ratio, 1) * 100}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function VmRoster({ vms, cores, memTotalMb }: { vms: VmSummary[]; cores?: number; memTotalMb?: number }) {
   const total = vms.length;
-  const running = vms.filter((v) => v.status === 'running').length;
+  const live = vms.filter((v) => v.status === 'running');
+  const running = live.length;
+  const vcpus = live.reduce((n, v) => n + v.cpus, 0);
+  const memMb = live.reduce((n, v) => n + v.memoryMb, 0);
 
   const sorted = [...vms].sort((a, b) => {
     const d = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
     return d !== 0 ? d : a.name.localeCompare(b.name);
   });
+  // A logo picked for the VM wins over the one its template implies (as on the VM list).
+  const chosenLogos = useLogoStore((s) => s.vms);
 
   return (
-    <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-airy transition-all duration-300 ease-out">
-
-      {/* Header */}
-      <div className="relative flex items-center gap-2.5 px-5 pt-4">
-        <div className="relative shrink-0">
-          <div className="bg-blue-500/10 relative flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-blue-400/30">
-            <Boxes className="h-4 w-4 text-blue-600 dark:text-blue-300" />
-          </div>
-        </div>
-        <div className="min-w-0">
-          <span className="block text-[12px] font-medium text-blue-700 dark:text-blue-300">
-            Virtual Machines
-          </span>
-          <span className="block text-xs text-muted-foreground">
-            <span className="font-semibold text-foreground tabular-nums">{running}</span> of {total} running
-          </span>
-        </div>
-        <Link
-          to="/vms"
-          className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-        >
-          Manage
-          <ArrowRight className="h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
-        </Link>
-      </div>
+    <Panel className="flex h-full flex-col">
+      <PanelHeader
+        title="Virtual machines"
+        meta={<><span className="font-medium text-foreground tabular-nums">{running}</span> of {total} running</>}
+        actions={
+          <Link
+            to="/vms"
+            className="group/manage inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12.5px] font-medium text-primary transition-colors hover:bg-accent"
+          >
+            Manage
+            <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover/manage:translate-x-0.5" />
+          </Link>
+        }
+      />
 
       {/* List */}
-      <div className="relative mt-3 max-h-[168px] flex-1 overflow-y-auto px-2 pb-2">
+      <div className="max-h-[232px] flex-1 overflow-y-auto">
         {sorted.length === 0 ? (
-          <div className="flex h-full items-center justify-center py-8 text-xs text-muted-foreground">
-            No virtual machines yet
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+            <p className="text-[13px] text-muted-foreground">No virtual machines yet.</p>
+            <Link to="/vms/new" className="text-[13px] font-medium text-primary hover:underline">Create the first one</Link>
           </div>
         ) : (
-          <ul className="space-y-px">
+          <ul className="divide-y divide-border">
             {sorted.map((vm) => {
-              const s = VM_STATUS[vm.status] ?? VM_STATUS.unknown;
+              const live = vm.status === 'running';
               return (
                 <li key={vm.id}>
                   <Link
                     to={`/vms/${vm.id}`}
-                    className="group/row grid grid-cols-[1.5rem_minmax(0,1fr)_2.875rem_7rem] items-center gap-x-2.5 rounded-lg px-3 py-1.5 transition-colors hover:bg-blue-500/[0.07]"
+                    className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_5.5rem_3.5rem_7.25rem] items-center gap-x-3 px-5 py-[9px] transition-colors hover:bg-surface"
                   >
-                    {/* OS logo with a corner status badge */}
-                    <span className="relative block h-5 w-5 shrink-0">
-                      <VmLogo slug={osSlugFromImage(vm.sourceTemplateFilename)} size={20} />
-                      <span className={cn(
-                        'absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-card',
-                        s.dot,
-                      )} />
+                    <span className="block h-5 w-5 shrink-0">
+                      <VmLogo slug={chosenLogos[vm.name] ?? osSlugFromImage(vm.sourceTemplateFilename)} size={20} />
                     </span>
 
                     {/* Name + inline flags */}
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span className={cn(
-                        'min-w-0 truncate text-xs font-medium transition-colors',
-                        s.live ? 'text-foreground' : 'text-muted-foreground',
+                        'min-w-0 truncate text-[13px] font-medium',
+                        live ? 'text-foreground' : 'text-muted-foreground',
                       )}>
                         {vm.name}
                       </span>
                       {vm.autostart && (
-                        <Power className="h-3 w-3 shrink-0 text-muted-foreground/80" aria-label="Autostart enabled" />
+                        <Power className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Autostart enabled" />
                       )}
                       {vm.guestAgent && (
-                        <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500/60" aria-label="Guest agent active" />
+                        <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-label="Guest agent active" />
                       )}
                     </span>
 
+                    <span className={cn(
+                      'inline-flex items-center gap-1.5 text-[12px]',
+                      live ? 'text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground',
+                    )}>
+                      <StatusGlyph status={vm.status} size={7} />
+                      {STATUS_WORD[vm.status] ?? 'Unknown'}
+                    </span>
+
                     {/* Recent-CPU sparkline (running VMs with samples) */}
-                    <span className="flex h-4 items-center justify-end">
-                      {s.live && vm.cpuSpark && vm.cpuSpark.length >= 2 && (
-                        <Sparkline data={vm.cpuSpark} color={CHART.cpu} idKey={vm.id} />
+                    <span className="flex h-[18px] items-center justify-end">
+                      {live && vm.cpuSpark && vm.cpuSpark.length >= 2 && (
+                        <Sparkline data={vm.cpuSpark} color={CHART.cpu} />
                       )}
                     </span>
 
                     {/* Allocation */}
-                    <span className="text-right font-mono text-[11px] tabular-nums text-muted-foreground transition-colors group-hover/row:text-foreground">
+                    <span className="text-right font-mono text-[11.5px] tabular-nums text-muted-foreground group-hover/row:text-foreground">
                       {vm.cpus} vCPU · {fmtMb(vm.memoryMb)}
                     </span>
                   </Link>
@@ -338,50 +242,57 @@ function VmRoster({ vms }: { vms: VmSummary[] }) {
           </ul>
         )}
       </div>
-    </div>
+
+      {/* What the running guests have been given, against the host */}
+      {total > 0 && (
+        <div className="mt-auto grid grid-cols-1 gap-x-8 gap-y-3 border-t border-border bg-surface/60 px-5 py-3.5 sm:grid-cols-2">
+          <AllocationMeter
+            label="vCPU to running VMs"
+            used={vcpus}
+            total={cores ?? 0}
+            format={(n) => `${n}`}
+          />
+          <AllocationMeter
+            label="Memory to running VMs"
+            used={memMb}
+            total={memTotalMb ?? 0}
+            format={fmtMb}
+          />
+        </div>
+      )}
+    </Panel>
   );
 }
 
 // ─── Host overview ─────────────────────────────────────────────────────────────
 
-function ZoneSeparator({ label }: { label: string }) {
+// One label/value row of the host plate: a quiet label in a fixed column, then a
+// single value style (mono, tabular, full strength), every row ruled.
+function PlateRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-px flex-1 bg-border/50" />
-      <span className="text-[12px] font-medium text-muted-foreground/80">
-        {label}
-      </span>
+    <div className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-center gap-x-3 py-[9px]">
+      <dt className="text-[12.5px] text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 truncate font-mono text-[12px] tabular-nums text-foreground">{children}</dd>
     </div>
-  );
-}
-
-// One label/value row for the host-identity card. Every line shares the same
-// rhythm: a dim sentence-case label in a fixed-width column, then a single
-// consistent value style (mono, tabular, full-strength). Used inside a parent
-// <dl> grid so all values align to the same left edge.
-function CardRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <>
-      <dt className="self-center text-[11px] font-medium text-muted-foreground/80">{label}</dt>
-      <dd className="min-w-0 self-center truncate font-mono text-[11px] tabular-nums text-foreground">
-        {children}
-      </dd>
-    </>
   );
 }
 
 function LoadValue({ load, cores }: { load?: [number, number, number]; cores?: number }) {
   const color = (v: number) => {
     const r = v / Math.max(cores ?? 1, 1);
-    if (r > 1.0) return 'text-red-700 dark:text-red-400';
-    if (r > 0.7) return 'text-amber-700 dark:text-amber-400';
-    return 'text-emerald-700 dark:text-emerald-400';
+    if (r > 1.0) return 'text-red-700 dark:text-red-300';
+    if (r > 0.7) return 'text-amber-700 dark:text-amber-300';
+    return 'text-foreground';
   };
   if (!load) return <span className="text-muted-foreground">—</span>;
+  const spans = ['1m', '5m', '15m'];
   return (
-    <span className="flex items-center gap-2.5">
+    <span className="flex items-baseline gap-4">
       {load.map((v, i) => (
-        <span key={i} className={cn('font-semibold', color(v))}>{v.toFixed(2)}</span>
+        <span key={i} className="flex items-baseline gap-1">
+          <span className={cn('font-semibold', color(v))}>{v.toFixed(2)}</span>
+          <span className="font-sans text-[11px] text-muted-foreground">{spans[i]}</span>
+        </span>
       ))}
     </span>
   );
@@ -389,13 +300,13 @@ function LoadValue({ load, cores }: { load?: [number, number, number]; cores?: n
 
 function NetValue({ rx, tx }: { rx: number; tx: number }) {
   return (
-    <span className="flex items-center gap-3">
+    <span className="flex items-center gap-4">
       <span className="flex items-center gap-1">
-        <ArrowDown className="h-2.5 w-2.5 shrink-0 text-emerald-500/60" />
+        <ArrowDown className="h-3 w-3 shrink-0 text-[#4F7CAC] dark:text-[#86AEDA]" aria-label="Received" />
         {fmtBps(rx)}
       </span>
       <span className="flex items-center gap-1">
-        <ArrowUp className="h-2.5 w-2.5 shrink-0 text-cyan-500/60" />
+        <ArrowUp className="h-3 w-3 shrink-0 text-[#9A6B2E] dark:text-[#D2A86A]" aria-label="Sent" />
         {fmtBps(tx)}
       </span>
     </span>
@@ -411,91 +322,52 @@ function HostOverview() {
 
   if (!settings) {
     return (
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.4fr]">
-        <Skeleton className="h-[268px] rounded-xl" />
-        <Skeleton className="h-[268px] rounded-xl" />
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1.4fr]">
+        <Skeleton className="h-[332px] rounded-lg" />
+        <Skeleton className="h-[332px] rounded-lg" />
       </div>
     );
   }
 
-  const isKvm    = settings.kvmAvailable;
-  const VirtIcon = isKvm ? Zap : ZapOff;
+  const isKvm = settings.kvmAvailable;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.4fr]">
-      {/* Host identity card */}
-      <div
-        style={{ animationDelay: '60ms' }}
-        className={cn(
-        'group relative animate-fade-up overflow-hidden rounded-xl border bg-card shadow-airy transition-all duration-300 ease-out',
-        isKvm
-          ? 'border-border'
-          : 'border-amber-500/30',
-      )}>
-
-        <div className="relative flex flex-col gap-3 p-5">
-
-          {/* KVM / TCG badge */}
-          <div className="flex items-center gap-3">
-            <div className="relative shrink-0">
-              <div className={cn(
-                'relative flex h-11 w-11 items-center justify-center rounded-xl ring-1',
-                isKvm
-                  ? 'bg-emerald-500/10 ring-emerald-400/30'
-                  : 'bg-amber-500/10 ring-amber-400/30',
-              )}>
-                <VirtIcon className={cn(
-                  'h-5 w-5',
-                  isKvm ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300',
-                )} />
-              </div>
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  'text-base font-bold tracking-wide',
-                  isKvm ? 'text-emerald-700 dark:text-emerald-200' : 'text-amber-700 dark:text-amber-200',
-                )}>
-                  {isKvm ? 'KVM' : 'TCG'}
-                </span>
-                <span className={cn(
-                  'h-1.5 w-1.5 rounded-full',
-                  isKvm
-                    ? 'bg-emerald-500'
-                    : 'bg-amber-500',
-                )} />
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                {isKvm ? 'Hardware-accelerated virtualisation' : 'Software emulation — reduced performance'}
-              </p>
-            </div>
-          </div>
-
-          {/* Host zone */}
-          <ZoneSeparator label="Host" />
-          <dl className="grid grid-cols-[4.25rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2.5">
-            <CardRow label="Hostname">{info?.hostname ?? '—'}</CardRow>
-            <CardRow label="CPU">
-              {info ? `${cleanCpuModel(info.cpuModel)} · ${info.cpuCores} cores` : '—'}
-            </CardRow>
-            <CardRow label="QEMU">{info?.qemuVersion ?? '—'}</CardRow>
-            <CardRow label="Kernel">{info?.kernelVersion ?? '—'}</CardRow>
-            <CardRow label="Libvirt">{settings.libvirtUri}</CardRow>
-          </dl>
-
-          {/* Live zone */}
-          <ZoneSeparator label="Live" />
-          <dl className="grid grid-cols-[4.25rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2.5">
-            <CardRow label="Load"><LoadValue load={info?.load} cores={info?.cpuCores} /></CardRow>
-            <CardRow label="Network"><NetValue rx={current?.netRxBps ?? 0} tx={current?.netTxBps ?? 0} /></CardRow>
-          </dl>
-
-        </div>
-      </div>
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1.4fr]">
+      {/* Host plate */}
+      <Panel className="animate-fade-up flex flex-col" style={{ animationDelay: '60ms' }}>
+        <PanelHeader
+          title="Host"
+          actions={
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 text-[12.5px] font-medium',
+                isKvm ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300',
+              )}
+              title={isKvm ? 'Hardware-accelerated virtualisation' : 'Software emulation — reduced performance'}
+            >
+              {isKvm ? <StatusGlyph status="running" size={7} /> : <WarnGlyph size={9} />}
+              {isKvm ? 'KVM · hardware accelerated' : 'TCG · software emulation'}
+            </span>
+          }
+        />
+        <dl className="divide-y divide-border px-5 py-1">
+          <PlateRow label="Hostname">{info?.hostname ?? '—'}</PlateRow>
+          <PlateRow label="CPU">
+            <span title={info?.cpuModel}>{info ? `${cleanCpuModel(info.cpuModel)} · ${info.cpuCores} cores` : '—'}</span>
+          </PlateRow>
+          <PlateRow label="QEMU">{info?.qemuVersion ?? '—'}</PlateRow>
+          <PlateRow label="Kernel">{info?.kernelVersion ?? '—'}</PlateRow>
+          <PlateRow label="Libvirt">{settings.libvirtUri}</PlateRow>
+        </dl>
+        <dl className="mt-auto divide-y divide-border border-t border-border bg-surface/60 px-5 py-1">
+          <PlateRow label="Load"><LoadValue load={info?.load} cores={info?.cpuCores} /></PlateRow>
+          <PlateRow label="Network"><NetValue rx={current?.netRxBps ?? 0} tx={current?.netTxBps ?? 0} /></PlateRow>
+        </dl>
+      </Panel>
 
       {/* VM roster */}
       <div className="animate-fade-up" style={{ animationDelay: '120ms' }}>
-        <VmRoster vms={vms ?? []} />
+        <VmRoster vms={vms ?? []} cores={info?.cpuCores} memTotalMb={current?.memTotalMb} />
       </div>
     </div>
   );
@@ -503,16 +375,13 @@ function HostOverview() {
 
 // ─── Host metric card ──────────────────────────────────────────────────────────
 //
-// One full-width row per metric (CPU / Memory / Disk / Network). Header bar
-// keeps the dashboard's coloured chrome (top stripe, icon badge, accent label
-// + big primary value); the chart below is a `MetricChart` matching the per-VM
-// Metrics tab — Y/X axis labels, dashed grid lines, auto-scaled "nice" max.
+// One panel per metric (CPU / Memory / Disk / Network): the title bar names it and
+// carries its live reading; the chart below is the same MetricChart the per-VM
+// Metrics tab uses — axis labels, ruled grid, auto-scaled "nice" max.
 
 interface HostMetricCardProps {
   id: string;
-  icon: typeof Cpu;
   label: string;
-  scheme: TileAccent;
   /** Raw current value; animated via count-up and rendered through formatValue. */
   primaryValue: number;
   formatValue: (n: number) => string;
@@ -527,99 +396,129 @@ interface HostMetricCardProps {
   formatX: (ts: number) => string;
   /** Fixed Y-axis max (e.g. 100 for percentage charts). Auto-scales when omitted. */
   max?: number;
-  /** Plot-area height in px. Smaller in the 2-up grid than full width. */
+  /** Floor for the auto-scaled max (byte rates: 1 KB/s, so an idle host's axis still reads). */
+  minMax?: number;
+  /** Plot-area height in px. */
   chartHeight?: number;
   loading?: boolean;
   delay?: number;
 }
 
 function HostMetricCard({
-  id, icon: Icon, label, scheme,
+  id, label,
   primaryValue, formatValue, secondaryValue, legend,
   data, data2, color, color2,
-  timestamps, formatY, formatX, max,
+  timestamps, formatY, formatX, max, minMax,
   chartHeight = 200,
   loading, delay = 0,
 }: HostMetricCardProps) {
-  const a = ACCENT_CFG[scheme];
+  return (
+    <Panel className="animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
+      <PanelHeader
+        title={label}
+        meta={legend && !loading ? <span className="hidden sm:inline-flex">{legend}</span> : undefined}
+        actions={
+          loading ? (
+            <Skeleton className="h-5 w-20 rounded" />
+          ) : (
+            <span className="flex items-baseline gap-1.5">
+              <span className="whitespace-nowrap text-[18px] font-semibold tracking-[-0.015em] tabular-nums text-foreground">
+                <AnimatedNumber value={primaryValue} format={formatValue} />
+              </span>
+              {secondaryValue && (
+                <span className="whitespace-nowrap text-[12px] text-muted-foreground">{secondaryValue}</span>
+              )}
+            </span>
+          )
+        }
+      />
+
+      <div className="px-4 pb-3 pt-4">
+        {loading || data.length < 2 ? (
+          <div
+            className="flex items-center justify-center text-[12.5px] text-muted-foreground"
+            style={{ height: chartHeight + 18 }}
+          >
+            {loading ? 'Loading…' : 'Waiting for samples…'}
+          </div>
+        ) : (
+          <MetricChart
+            id={id}
+            data={data}
+            data2={data2}
+            color={color}
+            color2={color2}
+            timestamps={timestamps}
+            formatY={formatY}
+            formatX={formatX}
+            max={max}
+            minMax={minMax}
+            height={chartHeight}
+          />
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+// ─── Terminal shell ────────────────────────────────────────────────────────────
+//
+// Both long-running jobs (apt upgrade, VirtPilot self-upgrade) stream into the same
+// window: always dark (a terminal is), titled by the command it runs, and closable
+// only once the job has finished.
+
+function TerminalShell({
+  title, closable, onClose, children, footer,
+}: {
+  title: string;
+  closable: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+}) {
+  useEffect(() => {
+    if (!closable) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [closable, onClose]);
 
   return (
     <div
-      className={cn(
-        'group relative overflow-hidden rounded-xl border bg-card shadow-airy animate-fade-up transition-all duration-300 ease-out',
-        a.border, a.hoverBorder,
-      )}
-      style={{ animationDelay: `${delay}ms` }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#1B2433]/45 p-4 animate-fade-in dark:bg-black/70"
     >
-
-      <div className="relative px-5 pb-3 pt-5">
-        {/* Header row */}
-        <div className="flex items-center gap-3">
-          <div className="relative shrink-0">
-            <div className={cn(
-              'relative flex h-9 w-9 items-center justify-center rounded-xl ring-1',
-              a.iconBadgeBg, a.iconBadgeRing,
-            )}>
-              <Icon className={cn('h-4 w-4', a.iconColor)} />
-            </div>
-          </div>
-          <span className={cn('text-[12px] font-medium', a.labelColor)}>
-            {label}
-          </span>
-
-          {legend && !loading && (
-            <div className="ml-3 hidden sm:flex">
-              {legend}
-            </div>
-          )}
-
-          <div className="ml-auto text-right">
-            {loading ? (
-              <div className="space-y-1">
-                <Skeleton className="ml-auto h-6 w-20 rounded" />
-                <Skeleton className="ml-auto h-3 w-14 rounded" />
-              </div>
-            ) : (
-              <>
-                <span className={cn('block whitespace-nowrap text-2xl font-semibold tracking-[-0.015em] tabular-nums', a.valueColor)}>
-                  <AnimatedNumber value={primaryValue} format={formatValue} />
-                </span>
-                {secondaryValue && (
-                  <span className="block text-xs text-muted-foreground">{secondaryValue}</span>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Chart */}
-        <div className="mt-4">
-          {loading || data.length < 2 ? (
-            <div
-              className="flex items-center justify-center text-xs text-muted-foreground"
-              style={{ height: chartHeight + 18 }}
+      <div className="dark w-full max-w-2xl overflow-hidden rounded-[10px] border border-border bg-background text-foreground shadow-pop animate-slide-up">
+        <div className="flex items-center gap-2.5 border-b border-border px-4 py-2.5">
+          <img src="/brand/virtpilot-symbol-small-dark.svg" alt="" className="h-4 w-4" />
+          <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted-foreground">{title}</span>
+          {closable && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
             >
-              {loading ? 'Loading…' : 'Waiting for samples…'}
-            </div>
-          ) : (
-            <MetricChart
-              id={id}
-              data={data}
-              data2={data2}
-              color={color}
-              color2={color2}
-              timestamps={timestamps}
-              formatY={formatY}
-              formatX={formatX}
-              max={max}
-              height={chartHeight}
-            />
+              <X className="h-3.5 w-3.5" />
+            </button>
           )}
+        </div>
+        {children}
+        <div className="flex items-center justify-between gap-3 border-t border-border bg-card px-4 py-3">
+          {footer}
         </div>
       </div>
     </div>
   );
 }
+
+const TERM_LINE: Record<'out' | 'err' | 'meta', string> = {
+  out: 'text-[#D5DAE1]',
+  err: 'text-[#F0A39B]',
+  meta: 'text-[#8B95A5]',
+};
 
 // ─── APT upgrade terminal ──────────────────────────────────────────────────────
 
@@ -664,85 +563,52 @@ function UpgradeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
   const success = done && exitCode === 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-xl overflow-hidden border border-border shadow-2xl"
-           style={{ background: 'hsl(224 30% 5%)' }}>
-        {/* Terminal title bar */}
-        <div className="flex items-center gap-3 border-b border-white/8 px-4 py-3">
-          <div className="flex gap-1.5">
-            <div className="h-3 w-3 rounded-full bg-red-500/70" />
-            <div className="h-3 w-3 rounded-full bg-amber-500/70" />
-            <div className="h-3 w-3 rounded-full bg-emerald-500/70" />
-          </div>
-          <span className="flex-1 text-center font-mono text-xs text-white/35">
-            apt-get upgrade
-          </span>
-          {done && (
-            <button
-              onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/60 transition-all duration-200 ease-out"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        {/* Output */}
-        <div
-          ref={outputRef}
-          className="h-[340px] overflow-y-auto p-4 font-mono text-xs leading-relaxed"
-        >
-          {lines.map((l, i) => (
-            <span
-              key={i}
-              className={cn(
-                'whitespace-pre-wrap',
-                l.type === 'meta' ? 'text-white/30' :
-                'text-white/75'
-              )}
-            >
-              {l.text}
-            </span>
-          ))}
-          {!done && (
-            <span className="inline-block h-3.5 w-1.5 animate-pulse bg-white/50 align-middle" />
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-white/8 px-4 py-3">
-          <div className="flex items-center gap-2">
+    <TerminalShell
+      title="apt-get upgrade"
+      closable={done}
+      onClose={onClose}
+      footer={
+        <>
+          <div className="flex items-center gap-2 text-[12.5px]">
             {done ? (
               success ? (
                 <>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
-                  <span className="text-xs text-emerald-700 dark:text-emerald-400">Upgrade complete</span>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  <span className="text-emerald-300">Upgrade complete</span>
                 </>
               ) : (
                 <>
-                  <X className="h-4 w-4 text-red-700 dark:text-red-400" />
-                  <span className="text-xs text-red-700 dark:text-red-400">Upgrade failed (exit {exitCode})</span>
+                  <X className="h-4 w-4 text-red-400" />
+                  <span className="text-red-300">Upgrade failed (exit {exitCode})</span>
                 </>
               )
             ) : (
               <>
-                <RefreshCw className="h-4 w-4 animate-spin text-white/40" />
-                <span className="text-xs text-white/40">Running…</span>
+                <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-muted-foreground">Running…</span>
               </>
             )}
           </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={onClose}
-            disabled={!done}
-            className="text-xs"
-          >
+          <Button size="sm" variant="secondary" onClick={onClose} disabled={!done}>
             Close
           </Button>
-        </div>
+        </>
+      }
+    >
+      <div
+        ref={outputRef}
+        className="h-[340px] overflow-y-auto px-4 py-3 font-mono text-[12px] leading-relaxed"
+      >
+        {lines.map((l, i) => (
+          <span key={i} className={cn('whitespace-pre-wrap', TERM_LINE[l.type])}>
+            {l.text}
+          </span>
+        ))}
+        {!done && (
+          <span className="inline-block h-3.5 w-1.5 animate-pulse bg-[#86AEDA]/70 align-middle" />
+        )}
       </div>
-    </div>
+    </TerminalShell>
   );
 }
 
@@ -763,73 +629,60 @@ function AptSection() {
 
   return (
     <>
-      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className={cn(
-              'flex h-7 w-7 items-center justify-center rounded-lg',
-              upToDate ? 'bg-emerald-500/10' : count > 0 ? 'bg-amber-500/10' : 'bg-muted'
-            )}>
-              <PackageOpen className={cn(
-                'h-3.5 w-3.5',
-                upToDate ? 'text-emerald-600 dark:text-emerald-400' : count > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
-              )} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">System Updates</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {isLoading ? 'Checking for updates…' :
-                 upToDate ? 'System is up to date' :
-                 `${count} ${count === 1 ? 'package' : 'packages'} available`}
-              </p>
-            </div>
-          </div>
-
-          {count > 0 && (
-            <Button
-              size="sm"
-              onClick={() => setUpgrading(true)}
-              className="gap-1.5"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Upgrade all
-            </Button>
-          )}
-        </div>
+      <Panel className="overflow-hidden">
+        <PanelHeader
+          title="System updates"
+          meta={
+            isLoading ? 'Checking for updates…'
+            : upToDate ? 'Up to date'
+            : `${count} ${count === 1 ? 'package' : 'packages'} available`
+          }
+          actions={
+            count > 0 ? (
+              <Button size="sm" onClick={() => setUpgrading(true)}>
+                <RefreshCw className="h-3.5 w-3.5" />
+                Upgrade all
+              </Button>
+            ) : undefined
+          }
+        />
 
         {/* Package list */}
         {isLoading && (
-          <div className="space-y-px p-4">
-            {[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
+          <div className="space-y-2 p-4">
+            {[0, 1, 2].map((i) => <Skeleton key={i} className="h-9 rounded-md" />)}
           </div>
         )}
 
         {upToDate && (
-          <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+          <div className="flex items-center justify-center gap-2 py-9 text-[13px] text-muted-foreground">
             <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            No updates available
+            No updates available for this host
           </div>
         )}
 
         {!isLoading && count > 0 && (
-          <div className="max-h-[320px] overflow-y-auto divide-y divide-border/60">
-            {(packages as AptPackage[]).map((pkg) => (
-              <div key={pkg.name} className="flex items-center gap-3 px-6 py-3 hover:bg-muted/30 transition-colors">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-foreground">
-                  {pkg.name}
-                </span>
-                <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-muted-foreground">
-                  <span className="font-mono font-semibold text-foreground">{pkg.version}</span>
-                  <span className="ml-1 rounded bg-muted px-1 py-0.5 text-[12px]">
-                    {pkg.arch}
+          <>
+            <div className="table-head grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-5 py-2">
+              <span>Package</span>
+              <span>New version</span>
+            </div>
+            <div className="max-h-[320px] divide-y divide-border overflow-y-auto">
+              {(packages as AptPackage[]).map((pkg) => (
+                <div key={pkg.name} className="table-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-2.5">
+                  <span className="min-w-0 truncate font-mono text-[12px] font-medium text-foreground">
+                    {pkg.name}
+                  </span>
+                  <span className="flex shrink-0 items-baseline gap-2 font-mono text-[12px]">
+                    <span className="font-semibold text-foreground">{pkg.version}</span>
+                    <span className="text-[11px] text-muted-foreground">{pkg.arch}</span>
                   </span>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
-      </div>
+      </Panel>
 
       {upgrading && (
         <UpgradeModal onClose={() => setUpgrading(false)} onDone={handleUpgradeDone} />
@@ -923,75 +776,55 @@ function VirtPilotUpgradeModal({
   const success = phase === 'done-success' || (phase === 'restarting' && exitCode === 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-xl overflow-hidden border border-border shadow-2xl"
-           style={{ background: 'hsl(224 30% 5%)' }}>
-        <div className="flex items-center gap-3 border-b border-white/8 px-4 py-3">
-          <div className="flex gap-1.5">
-            <div className="h-3 w-3 rounded-full bg-red-500/70" />
-            <div className="h-3 w-3 rounded-full bg-amber-500/70" />
-            <div className="h-3 w-3 rounded-full bg-emerald-500/70" />
-          </div>
-          <span className="flex-1 text-center font-mono text-xs text-white/35">
-            virtpilot upgrade → {targetVersion}
-          </span>
-          {done && (
-            <button
-              onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/60 transition-all duration-200 ease-out"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        <div ref={outputRef} className="h-[340px] overflow-y-auto p-4 font-mono text-xs leading-relaxed">
-          {lines.map((l, i) => (
-            <span key={i} className={cn(
-              'whitespace-pre-wrap',
-              l.type === 'meta' ? 'text-white/30' : l.type === 'err' ? 'text-red-300/80' : 'text-white/75',
-            )}>
-              {l.text}
-            </span>
-          ))}
-          {!done && <span className="inline-block h-3.5 w-1.5 animate-pulse bg-white/50 align-middle" />}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-white/8 px-4 py-3">
-          <div className="flex items-center gap-2">
+    <TerminalShell
+      title={`virtpilot upgrade → ${targetVersion}`}
+      closable={done}
+      onClose={onClose}
+      footer={
+        <>
+          <div className="flex items-center gap-2 text-[12.5px]">
             {phase === 'streaming' && (
               <>
-                <RefreshCw className="h-4 w-4 animate-spin text-white/40" />
-                <span className="text-xs text-white/40">Building…</span>
+                <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-muted-foreground">Building…</span>
               </>
             )}
             {phase === 'restarting' && (
               <>
-                <RefreshCw className="h-4 w-4 animate-spin text-amber-400/80" />
-                <span className="text-xs text-amber-400/80">Restarting service…</span>
+                <RefreshCw className="h-4 w-4 animate-spin text-amber-400" />
+                <span className="text-amber-300">Restarting service…</span>
               </>
             )}
             {phase === 'done-success' && (
               <>
-                <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
-                <span className="text-xs text-emerald-700 dark:text-emerald-400">Upgrade complete</span>
+                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                <span className="text-emerald-300">Upgrade complete</span>
               </>
             )}
             {phase === 'done-fail' && (
               <>
-                <X className="h-4 w-4 text-red-700 dark:text-red-400" />
-                <span className="text-xs text-red-700 dark:text-red-400">
+                <X className="h-4 w-4 text-red-400" />
+                <span className="text-red-300">
                   Upgrade failed{exitCode !== null ? ` (exit ${exitCode})` : ''}
                 </span>
               </>
             )}
           </div>
-          <Button size="sm" variant="secondary" onClick={onClose} disabled={!done && !success} className="text-xs">
+          <Button size="sm" variant="secondary" onClick={onClose} disabled={!done && !success}>
             Close
           </Button>
-        </div>
+        </>
+      }
+    >
+      <div ref={outputRef} className="h-[340px] overflow-y-auto px-4 py-3 font-mono text-[12px] leading-relaxed">
+        {lines.map((l, i) => (
+          <span key={i} className={cn('whitespace-pre-wrap', TERM_LINE[l.type])}>
+            {l.text}
+          </span>
+        ))}
+        {!done && <span className="inline-block h-3.5 w-1.5 animate-pulse bg-[#86AEDA]/70 align-middle" />}
       </div>
-    </div>
+    </TerminalShell>
   );
 }
 
@@ -1017,200 +850,110 @@ function VirtPilotUpdateCard() {
     });
   };
 
-  const checkNowButton = (hoverClass: string) => (
-    <button
-      type="button"
-      onClick={handleCheck}
-      disabled={checkNow.isPending}
-      className={cn(
-        'inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-200 disabled:cursor-default disabled:opacity-50',
-        hoverClass,
-      )}
-    >
-      <RefreshCw className={cn('h-3 w-3', checkNow.isPending && 'animate-spin')} />
+  const quietAction =
+    'inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-50';
+
+  const checkNowButton = (
+    <button type="button" onClick={handleCheck} disabled={checkNow.isPending} className={quietAction}>
+      <RefreshCw className={cn('h-3.5 w-3.5', checkNow.isPending && 'animate-spin')} />
       {checkNow.isPending ? 'Checking…' : 'Check now'}
     </button>
   );
 
+  const releaseLink = (label: string) =>
+    data?.releaseUrl ? (
+      <a href={data.releaseUrl} target="_blank" rel="noopener noreferrer" className={quietAction}>
+        {label}
+        <ExternalLink className="h-3.5 w-3.5" />
+      </a>
+    ) : null;
+
   if (isLoading || !data) return null;
 
   const targetVersion = data.latest ?? '';
+  const published = (iso?: string | null) =>
+    iso ? new Date(iso).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : null;
 
-  // ── Up to date ───────────────────────────────────────────────────────────
-  // Mirrors the visual structure of the Update-available card so the section
-  // has consistent weight regardless of state — same shell, same icon badge,
-  // same big mono version display, just emerald instead of blue/violet.
-  if (!data.updateAvailable) {
-    const broken = !data.repoOk;
-    return (
-      <div className={cn(
-        'group relative overflow-hidden rounded-xl border shadow-airy transition-all duration-300 ease-out',
-        broken
-          ? 'border-amber-500/30'
-          : 'border-border',
-      )}>
-
-        <div className="relative px-6 py-5">
-          <div className="flex items-start gap-4">
-            {/* Icon badge — matches the Update-available card's structure */}
-            <div className="relative shrink-0">
-              <div className={cn(
-                'relative flex h-12 w-12 items-center justify-center rounded-xl ring-1',
-                broken
-                  ? 'bg-amber-500/10 ring-amber-400/30'
-                  : 'bg-emerald-500/10 ring-emerald-400/30',
-              )}>
-                {broken
-                  ? <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-300" />
-                  : <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />}
-              </div>
-            </div>
-
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  'text-[12px] font-medium',
-                  broken ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300',
-                )}>
-                  {broken ? 'In-app upgrades unavailable' : 'Up to date'}
-                </span>
-              </div>
-
-              {/* Big version display — solid colours for max contrast */}
-              <div className="mt-2 font-mono">
-                <span className={cn(
-                  'text-2xl font-semibold tabular-nums tracking-[-0.015em]',
-                  broken ? 'text-amber-700 dark:text-amber-200' : 'text-emerald-700 dark:text-emerald-200',
-                )}>
-                  v{data.current}
-                </span>
-              </div>
-
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                {broken
-                  ? data.repoReason ?? 'Repository check failed.'
-                  : `Running the latest release${data.publishedAt ? ` from ${new Date(data.publishedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}` : ''}`}
-              </p>
-
-              <div className="mt-4 flex items-center gap-4">
-                {checkNowButton(broken ? 'hover:text-amber-600 dark:hover:text-amber-300' : 'hover:text-emerald-600 dark:hover:text-emerald-300')}
-                {data.releaseUrl && (
-                  <a
-                    href={data.releaseUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                      'inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-200',
-                      broken ? 'hover:text-amber-600 dark:hover:text-amber-300' : 'hover:text-emerald-600 dark:hover:text-emerald-300',
-                    )}
-                  >
-                    View latest release
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
-              </div>
-            </div>
+  // Every state is the same row — the mark, what is installed, what to do about it —
+  // so the section keeps its weight whether or not there is anything to do.
+  const row = (headline: React.ReactNode, detail: React.ReactNode, actions: React.ReactNode, extra?: React.ReactNode) => (
+    <Panel className="px-5 py-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <img src="/brand/virtpilot-symbol.svg" alt="" className="h-10 w-10 shrink-0 dark:hidden" />
+          <img src="/brand/virtpilot-symbol-dark.svg" alt="" className="hidden h-10 w-10 shrink-0 dark:block" />
+          <div className="min-w-0">
+            <p className="flex flex-wrap items-baseline gap-x-2 text-[15px] font-semibold tracking-[-0.01em] text-foreground">
+              {headline}
+            </p>
+            <div className="mt-0.5 text-[13px] text-muted-foreground">{detail}</div>
           </div>
         </div>
+        <div className="flex flex-wrap items-center gap-1 sm:justify-end">{actions}</div>
       </div>
+      {extra}
+    </Panel>
+  );
+
+  // ── Up to date ───────────────────────────────────────────────────────────
+  if (!data.updateAvailable) {
+    const broken = !data.repoOk;
+    return row(
+      <>VirtPilot <span className="font-mono text-[13.5px] font-medium">v{data.current}</span></>,
+      broken ? (
+        <span className="text-amber-800 dark:text-amber-300">
+          In-app upgrades unavailable — {data.repoReason ?? 'repository check failed.'}
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5">
+          <StatusGlyph status="running" size={7} />
+          Up to date{published(data.publishedAt) ? ` — the latest release, published ${published(data.publishedAt)}` : ''}
+        </span>
+      ),
+      <>
+        {checkNowButton}
+        {releaseLink(broken ? 'Latest release' : 'Release notes')}
+      </>,
     );
   }
 
   // ── Update available, repo broken (manual upgrade required) ──────────────
   if (!data.repoOk) {
-    return (
-      <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] shadow-sm overflow-hidden">
-        <div className="flex items-start gap-3 px-5 py-4">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground">
-              Update {targetVersion} available — but in-app upgrade is unavailable
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {data.repoReason ?? 'Repository check failed.'} Upgrade manually from the host:
-            </p>
-            <pre className="mt-2 rounded bg-muted/40 px-2.5 py-1.5 font-mono text-[11px] text-foreground">
-              cd {data.repoPath} && sudo bash update.sh
-            </pre>
-            <div className="mt-3">
-              {checkNowButton('hover:text-amber-600 dark:hover:text-amber-300')}
-            </div>
-          </div>
-        </div>
-      </div>
+    return row(
+      <>VirtPilot <span className="font-mono text-[13.5px] font-medium">v{data.current}</span></>,
+      <span className="text-amber-800 dark:text-amber-300">
+        v{targetVersion} is available, but in-app upgrade is unavailable — {data.repoReason ?? 'repository check failed.'}
+      </span>,
+      <>{checkNowButton}{releaseLink('Release notes')}</>,
+      <div className="mt-4 rounded-md border border-border bg-surface px-3 py-2.5">
+        <p className="text-[12px] text-muted-foreground">Upgrade from the host:</p>
+        <pre className="mt-1 overflow-x-auto font-mono text-[12px] text-foreground">cd {data.repoPath} && sudo bash update.sh</pre>
+      </div>,
     );
   }
 
   // ── Update available, repo OK ────────────────────────────────────────────
   return (
     <>
-      <div className="group relative overflow-hidden rounded-xl border border-border shadow-airy transition-all duration-300 ease-out">
-
-        <div className="relative px-6 py-5">
-          <div className="flex items-start gap-4">
-            <div className="relative shrink-0">
-              <div className="bg-blue-500/10 relative flex h-12 w-12 items-center justify-center rounded-xl ring-1 ring-blue-400/30">
-                <Sparkles className="h-5 w-5 text-blue-600 dark:text-blue-300" />
-              </div>
-            </div>
-
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] font-medium text-blue-700 dark:text-blue-300">
-                  Update available
-                </span>
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-              </div>
-
-              {/* Big version transition — solid colours for max contrast */}
-              <div className="mt-2 flex items-center gap-3 font-mono">
-                <span className="text-xl font-medium tabular-nums text-muted-foreground line-through decoration-muted-foreground/40 decoration-1">
-                  v{data.current}
-                </span>
-                <ArrowRight className="h-4 w-4 text-blue-600 dark:text-blue-400 transition-transform duration-300 group-hover:translate-x-0.5" />
-                <span className="text-2xl font-semibold tabular-nums tracking-[-0.015em] text-blue-700 dark:text-blue-200">
-                  v{targetVersion}
-                </span>
-              </div>
-
-              {data.publishedAt && (
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Released {new Date(data.publishedAt).toLocaleDateString(undefined, {
-                    year: 'numeric', month: 'short', day: 'numeric',
-                  })}
-                </p>
-              )}
-
-              <div className="mt-4 flex items-center gap-4">
-                <button
-                  type="button"
-                  onClick={() => setUpgrading(true)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3.5 text-[12.5px] font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-                >
-                  <RefreshCw className="relative h-3.5 w-3.5" />
-                  <span className="relative">Update now</span>
-                </button>
-
-                {checkNowButton('hover:text-blue-600 dark:hover:text-blue-300')}
-
-                {data.releaseUrl && (
-                  <a
-                    href={data.releaseUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-blue-600 dark:hover:text-blue-300 transition-colors duration-200"
-                  >
-                    View release notes
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {row(
+        <>
+          <span>Update available</span>
+          <span className="flex items-baseline gap-1.5 font-mono text-[13.5px] font-medium">
+            <span className="text-muted-foreground">v{data.current}</span>
+            <ArrowRight className="h-3.5 w-3.5 self-center text-muted-foreground" aria-label="to" />
+            <span className="text-primary">v{targetVersion}</span>
+          </span>
+        </>,
+        published(data.publishedAt) ? `Released ${published(data.publishedAt)}` : 'A new release is ready to install',
+        <>
+          {checkNowButton}
+          {releaseLink('Release notes')}
+          <Button size="sm" onClick={() => setUpgrading(true)} className="ml-1">
+            <RefreshCw className="h-3.5 w-3.5" />
+            Update now
+          </Button>
+        </>,
+      )}
 
       {upgrading && (
         <VirtPilotUpgradeModal
@@ -1224,47 +967,46 @@ function VirtPilotUpdateCard() {
 
 // ─── Health band ───────────────────────────────────────────────────────────────
 //
-// Full-width summary strip at the top of the dashboard: an overall verdict
-// (healthy / N warnings) computed from the host vitals, the four key vitals
-// with micro-bars, and a VirtPilot version chip. Gives "is the host happy?"
-// at a glance without reading every tile below.
+// The instrument cluster at the top of the landing page: an overall verdict for the
+// host, its three vitals and the VM count as ring gauges (the logo's own dial), and
+// the installed VirtPilot version. "Is the host happy?" in one glance.
 
-// Tweens a number towards its target with the shared count-up curve, then
-// formats it — used for the big vital readouts so they animate on mount and
-// glide between polls instead of snapping.
+// Tweens a number towards its target with the shared count-up curve, then formats
+// it — the readouts count up on mount and glide between polls instead of snapping.
 function AnimatedNumber({ value, format }: { value: number; format: (n: number) => string }) {
   const v = useCountUp(value);
   return <>{format(v)}</>;
 }
 
-function Vital({
-  icon: Icon, label, value, pct, accent,
-}: { icon: typeof Cpu; label: string; value: React.ReactNode; pct?: number; accent: TileAccent }) {
-  const a = ACCENT_CFG[accent];
+function Dial({
+  label, value, reading, unit, sub, tone,
+}: {
+  label: string;
+  /** 0–1 */
+  value: number;
+  reading: React.ReactNode;
+  unit?: string;
+  sub?: React.ReactNode;
+  tone: GaugeTone;
+}) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <div className="flex items-center gap-1.5">
-        <Icon className={cn('h-3.5 w-3.5 shrink-0', a.iconColor)} />
-        <span className="text-[12px] font-medium text-muted-foreground">
-          {label}
+    <div className="flex min-w-0 flex-col items-center text-center">
+      <RingGauge value={value} size={92} stroke={7} tone={tone} label={`${label}: ${Math.round(value * 100)}%`}>
+        <span className="flex items-baseline text-[22px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-foreground">
+          {reading}
+          {unit && <span className="ml-px text-[13px] font-medium tracking-normal text-muted-foreground">{unit}</span>}
         </span>
-        <span className={cn('ml-auto text-sm font-bold tabular-nums', a.valueColor)}>
-          {value}
-        </span>
-      </div>
-      {pct !== undefined && (
-        <div className="h-1 w-full overflow-hidden rounded-full bg-border/50">
-          <div
-            className="h-full rounded-full transition-all duration-700"
-            style={{
-              width: `${Math.min(pct, 100)}%`,
-              background: `linear-gradient(90deg, ${a.chartHex}66, ${a.chartHex})`,
-            }}
-          />
-        </div>
-      )}
+      </RingGauge>
+      <p className="mt-2.5 text-[12.5px] font-semibold text-foreground">{label}</p>
+      {sub && <p className="mt-0.5 max-w-full truncate text-[12px] tabular-nums text-muted-foreground">{sub}</p>}
     </div>
   );
+}
+
+function gaugeTone(pct: number, warnAt: number): GaugeTone {
+  if (pct >= 97) return 'danger';
+  if (pct >= warnAt) return 'warn';
+  return 'steel';
 }
 
 function HealthBand() {
@@ -1276,7 +1018,7 @@ function HealthBand() {
   const current = stats?.current;
 
   if (!settings || !current) {
-    return <Skeleton className="h-[112px] rounded-xl" />;
+    return <Skeleton className="h-[188px] rounded-lg" />;
   }
 
   const total   = vms?.length ?? 0;
@@ -1285,8 +1027,8 @@ function HealthBand() {
   const memPct  = current.memTotalMb > 0 ? (current.memUsedMb / current.memTotalMb) * 100 : 0;
   const cpuPct  = current.cpuPercent;
 
-  // Verdict — warnings escalate the band's accent. Updates are informational,
-  // not a warning, so they don't turn the band amber.
+  // Verdict — warnings turn the headline amber. Updates are informational, not a
+  // warning, so they don't.
   const warnings: string[] = [];
   if (!settings.kvmAvailable) warnings.push('Software emulation (no KVM)');
   if (diskPct >= 85) warnings.push('Disk almost full');
@@ -1297,86 +1039,88 @@ function HealthBand() {
   const updateAvailable = version?.updateAvailable && version.repoOk;
 
   return (
-    <div className={cn(
-      'relative overflow-hidden rounded-xl border bg-card shadow-airy animate-fade-up',
-      healthy ? 'border-border' : 'border-amber-500/35',
-    )}>
-      <div className="relative flex flex-col gap-5 px-5 py-4 lg:flex-row lg:items-center lg:gap-6">
+    <Panel className="animate-fade-up">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-6 px-6 py-6 xl:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)_auto] xl:items-center">
         {/* Verdict */}
-        <div className="flex items-center gap-3 lg:w-64 lg:shrink-0">
-          <div className="relative shrink-0">
-            <div className={cn(
-              'relative flex h-10 w-10 items-center justify-center rounded-xl ring-1',
-              healthy
-                ? 'bg-emerald-500/10 ring-emerald-400/30'
-                : 'bg-amber-500/10 ring-amber-400/30',
-            )}>
-              {healthy
-                ? <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
-                : <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-300" />}
+        <div className="min-w-0">
+          <p className="text-[12.5px] font-medium text-muted-foreground">Host status</p>
+          <p className={cn(
+            'mt-1.5 flex items-center gap-2 text-[21px] font-semibold leading-7 tracking-[-0.022em]',
+            healthy ? 'text-foreground' : 'text-amber-800 dark:text-amber-200',
+          )}>
+            {healthy ? <StatusGlyph status="running" size={9} /> : <WarnGlyph size={11} />}
+            {healthy ? 'All systems healthy' : `${warnings.length} warning${warnings.length > 1 ? 's' : ''}`}
+          </p>
+          {healthy ? (
+            <div className="mt-2 space-y-0.5 text-[13px] leading-5">
+              <p className="truncate font-mono text-[12.5px] text-foreground" title={info?.hostname}>{info?.hostname ?? 'host'}</p>
+              <p className="text-muted-foreground">{running} of {total} VMs running</p>
             </div>
-          </div>
-          <div className="min-w-0">
-            <p className={cn(
-              'text-sm font-bold leading-tight',
-              healthy ? 'text-emerald-700 dark:text-emerald-200' : 'text-amber-700 dark:text-amber-200',
-            )}>
-              {healthy ? 'All systems healthy' : `${warnings.length} warning${warnings.length > 1 ? 's' : ''}`}
-            </p>
-            {healthy ? (
-              <>
-                <p className="truncate text-[11px] font-medium text-muted-foreground" title={info?.hostname}>
-                  {info?.hostname ?? 'host'}
-                </p>
-                <p className="text-[11px] leading-tight text-muted-foreground/80">
-                  {running}/{total} VMs running
-                </p>
-              </>
-            ) : (
-              <p className="truncate text-[11px] text-muted-foreground">{warnings[0]}</p>
-            )}
-          </div>
+          ) : (
+            <ul className="mt-2 space-y-0.5 text-[13px] leading-5 text-muted-foreground">
+              {warnings.map((w) => <li key={w}>{w}</li>)}
+            </ul>
+          )}
         </div>
 
-        {/* Vitals */}
-        <div className="flex flex-1 items-center gap-5 sm:gap-7">
-          <Vital icon={Cpu} label="CPU" value={<AnimatedNumber value={cpuPct} format={fmtPct} />} pct={cpuPct} accent="blue" />
-          <Vital icon={MemoryStick} label="Mem" value={<AnimatedNumber value={memPct} format={fmtPct} />} pct={memPct} accent="violet" />
-          <Vital icon={HardDrive} label="Disk" value={<AnimatedNumber value={diskPct} format={fmtPct} />} pct={diskPct} accent={diskPct >= 85 ? 'warn' : 'ok'} />
-          <Vital icon={Cpu} label="VMs" value={<><AnimatedNumber value={running} format={(n) => String(Math.round(n))} />/{total}</>} accent="blue" />
+        {/* Dials */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-4 xl:border-l xl:border-border xl:pl-8">
+          <Dial
+            label="CPU"
+            value={cpuPct / 100}
+            reading={<AnimatedNumber value={cpuPct} format={(n) => String(Math.round(n))} />}
+            unit="%"
+            sub={info ? `${info.cpuCores} cores` : undefined}
+            tone={gaugeTone(cpuPct, 90)}
+          />
+          <Dial
+            label="Memory"
+            value={memPct / 100}
+            reading={<AnimatedNumber value={memPct} format={(n) => String(Math.round(n))} />}
+            unit="%"
+            sub={`${fmtMb(current.memUsedMb)} of ${fmtMb(current.memTotalMb)}`}
+            tone={gaugeTone(memPct, 90)}
+          />
+          <Dial
+            label="Disk"
+            value={diskPct / 100}
+            reading={<AnimatedNumber value={diskPct} format={(n) => String(Math.round(n))} />}
+            unit="%"
+            sub={`${current.diskUsedGb.toFixed(0)} of ${current.diskTotalGb.toFixed(0)} GB`}
+            tone={gaugeTone(diskPct, 85)}
+          />
+          <Dial
+            label="VMs running"
+            value={total > 0 ? running / total : 0}
+            reading={<AnimatedNumber value={running} format={(n) => String(Math.round(n))} />}
+            unit={`/${total}`}
+            sub={total - running > 0 ? `${total - running} stopped` : total ? 'all up' : 'none defined'}
+            tone="ok"
+          />
         </div>
 
-        {/* Version chip */}
-        <Link
-          to="/"
+        {/* Installed version */}
+        <a
+          href="#virtpilot-section"
           onClick={(e) => {
             e.preventDefault();
             document.getElementById('virtpilot-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }}
-          className={cn(
-            'group flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 transition-all duration-200 ease-out',
-            updateAvailable
-              ? 'border-border bg-blue-500/[0.06] hover:bg-blue-500/[0.1]'
-              : 'border-border bg-muted/40 hover:bg-muted/70 hover:shadow-airy',
-          )}
+          className="group flex min-w-0 items-center gap-3 rounded-md xl:flex-col xl:items-start xl:gap-1 xl:border-l xl:border-border xl:pl-8"
         >
-          {updateAvailable
-            ? <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-300" />
-            : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-300" />}
-          <div className="leading-tight">
-            <span className="block font-mono text-xs font-bold tabular-nums text-foreground">
-              v{version?.current ?? '—'}
-            </span>
-            <span className={cn(
-              'block text-[10px]',
-              updateAvailable ? 'text-blue-600 dark:text-blue-300' : 'text-muted-foreground',
-            )}>
-              {updateAvailable ? `v${version?.latest} available` : 'Up to date'}
-            </span>
-          </div>
-        </Link>
+          <span className="text-[12.5px] font-medium text-muted-foreground">VirtPilot</span>
+          <span className="font-mono text-[15px] font-semibold tabular-nums text-foreground group-hover:underline group-hover:decoration-border group-hover:underline-offset-4">
+            v{version?.current ?? '—'}
+          </span>
+          <span className={cn(
+            'inline-flex items-center gap-1.5 text-[12px]',
+            updateAvailable ? 'font-medium text-primary' : 'text-muted-foreground',
+          )}>
+            {updateAvailable ? <>v{version?.latest} available <ArrowRight className="h-3 w-3" /></> : 'Up to date'}
+          </span>
+        </a>
       </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -1452,64 +1196,53 @@ export function DashboardPage() {
   const formatX = (ts: number) => formatChartTime(ts, range);
 
   return (
-    <Layout title="Dashboard" subtitle="Live server metrics and system status.">
-      <div className="relative space-y-8">
+    <Layout title="Dashboard" subtitle="Live host metrics and system status.">
+      <div className="relative space-y-9">
 
         {/* ── Health summary ── */}
         <HealthBand />
 
         {/* ── Overview ── */}
-        <section className="space-y-3">
+        <section className="space-y-3.5">
           <SectionHeading label="Overview" />
           <HostOverview />
         </section>
 
         {/* ── VirtPilot ── */}
-        <section id="virtpilot-section" className="animate-fade-up space-y-3 scroll-mt-6" style={{ animationDelay: '180ms' }}>
+        <section id="virtpilot-section" className="animate-fade-up scroll-mt-6 space-y-3.5" style={{ animationDelay: '180ms' }}>
           <SectionHeading label="VirtPilot" />
           <VirtPilotUpdateCard />
         </section>
 
         {/* ── Host Metrics ── */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
+        <section className="space-y-3.5">
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setMetricsCollapsed((v) => !v)}
               aria-expanded={!metricsCollapsed}
-              className="group flex items-center gap-1.5 select-none"
+              className="group flex min-w-0 flex-1 select-none items-center gap-1.5 rounded-md text-left"
             >
               <ChevronDown
                 className={cn(
-                  'h-3 w-3 text-muted-foreground/80 transition-transform duration-200 group-hover:text-muted-foreground/70',
+                  'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:text-foreground',
                   metricsCollapsed && '-rotate-90',
                 )}
               />
-              <SectionHeading label="Host Metrics" />
+              <div className="min-w-0 flex-1"><SectionHeading label="Host metrics" /></div>
             </button>
             {!metricsCollapsed && (
-              <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-card">
+              <div className="segmented" role="group" aria-label="Time range">
                 {(['live', '1h', '24h', '7d', '30d'] as const).map((r) => (
                   <button
                     key={r}
                     type="button"
                     onClick={() => setRange(r)}
-                    className={cn(
-                      'flex items-center gap-1.5 rounded-md px-3 py-1 text-[12px] font-medium transition',
-                      range === r
-                        ? 'bg-muted text-foreground'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
+                    aria-pressed={range === r}
+                    className="flex items-center gap-1.5"
                   >
                     {r === 'live' && (
-                      <span
-                        className={cn(
-                          'h-1.5 w-1.5 rounded-full transition-colors',
-                          range === 'live'
-                            ? 'bg-emerald-500'
-                            : 'bg-muted-foreground/40',
-                        )}
-                      />
+                      <StatusGlyph status={range === 'live' ? 'running' : 'stopped'} size={6} />
                     )}
                     {r === 'live' ? 'Live' : r}
                   </button>
@@ -1522,9 +1255,7 @@ export function DashboardPage() {
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <HostMetricCard
               id="host-cpu"
-              icon={Cpu}
-              label="CPU Usage"
-              scheme="blue"
+              label="CPU"
               primaryValue={current?.cpuPercent ?? 0}
               formatValue={fmtPct}
               data={cpuData}
@@ -1539,9 +1270,7 @@ export function DashboardPage() {
             />
             <HostMetricCard
               id="host-mem"
-              icon={MemoryStick}
               label="Memory"
-              scheme="violet"
               primaryValue={current?.memUsedMb ?? 0}
               formatValue={fmtMb}
               secondaryValue={current ? `of ${fmtMb(current.memTotalMb)}` : undefined}
@@ -1557,17 +1286,15 @@ export function DashboardPage() {
             />
             <HostMetricCard
               id="host-disk"
-              icon={HardDrive}
               label="Disk I/O"
-              scheme="warn"
               primaryValue={current ? current.diskReadBps + current.diskWriteBps : 0}
               formatValue={fmtBps}
               secondaryValue="total"
               legend={
-                <div className="flex items-center gap-3">
+                <span className="flex items-center gap-3">
                   <LegendItem color={CHART.inbound} label="Read" />
                   <LegendItem color={CHART.outbound} label="Write" dashed />
-                </div>
+                </span>
               }
               data={diskRdData}
               data2={diskWrData}
@@ -1575,6 +1302,7 @@ export function DashboardPage() {
               color2={CHART.outbound}
               timestamps={timestamps}
               formatY={fmtBps}
+              minMax={1024}
               formatX={formatX}
               chartHeight={150}
               loading={isLoading}
@@ -1582,17 +1310,15 @@ export function DashboardPage() {
             />
             <HostMetricCard
               id="host-net"
-              icon={Activity}
               label="Network"
-              scheme="ok"
               primaryValue={current ? current.netRxBps + current.netTxBps : 0}
               formatValue={fmtBps}
               secondaryValue="total"
               legend={
-                <div className="flex items-center gap-3">
+                <span className="flex items-center gap-3">
                   <LegendItem color={CHART.inbound} label="RX" />
                   <LegendItem color={CHART.outbound} label="TX" dashed />
-                </div>
+                </span>
               }
               data={netRxData}
               data2={netTxData}
@@ -1600,6 +1326,7 @@ export function DashboardPage() {
               color2={CHART.outbound}
               timestamps={timestamps}
               formatY={fmtBps}
+              minMax={1024}
               formatX={formatX}
               chartHeight={150}
               loading={isLoading}
@@ -1610,7 +1337,7 @@ export function DashboardPage() {
         </section>
 
         {/* ── System ── */}
-        <section className="animate-fade-up space-y-5" style={{ animationDelay: '450ms' }}>
+        <section className="animate-fade-up space-y-3.5" style={{ animationDelay: '450ms' }}>
           <SectionHeading label="System" />
           <AptSection />
         </section>

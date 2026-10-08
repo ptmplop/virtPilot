@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Database, Disc, Download, Pencil, Trash2, Upload, X, FolderInput } from 'lucide-react';
+import { Disc, Download, Pencil, Trash2, Upload, X, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
+import { Stat, StatStrip } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
@@ -19,7 +20,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
 import { useUploadProgressStore } from '@/store/uploadProgressStore';
-import { cn } from '@/lib/cn';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -45,35 +45,14 @@ function deriveIsoFilename(clientName: string): string {
   return name;
 }
 
-function StatCard({ icon: Icon, label, value, iconClass }: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  iconClass: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconClass)}>
-          <Icon size={15} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-[22px] font-semibold tabular-nums leading-tight tracking-[-0.01em] text-foreground">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ProgressBar({ pct, indeterminate = false }: { pct?: number; indeterminate?: boolean }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+    <div className="relative h-[5px] w-full overflow-hidden rounded-[2px] bg-gauge-track">
       {indeterminate ? (
-        <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
+        <div className="absolute inset-y-0 left-0 w-1/3 animate-[vp-progress_1.4s_ease-in-out_infinite] bg-[#4F7CAC] dark:bg-[#86AEDA]" />
       ) : (
         <div
-          className="h-full rounded-full bg-primary transition-all duration-200"
+          className="h-full bg-[#4F7CAC] transition-[width] duration-200 dark:bg-[#86AEDA]"
           style={{ width: `${pct ?? 0}%` }}
         />
       )}
@@ -295,10 +274,10 @@ export function IsosPage() {
       }
     >
       {/* Stats */}
-      <div className="mb-6 grid grid-cols-2 gap-3">
-        <StatCard icon={Disc} label="ISOs" value={isLoading ? '—' : String(isos?.length ?? 0)} iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
-        <StatCard icon={Database} label="Total Size" value={isLoading ? '—' : `${totalIsoGb.toFixed(1)} GB`} iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
-      </div>
+      <StatStrip className="mb-6">
+        <Stat label="ISOs" value={isLoading ? '—' : String(isos?.length ?? 0)} />
+        <Stat label="Total size" value={isLoading ? '—' : `${totalIsoGb.toFixed(1)} GB`} />
+      </StatStrip>
 
       {/* Upload progress */}
       {uploadPct !== null && (
@@ -359,16 +338,14 @@ export function IsosPage() {
       )}
 
       {/* ISO list */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="panel overflow-hidden">
         {isLoading ? (
           <div className="space-y-px p-3">
             {[1, 2].map((i) => <Skeleton key={i} className="h-[60px] rounded-lg" />)}
           </div>
         ) : !isos?.length ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-              <Disc className="h-6 w-6 text-muted-foreground" />
-            </div>
+            <Disc className="mb-3 h-5 w-5 text-muted-foreground" />
             <p className="text-sm font-semibold text-foreground">No ISOs yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Upload a .iso, .iso.gz or .iso.tar.gz file, or download one from a URL.
@@ -377,11 +354,11 @@ export function IsosPage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/40">
+              <tr className="table-head">
                 {['Name', 'File', 'Location', 'Size', ''].map((h) => (
                   <th
                     key={h}
-                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' ? 'text-right' : 'text-left'}`}
+                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' ? 'text-right' : 'text-left'} ${h === 'File' ? 'hidden xl:table-cell' : ''}`}
                   >
                     {h}
                   </th>
@@ -390,23 +367,24 @@ export function IsosPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {isos.map((iso) => (
-                <tr key={iso.filename} className="transition-colors hover:bg-muted/30">
-                  <td className="px-5 py-3.5">
+                <tr key={iso.filename} className="transition-colors hover:bg-surface/70">
+                  <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
-                      <VmLogo slug={isoLogos[iso.filename]} size={28} fallbackIcon={Disc} />
+                      <VmLogo slug={isoLogos[iso.filename]} size={24} fallbackIcon={Disc} />
                       <InlineName filename={iso.filename} name={iso.name} />
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{iso.filename}</td>
-                  <td className="px-5 py-3.5 text-xs text-muted-foreground">{iso.storageDirName}</td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{iso.sizeGb} GB</td>
-                  <td className="px-5 py-3.5 text-right">
+                  <td className="hidden px-5 py-3 font-mono text-xs text-muted-foreground xl:table-cell">{iso.filename}</td>
+                  <td className="whitespace-nowrap px-5 py-3 text-[12.5px] text-muted-foreground">{iso.storageDirName}</td>
+                  <td className="whitespace-nowrap px-5 py-3 font-mono text-xs tabular-nums text-muted-foreground">{iso.sizeGb} GB</td>
+                  <td className="px-5 py-3 text-right">
                     <div className="inline-flex items-center gap-1">
                       <Tooltip label="Move to another storage directory">
                         <button
                           type="button"
                           onClick={() => setMoveTarget({ filename: iso.filename, storageDirId: iso.storageDirId })}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                          aria-label={`Move ${iso.name} to another storage directory`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
                           <FolderInput size={13} />
                         </button>
@@ -414,7 +392,8 @@ export function IsosPage() {
                       <button
                         type="button"
                         onClick={() => setDeleteTarget(iso.filename)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        aria-label={`Delete ${iso.name}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                       >
                         <Trash2 size={13} />
                       </button>

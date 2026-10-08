@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
-  Activity, AlertTriangle, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
-  Copy, CopyPlus, Cpu, Disc, Download, Eye, EyeOff, FolderInput, Gauge, HardDrive, MemoryStick, Network, Pencil, Plus,
-  Power, PowerOff, RotateCcw, Server, Shield, Terminal, Trash2, Usb, Zap,
+  Activity, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
+  Copy, CopyPlus, Disc, Download, Eye, EyeOff, FolderInput, Gauge, HardDrive, Info, Pencil, Plus,
+  Power, PowerOff, RotateCcw, Server, Shield, Terminal, Trash2, Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
-import { StatusDot } from '@/components/ui/Badge';
+import { StatusGlyph, WarnGlyph } from '@/components/ui/Badge';
+import { Panel, PanelHeader, Stat, StatStrip } from '@/components/ui/Panel';
+import { SectionHeading } from '@/components/ui/SectionHeading';
+import { MetricChart } from '@/components/ui/MetricChart';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { StorageDirSelect } from '@/components/StorageDirSelect';
@@ -35,7 +38,7 @@ import { useDownloadVmDisk } from '@/hooks/useVmDisks';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
-import { formatMemory, formatDisk, formatBytes } from '@/lib/format';
+import { formatMemory, formatDisk, formatBytes, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { CHART } from '@/lib/chartColors';
 import { useSettings } from '@/hooks/useSettings';
@@ -49,21 +52,118 @@ type Tab = 'overview' | 'disks' | 'network' | 'snapshots' | 'firewall' | 'device
 
 const isSeedIso = (d: VmDisk): boolean => !!d.source?.endsWith('-seed.iso');
 
+// The disks the operator manages: not the cloud-init seed, not an empty CD-ROM drive.
+// The Overview count and the Disks tab both use this, so they can't disagree.
+const isListedDisk = (d: VmDisk): boolean => !isSeedIso(d) && !(d.type === 'cdrom' && !d.source);
+
+// Same words as the VM list and the dashboard roster (StatusBadge) — a VM shouldn't be
+// "Running" on one page and "Active" on the next.
 const statusLabels: Record<VmStatus, string> = {
-  running: 'Active',
-  stopped: 'Off',
+  running: 'Running',
+  stopped: 'Stopped',
   paused: 'Paused',
   crashed: 'Crashed',
   unknown: 'Unknown',
 };
 
 const statusTextColour: Record<VmStatus, string> = {
-  running: 'text-emerald-600 dark:text-emerald-400',
-  stopped: 'text-slate-500 dark:text-slate-400',
-  paused: 'text-amber-600 dark:text-amber-400',
-  crashed: 'text-red-600 dark:text-red-400',
+  running: 'text-emerald-700 dark:text-emerald-300',
+  stopped: 'text-muted-foreground',
+  paused: 'text-amber-700 dark:text-amber-300',
+  crashed: 'text-red-700 dark:text-red-300',
   unknown: 'text-muted-foreground',
 };
+
+const TABS: Tab[] = ['overview', 'disks', 'network', 'snapshots', 'firewall', 'devices', 'metrics'];
+
+// ─── Local building blocks ────────────────────────────────────────────────────
+
+// A row action: a quiet icon button that names itself twice — aria-label for assistive
+// tech, a tooltip for the pointer. `tooltip` may differ from the label (e.g. to say why
+// the action is unavailable); the label always says what the button does.
+function RowAction({
+  label, tooltip, onClick, disabled, danger, children,
+}: {
+  label: string;
+  tooltip?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip label={tooltip ?? label}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        className={cn(
+          'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors',
+          'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground',
+          danger ? 'hover:bg-destructive/10 hover:text-destructive' : 'hover:bg-muted hover:text-foreground',
+        )}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  );
+}
+
+// Smaller sibling for actions that sit inline with a value (copy, reveal).
+const inlineAction =
+  'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50';
+
+// The shared head row every table in a panel uses. An unlabelled column is the
+// actions column: right-aligned, named for screen readers only.
+function TableHead({ columns, right = [], pad = 'px-5' }: { columns: string[]; right?: string[]; pad?: string }) {
+  return (
+    <thead>
+      <tr className="table-head">
+        {columns.map((h, i) => (
+          <th
+            key={h || `col-${i}`}
+            scope="col"
+            className={cn(pad, 'whitespace-nowrap py-2.5 font-medium', h === '' || right.includes(h) ? 'text-right' : 'text-left')}
+          >
+            {h === '' ? <span className="sr-only">Actions</span> : h}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return <div className="px-6 py-12 text-center text-[13px] text-muted-foreground">{children}</div>;
+}
+
+// Callouts: attention (amber, with the warning glyph) or information (the recess).
+function Callout({ tone = 'info', children, className }: { tone?: 'info' | 'warn'; children: React.ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-2 rounded-md border px-3.5 py-2.5 text-[12.5px] leading-5',
+        tone === 'warn'
+          ? 'border-amber-500/30 bg-amber-500/[0.06] text-amber-800 dark:text-amber-200'
+          : 'border-border bg-surface text-muted-foreground',
+        className,
+      )}
+    >
+      {tone === 'warn' && <WarnGlyph className="mt-[5px]" />}
+      <p className="min-w-0">{children}</p>
+    </div>
+  );
+}
+
+// An operation in flight: a short steel sweep on the gauge track.
+function WorkingBar() {
+  return (
+    <div className="relative mt-2 h-[3px] w-full max-w-[12rem] overflow-hidden rounded-[2px] bg-gauge-track">
+      <div className="absolute inset-y-0 left-0 w-1/3 animate-[vp-progress_1.4s_ease-in-out_infinite] bg-primary motion-reduce:animate-none" />
+    </div>
+  );
+}
 
 export function VmDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -109,117 +209,94 @@ export function VmDetailPage() {
 
   return (
     <Layout>
-      {/* Breadcrumb */}
-      <div className="mb-6">
+      {/* Breadcrumb — back to the VM list (/vms); "/" is the dashboard. */}
+      <nav aria-label="Breadcrumb" className="mb-5">
         <Link
-          to="/"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          to="/vms"
+          className="group inline-flex items-center gap-1.5 rounded-md text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Virtual Machines
+          <ArrowLeft className="h-3.5 w-3.5 transition-transform duration-200 group-hover:-translate-x-0.5" />
+          Virtual machines
         </Link>
-      </div>
+      </nav>
 
       {isLoading ? (
-        <div className="space-y-5">
-          <Skeleton className="h-14 w-72 rounded-xl" />
-          <Skeleton className="h-10 w-full max-w-xs rounded-lg" />
-          <Skeleton className="h-10 rounded-lg" />
-          <Skeleton className="h-64 rounded-xl" />
+        <div className="space-y-6">
+          <div className="space-y-2.5">
+            <Skeleton className="h-8 w-56" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <Skeleton className="h-9 w-full max-w-xl" />
+          <Skeleton className="h-28 rounded-lg" />
+          <Skeleton className="h-56 rounded-lg" />
         </div>
       ) : !vm ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-            <Server className="h-6 w-6 text-muted-foreground" />
-          </div>
-          <p className="text-sm font-semibold text-foreground">VM not found</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            "{uuid}" does not exist or has been deleted.
+        <Panel className="flex flex-col items-center justify-center px-6 py-16 text-center">
+          <Server className="h-5 w-5 text-muted-foreground" aria-hidden />
+          <p className="mt-3 text-[15px] font-semibold text-foreground">VM not found</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            <span className="font-mono text-[12.5px]">"{uuid}"</span> does not exist or has been deleted.
           </p>
-          <Link to="/" className="mt-5">
-            <Button size="sm" variant="secondary">
-              <ArrowLeft size={13} /> Back to list
-            </Button>
-          </Link>
-        </div>
+          <Button size="sm" variant="secondary" className="mt-5" onClick={() => navigate('/vms')}>
+            <ArrowLeft size={14} /> Back to list
+          </Button>
+        </Panel>
       ) : (
         <>
-          {/* Hero */}
-          {/* Wraps rather than overflows: below ~1100px of content the action group drops
+          {/* Header: the name is the page title, the status line reads like the list row.
+              Wraps rather than overflows: below ~1100px of content the action group drops
               under the name instead of pushing the page sideways. */}
-          <div className="mb-8 flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
-            <div className="flex min-w-0 items-center gap-4">
-              <div
-                className={cn(
-                  'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl',
-                  vm.status === 'running' ? 'bg-emerald-500/10' : 'bg-muted'
-                )}
-              >
-                <Server
-                  className={cn(
-                    'h-5 w-5',
-                    vm.status === 'running'
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-muted-foreground'
-                  )}
-                />
-              </div>
-              <div>
-                {renaming ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      autoFocus
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleRenameSubmit();
-                        if (e.key === 'Escape') handleRenameCancel();
-                      }}
-                      className="h-8 w-52 text-sm font-bold"
-                    />
-                    <Button size="sm" onClick={handleRenameSubmit} disabled={rename.isPending}>
-                      {rename.isPending ? <Spinner className="h-3 w-3" /> : 'Save'}
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={handleRenameCancel} disabled={rename.isPending}>
-                      Cancel
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-foreground">{vm.name}</h1>
-                    {vm.status === 'stopped' && (
-                      <Tooltip label="Rename VM">
-                        <button
-                          type="button"
-                          onClick={handleRenameStart}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                      </Tooltip>
-                    )}
-                  </div>
-                )}
-                <div className="mt-1 flex items-center gap-2">
-                  <StatusDot status={vm.status} />
-                  <span className={cn('text-sm font-medium', statusTextColour[vm.status])}>
-                    {statusLabels[vm.status]}
-                  </span>
-                  <span className="text-muted-foreground/80">·</span>
-                  <span className="whitespace-nowrap text-sm text-muted-foreground">
-                    {vm.cpus} {vm.cpus === 1 ? 'vCPU' : 'vCPUs'} · {formatMemory(vm.memoryMb)}
-                    {/* The host decides acceleration (xmlBuilder picks kvm vs qemu by /dev/kvm);
-                        this used to say KVM unconditionally, even on TCG-only hosts. */}
-                    {hostSettings && (hostSettings.kvmAvailable ? ' · KVM' : ' · TCG')}
-                  </span>
+          <div className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+            <div className="min-w-0">
+              {renaming ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    autoFocus
+                    aria-label="VM name"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameSubmit();
+                      if (e.key === 'Escape') handleRenameCancel();
+                    }}
+                    className="w-64 text-[14px] font-medium"
+                  />
+                  <Button onClick={handleRenameSubmit} disabled={rename.isPending}>
+                    {rename.isPending ? <Spinner className="h-3.5 w-3.5 text-current" /> : 'Save'}
+                  </Button>
+                  <Button variant="secondary" onClick={handleRenameCancel} disabled={rename.isPending}>
+                    Cancel
+                  </Button>
                 </div>
-              </div>
+              ) : (
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <h1 className="truncate text-[26px] font-semibold leading-8 tracking-[-0.024em] text-foreground">{vm.name}</h1>
+                  {vm.status === 'stopped' && (
+                    <RowAction label="Rename VM" onClick={handleRenameStart}>
+                      <Pencil size={14} />
+                    </RowAction>
+                  )}
+                </div>
+              )}
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13.5px]">
+                <span className={cn('inline-flex items-center gap-1.5 font-medium', statusTextColour[vm.status])}>
+                  <StatusGlyph status={vm.status} />
+                  {statusLabels[vm.status]}
+                </span>
+                <span aria-hidden className="text-muted-foreground">·</span>
+                <span className="whitespace-nowrap tabular-nums text-muted-foreground">
+                  {vm.cpus} {vm.cpus === 1 ? 'vCPU' : 'vCPUs'} · {formatMemory(vm.memoryMb)}
+                  {/* The host decides acceleration (xmlBuilder picks kvm vs qemu by /dev/kvm);
+                      this used to say KVM unconditionally, even on TCG-only hosts. */}
+                  {hostSettings && (hostSettings.kvmAvailable ? ' · KVM' : ' · TCG')}
+                </span>
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               {vm.status === 'stopped' && (
                 <Button size="sm" onClick={() => handleAction('start')} disabled={action.isPending}>
-                  <Power size={13} /> Power On
+                  <Power size={14} /> Power on
                 </Button>
               )}
               {vm.status === 'running' && (
@@ -231,7 +308,7 @@ export function VmDetailPage() {
                       onClick={() => handleAction('reboot')}
                       disabled={action.isPending}
                     >
-                      <RotateCcw size={13} /> Reboot
+                      <RotateCcw size={14} /> Reboot
                     </Button>
                   </Tooltip>
                   <Tooltip label="Hard reset (immediate)">
@@ -241,7 +318,7 @@ export function VmDetailPage() {
                       onClick={() => handleAction('reboot', true)}
                       disabled={action.isPending}
                     >
-                      <Zap size={13} /> Hard Reset
+                      <Zap size={14} /> Hard reset
                     </Button>
                   </Tooltip>
                   <Tooltip label="Shutdown (ACPI)">
@@ -251,7 +328,7 @@ export function VmDetailPage() {
                       onClick={() => handleAction('stop')}
                       disabled={action.isPending}
                     >
-                      <Power size={13} /> Power Off
+                      <Power size={14} /> Power off
                     </Button>
                   </Tooltip>
                   <Tooltip label="Force off (kill immediately)">
@@ -261,22 +338,23 @@ export function VmDetailPage() {
                       onClick={() => handleAction('stop', true)}
                       disabled={action.isPending}
                     >
-                      <PowerOff size={13} /> Force Off
+                      <PowerOff size={14} /> Force off
                     </Button>
                   </Tooltip>
                 </>
               )}
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => openVmConsole(uuid!, openConsoleInPopup, navigate)}
-                title={openConsoleInPopup ? 'Open console (popup)' : 'Open console'}
-              >
-                <Terminal size={13} /> Console
-              </Button>
+              <Tooltip label={openConsoleInPopup ? 'Open console (popup)' : 'Open console'}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => openVmConsole(uuid!, openConsoleInPopup, navigate)}
+                >
+                  <Terminal size={14} /> Console
+                </Button>
+              </Tooltip>
               <Tooltip label="Clone this VM into a new machine">
                 <Button size="sm" variant="secondary" onClick={() => setCloneOpen(true)}>
-                  <CopyPlus size={13} /> Clone
+                  <CopyPlus size={14} /> Clone
                 </Button>
               </Tooltip>
             </div>
@@ -292,18 +370,21 @@ export function VmDetailPage() {
             />
           )}
 
-          {/* Tab bar */}
-          <div className="mb-7 flex items-center gap-1 border-b border-border">
-            {(['overview', 'disks', 'network', 'snapshots', 'firewall', 'devices', 'metrics'] as Tab[]).map((t) => (
+          {/* Tab bar: underline tabs on a full-width hairline. The underline hugs the
+              label, so the first tab lines up with the content edge. */}
+          <div role="tablist" aria-label="VM sections" className="mb-7 flex items-center gap-6 border-b border-border">
+            {TABS.map((t) => (
               <button
                 key={t}
                 type="button"
+                role="tab"
+                aria-selected={tab === t}
                 onClick={() => setTab(t)}
                 className={cn(
-                  '-mb-px border-b-2 px-4 py-2.5 text-sm font-medium capitalize transition-colors',
+                  '-mb-px shrink-0 border-b-2 pb-2.5 pt-1 text-[13.5px] font-medium capitalize transition-colors duration-150',
                   tab === t
                     ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground'
+                    : 'border-transparent text-muted-foreground hover:border-input hover:text-foreground'
                 )}
               >
                 {t}
@@ -399,15 +480,14 @@ function OverviewTab({
   };
 
   return (
-    <div className="space-y-7">
-      {/* Resource summary */}
-      <div>
-        <div className="mb-3 flex items-center justify-between">
-          <SectionHeading>Resources</SectionHeading>
+    <div className="space-y-8">
+      {/* Resource summary — one strip of readouts */}
+      <section className="space-y-3.5">
+        <SectionHeading label="Resources">
           {vm.status !== 'stopped' ? (
             <Tooltip label="Stop the VM to resize CPU or memory" side="left">
               <Button size="sm" variant="secondary" disabled>
-                <Pencil size={13} /> Edit
+                <Pencil size={14} /> Edit
               </Button>
             </Tooltip>
           ) : (
@@ -420,29 +500,29 @@ function OverviewTab({
                 setEditResourcesOpen(true);
               }}
             >
-              <Pencil size={13} /> Edit
+              <Pencil size={14} /> Edit
             </Button>
           )}
-        </div>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <ResourceCard label="vCPUs" value={String(vm.cpus)} icon={Cpu} iconBg="bg-blue-500/10" iconColor="text-blue-600 dark:text-blue-400" />
-          <ResourceCard label="Memory" value={formatMemory(vm.memoryMb)} icon={MemoryStick} iconBg="bg-violet-500/10" iconColor="text-violet-600 dark:text-violet-400" />
-          <ResourceCard label="Disks" value={String(vm.disks.filter((d) => !isSeedIso(d)).length)} icon={HardDrive} iconBg="bg-amber-500/10" iconColor="text-amber-600 dark:text-amber-400" />
-          <ResourceCard label="NICs" value={String(vm.nics.length)} icon={Network} iconBg="bg-teal-500/10" iconColor="text-teal-600 dark:text-teal-400" />
-        </div>
+        </SectionHeading>
+        <StatStrip>
+          <Stat label="vCPUs" value={String(vm.cpus)} />
+          <Stat label="Memory" value={formatMemory(vm.memoryMb)} />
+          <Stat label="Disks" value={String(vm.disks.filter(isListedDisk).length)} />
+          <Stat label="NICs" value={String(vm.nics.length)} />
+        </StatStrip>
         {vm.status !== 'stopped' && (
-          <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <AlertTriangle size={12} className="shrink-0" />
+          <p className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+            <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
             Shut down the VM to edit CPU and memory allocation.
           </p>
         )}
-      </div>
+      </section>
 
       {/* Edit Resources dialog */}
       <Dialog
         open={editResourcesOpen}
         onClose={() => setEditResourcesOpen(false)}
-        title="Edit Resources"
+        title="Edit resources"
         description="The VM must be stopped. Changes take effect on the next boot."
         size="sm"
         footer={
@@ -457,212 +537,195 @@ function OverviewTab({
         }
       >
         <div className="space-y-4">
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">vCPUs</label>
-            <Input
-              type="number"
-              min={1}
-              max={64}
-              value={editCpus}
-              onChange={(e) => setEditCpus(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">Memory (MB)</label>
-            <Input
-              type="number"
-              min={128}
-              step={256}
-              value={editMemMb}
-              onChange={(e) => setEditMemMb(e.target.value)}
-            />
-          </div>
+          <Input
+            label="vCPUs"
+            id="edit-vcpus"
+            type="number"
+            min={1}
+            max={64}
+            value={editCpus}
+            onChange={(e) => setEditCpus(e.target.value)}
+          />
+          <Input
+            label="Memory (MB)"
+            id="edit-memory-mb"
+            type="number"
+            min={128}
+            step={256}
+            value={editMemMb}
+            onChange={(e) => setEditMemMb(e.target.value)}
+          />
         </div>
       </Dialog>
 
       {/* Access credentials */}
       {meta && (
-        <section>
-          <SectionHeading>Access</SectionHeading>
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-            <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-              <InfoField label="IP Address">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-foreground">
-                    {ip ?? <span className="text-xs text-muted-foreground">Start VM to resolve</span>}
+        <section className="space-y-3.5">
+          <SectionHeading label="Access" />
+          <Panel className="overflow-hidden">
+            <dl className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <InfoField label="IP address">
+                {ip ? (
+                  <>
+                    <span className="truncate font-mono text-[13px] text-foreground">{ip}</span>
+                    <CopyButton text={ip} label="Copy IP address" />
+                  </>
+                ) : (
+                  // ip is resolved from leases/the guest agent; a running VM may simply not
+                  // have reported one yet, so don't tell its operator to start it.
+                  <span className="text-[12.5px] text-muted-foreground">
+                    {vm.status === 'running' ? 'Not resolved yet' : 'Start VM to resolve'}
                   </span>
-                  {ip && <CopyButton text={ip} />}
-                </div>
+                )}
               </InfoField>
               <InfoField label="Username">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-foreground">{meta.username}</span>
-                  <CopyButton text={meta.username} />
-                </div>
+                <span className="truncate font-mono text-[13px] text-foreground">{meta.username}</span>
+                <CopyButton text={meta.username} label="Copy username" />
               </InfoField>
               <InfoField label="Password">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-foreground">
-                    {showPassword && revealedPassword !== null ? revealedPassword : '••••••••'}
-                  </span>
+                <span className="truncate font-mono text-[13px] text-foreground">
+                  {showPassword && revealedPassword !== null ? revealedPassword : '••••••••'}
+                </span>
+                <Tooltip label={showPassword ? 'Hide password' : 'Reveal password'}>
                   <button
                     type="button"
                     onClick={handleTogglePassword}
                     disabled={credentials.isPending}
-                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                    className={inlineAction}
                     aria-label={showPassword ? 'Hide password' : 'Reveal password'}
                   >
                     {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </button>
+                </Tooltip>
+                <Tooltip label="Copy password">
                   <button
                     type="button"
                     onClick={handleCopyPassword}
                     disabled={credentials.isPending}
-                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                    className={inlineAction}
                     aria-label="Copy password"
                   >
                     <Copy className="h-3.5 w-3.5" />
                   </button>
-                </div>
+                </Tooltip>
               </InfoField>
-            </div>
+            </dl>
             {ip && (
-              <div className="flex items-center justify-between gap-3 border-t border-border bg-[hsl(var(--surface))] px-5 py-3">
-                <p className="select-all font-mono text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-3 border-t border-border bg-surface/60 px-5 py-2.5">
+                <code className="block min-w-0 select-all truncate font-mono text-[12px] text-muted-foreground">
                   ssh {meta.username}@{ip}
-                </p>
-                <CopyButton text={`ssh ${meta.username}@${ip}`} />
+                </code>
+                <CopyButton text={`ssh ${meta.username}@${ip}`} label="Copy SSH command" />
               </div>
             )}
-          </div>
+          </Panel>
         </section>
       )}
 
-      {/* Configuration */}
-      <section>
-        <SectionHeading>Configuration</SectionHeading>
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-          <div className="divide-y divide-border">
-            <ConfigRow label="UUID" value={vm.id} mono copy />
+      {/* Configuration — keys and values, ruled */}
+      <section className="space-y-3.5">
+        <SectionHeading label="Configuration" />
+        <Panel>
+          <dl className="divide-y divide-border">
+            <ConfigRow label="UUID">
+              <span className="truncate font-mono text-[12px] text-foreground">{vm.id}</span>
+              <CopyButton text={vm.id} label="Copy UUID" />
+            </ConfigRow>
             {/* Autostart toggle */}
-            <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-              <div>
-                <span className="text-sm text-muted-foreground">Autostart on host boot</span>
-              </div>
+            <ConfigRow label="Autostart on host boot" labelId="autostart-label">
               <button
                 type="button"
                 role="switch"
                 aria-checked={vm.autostart ?? false}
+                aria-labelledby="autostart-label"
                 disabled={setAutostart.isPending}
                 onClick={handleAutostartToggle}
                 className={cn(
-                  'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-                  vm.autostart ? 'bg-primary' : 'bg-muted-foreground/30'
+                  'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:cursor-not-allowed disabled:opacity-50',
+                  vm.autostart ? 'bg-primary' : 'bg-input'
                 )}
               >
                 <span
                   className={cn(
-                    'pointer-events-none inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-0 transition-transform',
+                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_rgb(27_36_51/0.25)] transition-transform duration-150',
                     vm.autostart ? 'translate-x-4' : 'translate-x-0'
                   )}
                 />
               </button>
-            </div>
+            </ConfigRow>
             {vm.status === 'running' && vm.guestAgent !== undefined && (
-              <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-                <span className="text-sm text-muted-foreground">Guest Agent</span>
-                <span className={cn(
-                  'rounded px-2 py-0.5 text-xs font-medium',
-                  vm.guestAgent
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-muted text-muted-foreground/80',
-                )}>
-                  {vm.guestAgent ? 'Connected' : 'Not available'}
-                </span>
-              </div>
+              <ConfigRow label="Guest agent">
+                {vm.guestAgent ? (
+                  <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-emerald-700 dark:text-emerald-300">
+                    <StatusGlyph status="running" size={7} />
+                    Connected
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+                    <StatusGlyph status="stopped" size={7} />
+                    Not available
+                  </span>
+                )}
+              </ConfigRow>
             )}
-            {vm.vncPort != null && <ConfigRow label="VNC Port" value={String(vm.vncPort)} mono />}
-            {vm.vncDisplay && <ConfigRow label="VNC Display" value={vm.vncDisplay} mono />}
-          </div>
-        </div>
+            {vm.vncPort != null && (
+              <ConfigRow label="VNC port">
+                <span className="font-mono text-[12px] tabular-nums text-foreground">{vm.vncPort}</span>
+              </ConfigRow>
+            )}
+            {vm.vncDisplay && (
+              <ConfigRow label="VNC display">
+                <span className="truncate font-mono text-[12px] text-foreground">{vm.vncDisplay}</span>
+              </ConfigRow>
+            )}
+          </dl>
+        </Panel>
       </section>
     </div>
   );
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, label = 'Copy to clipboard' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button
-      type="button"
-      onClick={() => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-      className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-      aria-label="Copy to clipboard"
-    >
-      {copied
-        ? <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-        : <Copy className="h-3.5 w-3.5" />}
-    </button>
+    <Tooltip label={copied ? 'Copied' : 'Copy'}>
+      <button
+        type="button"
+        onClick={() => {
+          navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        className={inlineAction}
+        aria-label={label}
+      >
+        {copied
+          ? <Check className="h-3.5 w-3.5 text-success" />
+          : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </Tooltip>
   );
 }
 
-function ResourceCard({
-  label,
-  value,
-  icon: Icon,
-  iconBg = 'bg-muted',
-  iconColor = 'text-muted-foreground',
-}: {
-  label: string;
-  value: string;
-  icon: typeof Cpu;
-  iconBg?: string;
-  iconColor?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-card">
-      <div className="mb-3 flex items-center gap-2.5">
-        <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', iconBg)}>
-          <Icon className={cn('h-3.5 w-3.5', iconColor)} />
-        </div>
-        <span className="text-[12px] font-medium text-muted-foreground">
-          {label}
-        </span>
-      </div>
-      <p className="text-[26px] font-semibold tabular-nums leading-tight tracking-[-0.015em] text-foreground">{value}</p>
-    </div>
-  );
-}
-
+// One cell of the Access strip: a readout label over a mono value and its actions.
 function InfoField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="px-5 py-4">
-      <dt className="mb-1.5 text-[12px] font-medium text-muted-foreground">
-        {label}
-      </dt>
-      <dd>{children}</dd>
+    <div className="min-w-0 px-5 py-4">
+      <dt className="readout-label">{label}</dt>
+      <dd className="mt-2 flex min-h-[24px] min-w-0 items-center gap-1.5">{children}</dd>
     </div>
   );
 }
 
-function ConfigRow({ label, value, mono, copy }: { label: string; value: string; mono?: boolean; copy?: boolean }) {
+// One key/value row: a quiet label in a fixed column, then the value — the same plate
+// the dashboard's Host panel uses.
+function ConfigRow({ label, labelId, children }: { label: string; labelId?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <div className="flex min-w-0 items-center gap-2">
-        <span className={cn('truncate text-sm text-foreground', mono && 'font-mono text-xs')}>{value}</span>
-        {copy && <CopyButton text={value} />}
-      </div>
+    <div className="grid min-h-[46px] grid-cols-[minmax(0,11rem)_minmax(0,1fr)] items-center gap-x-4 px-5 py-2 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
+      <dt id={labelId} className="text-[12.5px] text-muted-foreground">{label}</dt>
+      <dd className="flex min-w-0 items-center gap-1.5">{children}</dd>
     </div>
   );
-}
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <h2 className="mb-3 text-[12px] font-medium text-muted-foreground">{children}</h2>;
 }
 
 // ─── Disks ────────────────────────────────────────────────────────────────────
@@ -696,7 +759,7 @@ function DisksTab({
   const { data: isos = [] } = useIsos();
 
   // Exclude the cloud-init seed ISO — it's a system detail, not user-managed
-  const bootableDisks = disks.filter((d) => !isSeedIso(d) && !(d.type === 'cdrom' && !d.source));
+  const bootableDisks = disks.filter(isListedDisk);
   const initialOrder = (): string[] => {
     const withOrder = bootableDisks
       .filter((d) => d.bootOrder != null)
@@ -784,138 +847,116 @@ function DisksTab({
   return (
     <div className="space-y-6">
       {/* Disk table */}
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <SectionHeading>Disks &amp; Storage</SectionHeading>
-          <div className="flex gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setCdromOpen(true)}>
-              <Disc size={13} /> Attach ISO
-            </Button>
-            <Button size="sm" onClick={() => setAddOpen(true)}>
-              <Plus size={13} /> Add Disk
-            </Button>
-          </div>
-        </div>
+      <Panel className="overflow-hidden">
+        <PanelHeader
+          title="Disks & storage"
+          actions={
+            <>
+              <Button size="sm" variant="secondary" onClick={() => setCdromOpen(true)}>
+                <Disc size={14} /> Attach ISO
+              </Button>
+              <Button size="sm" onClick={() => setAddOpen(true)}>
+                <Plus size={14} /> Add disk
+              </Button>
+            </>
+          }
+        />
 
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-          {disks.length === 0 ? (
-            <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-              No disks attached.
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  {['Device', 'Type', 'Bus', 'Size', 'Source', ''].map((h) => (
-                    <th
-                      key={h}
-                      className={cn(
-                        'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
-                        h === '' ? 'text-right' : 'text-left'
-                      )}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+        {/* Same filter as the rows: a VM whose only drives are the seed ISO or an empty
+            CD-ROM used to get a bare header instead of this line. */}
+        {bootableDisks.length === 0 ? (
+          <EmptyState>No disks attached.</EmptyState>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <TableHead columns={['Device', 'Type', 'Bus', 'Size', 'Source', '']} />
               <tbody className="divide-y divide-border">
-                {disks.filter((d) => !isSeedIso(d) && !(d.type === 'cdrom' && !d.source)).map((d) => (
-                  <tr key={d.target} className="transition-colors hover:bg-muted/30">
-                    <td className="px-5 py-3.5 font-mono text-xs text-foreground">
-                      <div className="flex items-center gap-2">
-                        <span>{d.target}</span>
+                {bootableDisks.map((d) => (
+                  <tr key={d.target} className="table-row">
+                    <td className="px-5 py-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono text-[12.5px] font-medium text-foreground">{d.target}</span>
                         {d.fileMissing && (
                           <Tooltip label={`File missing on disk: ${d.source}. The VM will fail to start until the file is restored or the path is corrected.`}>
-                            <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:text-amber-400">
-                              <AlertTriangle size={9} /> missing
+                            <span className="inline-flex cursor-help items-center gap-1 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+                              <WarnGlyph /> missing
                             </span>
                           </Tooltip>
                         )}
                       </div>
                     </td>
-                    <td className="px-5 py-3.5 text-muted-foreground">
+                    <td className="px-5 py-2.5 text-muted-foreground">
                       <Tooltip label={d.type === 'cdrom' ? 'CD-ROM' : 'Disk'}>
                         {d.type === 'cdrom'
-                          ? <Disc size={14} className="text-muted-foreground" />
-                          : <HardDrive size={14} className="text-muted-foreground" />}
+                          ? <Disc size={15} className="text-muted-foreground" aria-hidden />
+                          : <HardDrive size={15} className="text-muted-foreground" aria-hidden />}
+                        <span className="sr-only">{d.type === 'cdrom' ? 'CD-ROM' : 'Disk'}</span>
                       </Tooltip>
                     </td>
-                    <td className="px-5 py-3.5 text-xs text-muted-foreground">{d.bus}</td>
-                    <td className="px-5 py-3.5 text-xs text-muted-foreground">
-                      {d.sizeGb != null && d.sizeGb > 0 ? formatDisk(d.sizeGb) : '—'}
+                    <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{d.bus}</td>
+                    <td className="whitespace-nowrap px-5 py-2.5 text-[12.5px] tabular-nums text-foreground">
+                      {d.sizeGb != null && d.sizeGb > 0 ? formatDisk(d.sizeGb) : <span className="text-muted-foreground">—</span>}
                     </td>
-                    <td
-                      className={cn('max-w-xs truncate px-5 py-3.5 font-mono text-xs', d.fileMissing ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}
-                      title={d.source}
-                    >
-                      {d.source || '—'}
-                      {d.storageDirName && (
-                        <span className="ml-2 text-[10px] text-muted-foreground/80">[{d.storageDirName}]</span>
-                      )}
+                    {/* Elastic column: w-full takes the slack, max-w-0 lets it give way first,
+                        so a long path truncates instead of pushing the row actions out. */}
+                    <td className="w-full max-w-0 px-5 py-2.5" title={d.source}>
+                      <div className={cn('truncate font-mono text-[12px]', d.fileMissing ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
+                        {d.source || '—'}
+                        {d.storageDirName && (
+                          <span className="ml-2 font-sans text-[11.5px] text-muted-foreground">[{d.storageDirName}]</span>
+                        )}
+                      </div>
                     </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <div className="inline-flex items-center gap-1">
+                    <td className="whitespace-nowrap px-5 py-1.5 text-right">
+                      <div className="inline-flex items-center justify-end gap-0.5">
                         {d.type === 'disk' && d.source && /\.qcow2$/i.test(d.source) && d.storageDirId && (
-                          <Tooltip label={vmStatus === 'stopped' ? 'Move to another storage directory' : 'Stop the VM before moving its disk'}>
-                            <button
-                              type="button"
-                              disabled={vmStatus !== 'stopped'}
-                              onClick={() => setMovingDisk(d)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-                            >
-                              <FolderInput size={13} />
-                            </button>
-                          </Tooltip>
+                          <RowAction
+                            label="Move to another storage directory"
+                            tooltip={vmStatus === 'stopped' ? 'Move to another storage directory' : 'Stop the VM before moving its disk'}
+                            disabled={vmStatus !== 'stopped'}
+                            onClick={() => setMovingDisk(d)}
+                          >
+                            <FolderInput size={14} />
+                          </RowAction>
                         )}
                         {d.type === 'disk' && d.source && /\.qcow2$/i.test(d.source) && (
-                          <Tooltip label={vmStatus === 'stopped' ? 'Download disk image' : 'Stop the VM before downloading its disk'}>
-                            <button
-                              type="button"
-                              disabled={vmStatus !== 'stopped' || downloadDisk.isPending}
-                              onClick={async () => {
-                                const filename = d.source!.split('/').pop()!;
-                                try {
-                                  await downloadDisk.mutateAsync({ vmUuid, filename });
-                                } catch (err: unknown) {
-                                  toast.error(err instanceof Error ? err.message : 'Failed to start download');
-                                }
-                              }}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-                            >
-                              <Download size={13} />
-                            </button>
-                          </Tooltip>
+                          <RowAction
+                            label="Download disk image"
+                            tooltip={vmStatus === 'stopped' ? 'Download disk image' : 'Stop the VM before downloading its disk'}
+                            disabled={vmStatus !== 'stopped' || downloadDisk.isPending}
+                            onClick={async () => {
+                              const filename = d.source!.split('/').pop()!;
+                              try {
+                                await downloadDisk.mutateAsync({ vmUuid, filename });
+                              } catch (err: unknown) {
+                                toast.error(err instanceof Error ? err.message : 'Failed to start download');
+                              }
+                            }}
+                          >
+                            <Download size={14} />
+                          </RowAction>
                         )}
                         {d.type === 'disk' && d.source && (
-                          <Tooltip label="Grow disk">
-                            <button
-                              type="button"
-                              onClick={() => { setResizeAddGb('10'); setResizingDisk(d); }}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                            >
-                              <ArrowUp size={13} />
-                            </button>
-                          </Tooltip>
+                          <RowAction label="Grow disk" onClick={() => { setResizeAddGb('10'); setResizingDisk(d); }}>
+                            <ArrowUp size={14} />
+                          </RowAction>
                         )}
                         {d.target !== 'vda' && d.target !== 'sda' && (
-                          <Tooltip label="Detach">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  if (d.type === 'cdrom') await detachCdrom.mutateAsync(d.target);
-                                  else await detachDisk.mutateAsync(d.target);
-                                  toast.success('Detached');
-                                } catch {
-                                  toast.error('Failed to detach');
-                                }
-                              }}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </Tooltip>
+                          <RowAction
+                            label="Detach"
+                            danger
+                            onClick={async () => {
+                              try {
+                                if (d.type === 'cdrom') await detachCdrom.mutateAsync(d.target);
+                                else await detachDisk.mutateAsync(d.target);
+                                toast.success('Detached');
+                              } catch {
+                                toast.error('Failed to detach');
+                              }
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </RowAction>
                         )}
                       </div>
                     </td>
@@ -923,15 +964,15 @@ function DisksTab({
                 ))}
               </tbody>
             </table>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
+      </Panel>
 
       {/* Resize disk dialog */}
       <Dialog
         open={!!resizingDisk}
         onClose={() => setResizingDisk(null)}
-        title="Grow Disk"
+        title="Grow disk"
         description={`Disk image will be extended. Partition/filesystem resize must be done inside the guest.${vmStatus === 'stopped' ? '' : ' The VM will be notified of the new size immediately.'}`}
         size="sm"
         footer={
@@ -961,130 +1002,121 @@ function DisksTab({
         }
       >
         <div className="space-y-4">
-          <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
-            <p className="font-mono text-xs text-muted-foreground">
-              {resizingDisk?.target} — {resizingDisk?.source?.split('/').pop() ?? ''}
+          <div className="rounded-md border border-border bg-surface px-3.5 py-2.5">
+            <p className="truncate font-mono text-[12px] text-foreground">
+              {resizingDisk?.target} <span className="text-muted-foreground">— {resizingDisk?.source?.split('/').pop() ?? ''}</span>
             </p>
           </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-              Gigabytes to add
-            </label>
-            <Input
-              type="number"
-              min={1}
-              max={10240}
-              value={resizeAddGb}
-              onChange={(e) => setResizeAddGb(e.target.value)}
-              placeholder="e.g. 10"
-            />
-          </div>
+          <Input
+            label="Gigabytes to add"
+            id="grow-disk-gb"
+            type="number"
+            min={1}
+            max={10240}
+            value={resizeAddGb}
+            onChange={(e) => setResizeAddGb(e.target.value)}
+            placeholder="e.g. 10"
+          />
         </div>
       </Dialog>
 
       {/* Boot Order */}
       {bootableDisks.length > 0 && (
-        <div>
-          <div className="mb-3 flex items-center justify-between">
-            <SectionHeading>Boot Order</SectionHeading>
-            {orderDirty && (
-              <Button
-                size="sm"
-                onClick={handleSaveBootOrder}
-                disabled={setBootOrder.isPending}
-              >
-                {setBootOrder.isPending ? 'Saving…' : 'Save Boot Order'}
-              </Button>
-            )}
-          </div>
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-            <ul className="divide-y divide-border">
-              {localOrder.map((target, idx) => {
-                const disk = disks.find((d) => d.target === target);
-                if (!disk) return null;
-                return (
-                  <li key={target} className="flex items-center gap-3 px-4 py-3">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                      {idx + 1}
-                    </span>
-                    <span className="flex-1 font-mono text-xs text-foreground">
-                      {target}
-                      {disk.source && (
-                        <span className="ml-2 truncate text-muted-foreground">
-                          {disk.source.split('/').pop()}
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-[12px] text-muted-foreground">
-                      {disk.type}
-                    </span>
-                    <div className="flex gap-0.5">
-                      <button
-                        type="button"
-                        onClick={() => moveUp(target)}
-                        disabled={idx === 0}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                      >
-                        <ChevronUp size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveDown(target)}
-                        disabled={idx === localOrder.length - 1}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                      >
-                        <ChevronDown size={13} />
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">
+        <Panel className="overflow-hidden">
+          <PanelHeader
+            title="Boot order"
+            meta={orderDirty ? 'Unsaved changes' : undefined}
+            actions={
+              orderDirty ? (
+                <Button
+                  size="sm"
+                  onClick={handleSaveBootOrder}
+                  disabled={setBootOrder.isPending}
+                >
+                  {setBootOrder.isPending ? 'Saving…' : 'Save boot order'}
+                </Button>
+              ) : undefined
+            }
+          />
+          <ol className="divide-y divide-border">
+            {localOrder.map((target, idx) => {
+              const disk = disks.find((d) => d.target === target);
+              if (!disk) return null;
+              return (
+                <li key={target} className="flex items-center gap-4 px-5 py-1.5">
+                  <span className="w-4 shrink-0 text-right font-mono text-[12px] tabular-nums text-muted-foreground">
+                    {idx + 1}
+                  </span>
+                  <span className="flex min-w-0 flex-1 items-baseline gap-2.5 font-mono">
+                    <span className="shrink-0 text-[12.5px] font-medium text-foreground">{target}</span>
+                    {disk.source && (
+                      <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+                        {disk.source.split('/').pop()}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[12.5px] text-muted-foreground">
+                    {disk.type}
+                  </span>
+                  <div className="flex gap-0.5">
+                    <RowAction label="Move up" onClick={() => moveUp(target)} disabled={idx === 0}>
+                      <ChevronUp size={15} />
+                    </RowAction>
+                    <RowAction label="Move down" onClick={() => moveDown(target)} disabled={idx === localOrder.length - 1}>
+                      <ChevronDown size={15} />
+                    </RowAction>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+          <p className="flex items-center gap-1.5 border-t border-border bg-surface/60 px-5 py-2.5 text-[12px] text-muted-foreground">
+            <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
             Changes take effect after stopping and starting the VM. Rebooting is not sufficient.
           </p>
-        </div>
+        </Panel>
       )}
 
       {/* Boot Once from ISO */}
       {isoSlot && (
-        <div className="rounded-xl border border-border bg-card px-5 py-4 shadow-card">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold text-foreground">One-shot Boot from ISO</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Start the VM once from the attached ISO without changing the persistent boot order.
-                {vmStatus === 'running' && (
-                  <span className="ml-1 text-amber-600 dark:text-amber-400">
-                    Power off the VM first to use this option.
-                  </span>
-                )}
-              </p>
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                {isoSlot.source.split('/').pop()}
-              </p>
-            </div>
-            <Tooltip label={vmStatus === 'running' ? 'Power off the VM first' : 'Boot from ISO once'}>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={vmStatus !== 'stopped' || bootOnce.isPending}
-                onClick={async () => {
-                  try {
-                    await bootOnce.mutateAsync('cdrom');
-                    toast.success('Starting from ISO…');
-                  } catch {
-                    toast.error('Failed to start');
-                  }
-                }}
-              >
-                <Zap size={13} />
-                {bootOnce.isPending ? 'Starting…' : 'Boot Once from ISO'}
-              </Button>
-            </Tooltip>
+        <Panel>
+          <PanelHeader
+            title="One-shot boot from ISO"
+            actions={
+              <Tooltip label={vmStatus === 'running' ? 'Power off the VM first' : 'Boot from ISO once'}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={vmStatus !== 'stopped' || bootOnce.isPending}
+                  onClick={async () => {
+                    try {
+                      await bootOnce.mutateAsync('cdrom');
+                      toast.success('Starting from ISO…');
+                    } catch {
+                      toast.error('Failed to start');
+                    }
+                  }}
+                >
+                  <Zap size={14} />
+                  {bootOnce.isPending ? 'Starting…' : 'Boot once from ISO'}
+                </Button>
+              </Tooltip>
+            }
+          />
+          <div className="space-y-1.5 px-5 py-3.5">
+            <p className="text-[13px] leading-5 text-muted-foreground">
+              Start the VM once from the attached ISO without changing the persistent boot order.
+              {vmStatus === 'running' && (
+                <span className="ml-1 text-amber-700 dark:text-amber-300">
+                  Power off the VM first to use this option.
+                </span>
+              )}
+            </p>
+            <p className="font-mono text-[12px] text-foreground">
+              {isoSlot.source.split('/').pop()}
+            </p>
           </div>
-        </div>
+        </Panel>
       )}
 
       <MoveDialog
@@ -1110,14 +1142,14 @@ function DisksTab({
       <Dialog
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        title="Add Disk"
+        title="Add disk"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setAddOpen(false)}>
               Cancel
             </Button>
             <Button size="sm" onClick={handleAddDisk} disabled={addDisk.isPending || !sizeGbValid}>
-              {addDisk.isPending ? 'Adding…' : 'Add Disk'}
+              {addDisk.isPending ? 'Adding…' : 'Add disk'}
             </Button>
           </>
         }
@@ -1168,7 +1200,7 @@ function DisksTab({
           ))}
         </Select>
         {isos.length === 0 && (
-          <p className="mt-2 text-xs text-muted-foreground">
+          <p className="mt-2 text-[12.5px] text-muted-foreground">
             No ISOs found. Upload one on the ISOs page.
           </p>
         )}
@@ -1291,129 +1323,99 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
 
   return (
     <div className="space-y-6">
-      <div className="mb-4 flex items-center justify-between">
-        <SectionHeading>Snapshots</SectionHeading>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Camera size={13} /> Take Snapshot
-        </Button>
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+      <Panel className="overflow-hidden">
+        <PanelHeader
+          title="Snapshots"
+          actions={
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Camera size={14} /> Take snapshot
+            </Button>
+          }
+        />
         {isLoading ? (
-          <div className="px-6 py-10 text-center text-sm text-muted-foreground">Loading…</div>
+          <EmptyState>Loading…</EmptyState>
         ) : snapshots.length === 0 && !pendingSnapshot ? (
-          <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No snapshots yet. Take a snapshot to save the current VM state.
-          </div>
+          <EmptyState>No snapshots yet. Take a snapshot to save the current VM state.</EmptyState>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                {['Name', 'Created', 'VM State', 'Size', ''].map((h) => (
-                  <th
-                    key={h}
-                    className={cn(
-                      'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
-                      h === '' ? 'text-right' : 'text-left'
-                    )}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {pendingSnapshot && (
-                <tr key="__pending" className="bg-muted/20">
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <Spinner className="h-3 w-3 shrink-0" />
-                      <span className="font-mono text-xs text-foreground">{pendingSnapshot}</span>
-                    </div>
-                    <div className="h-1 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
-                    </div>
-                  </td>
-                  <td className="px-5 py-3 text-xs text-muted-foreground/80">Taking snapshot…</td>
-                  <td className="px-5 py-3" />
-                  <td className="px-5 py-3" />
-                  <td className="px-5 py-3" />
-                </tr>
-              )}
-              {snapshots.filter((snap) => snap.name !== pendingSnapshot).map((snap: VmSnapshot) => {
-                const isReverting = snap.name === pendingRevert;
-                const isConverting = snap.name === pendingConvert;
-                const isBusy = isReverting || isConverting;
-                const statusLabel = isReverting ? 'Restoring…' : isConverting ? 'Converting to template…' : null;
-                return (
-                  <tr key={snap.name} className={cn('transition-colors', isBusy ? 'bg-muted/20' : 'hover:bg-muted/30')}>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <TableHead columns={['Name', 'Created', 'VM state', 'Size', '']} />
+              <tbody className="divide-y divide-border">
+                {pendingSnapshot && (
+                  <tr key="__pending" className="bg-surface/60">
                     <td className="px-5 py-3">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        {isBusy && <Spinner className="h-3 w-3 shrink-0" />}
-                        <span className="font-mono text-xs text-foreground">{snap.name}</span>
+                      <div className="flex items-center gap-2">
+                        <Spinner className="h-3.5 w-3.5 shrink-0" />
+                        <span className="font-mono text-[12.5px] font-medium text-foreground">{pendingSnapshot}</span>
                       </div>
-                      {isBusy && (
-                        <div className="h-1 overflow-hidden rounded-full bg-muted">
-                          <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
+                      <WorkingBar />
+                    </td>
+                    <td className="px-5 py-3 text-[12.5px] text-muted-foreground">Taking snapshot…</td>
+                    <td className="px-5 py-3" />
+                    <td className="px-5 py-3" />
+                    <td className="px-5 py-3" />
+                  </tr>
+                )}
+                {snapshots.filter((snap) => snap.name !== pendingSnapshot).map((snap: VmSnapshot) => {
+                  const isReverting = snap.name === pendingRevert;
+                  const isConverting = snap.name === pendingConvert;
+                  const isBusy = isReverting || isConverting;
+                  const statusLabel = isReverting ? 'Restoring…' : isConverting ? 'Converting to template…' : null;
+                  return (
+                    <tr key={snap.name} className={isBusy ? 'bg-surface/60' : 'table-row'}>
+                      <td className="px-5 py-2.5">
+                        <div className="flex items-center gap-2">
+                          {isBusy && <Spinner className="h-3.5 w-3.5 shrink-0" />}
+                          <span className="font-mono text-[12.5px] font-medium text-foreground">{snap.name}</span>
                         </div>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-xs text-muted-foreground">
-                      {statusLabel ?? new Date(snap.createdAt).toLocaleString()}
-                    </td>
-                    <td className="px-5 py-3 text-xs text-muted-foreground">
-                      {isBusy ? '' : snapshotStateLabel(snap.vmState)}
-                    </td>
-                    <td className="px-5 py-3 text-xs text-muted-foreground">
-                      {isBusy ? '' : (snap.sizeBytes !== undefined ? formatBytes(snap.sizeBytes) : '—')}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      {!isBusy && (
-                        <div className="flex items-center justify-end gap-1">
-                          <Tooltip label="Convert to template">
-                            <button
-                              type="button"
+                        {isBusy && <WorkingBar />}
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-2.5 text-[12.5px] tabular-nums text-muted-foreground">
+                        {statusLabel ?? formatDateTime(snap.createdAt)}
+                      </td>
+                      <td className="px-5 py-2.5 text-[12.5px] text-muted-foreground">
+                        {isBusy ? '' : snapshotStateLabel(snap.vmState)}
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-2.5 text-[12.5px] tabular-nums text-foreground">
+                        {isBusy ? '' : (snap.sizeBytes !== undefined ? formatBytes(snap.sizeBytes) : <span className="text-muted-foreground">—</span>)}
+                      </td>
+                      <td className="px-5 py-1.5 text-right">
+                        {!isBusy && (
+                          <div className="inline-flex items-center justify-end gap-0.5">
+                            <RowAction
+                              label="Convert to template"
                               onClick={() => { setToTemplateTarget(snap.name); setTemplateName(snap.name); }}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-500"
                             >
-                              <HardDrive size={13} />
-                            </button>
-                          </Tooltip>
-                          <Tooltip label="Restore this snapshot">
-                            <button
-                              type="button"
-                              onClick={() => setRevertTarget(snap.name)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                            >
-                              <RotateCcw size={13} />
-                            </button>
-                          </Tooltip>
-                          <Tooltip label="Delete snapshot">
-                            <button
-                              type="button"
+                              <HardDrive size={14} />
+                            </RowAction>
+                            <RowAction label="Restore this snapshot" onClick={() => setRevertTarget(snap.name)}>
+                              <RotateCcw size={14} />
+                            </RowAction>
+                            <RowAction
+                              label="Delete snapshot"
+                              danger
                               onClick={() => handleDelete(snap.name)}
                               disabled={deleteSnapshot.isPending}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                             >
-                              <Trash2 size={13} />
-                            </button>
-                          </Tooltip>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                              <Trash2 size={14} />
+                            </RowAction>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
+      </Panel>
 
       {/* Create snapshot dialog */}
       <Dialog
         open={createOpen}
         onClose={() => { setCreateOpen(false); setSnapshotName(''); }}
-        title="Take Snapshot"
+        title="Take snapshot"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => { setCreateOpen(false); setSnapshotName(''); }}>
@@ -1424,24 +1426,25 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
               onClick={handleCreate}
               disabled={!snapshotName.trim()}
             >
-              Take Snapshot
+              Take snapshot
             </Button>
           </>
         }
       >
         <Input
-          label="Snapshot Name"
+          label="Snapshot name"
+          id="snapshot-name"
           placeholder="e.g. pre-update"
           value={snapshotName}
           onChange={(e) => setSnapshotName(e.target.value)}
         />
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
+        <p className="mt-1.5 text-[12px] text-muted-foreground">
           Letters, numbers, hyphens, and underscores only.
         </p>
         {vmStatus === 'running' && (
-          <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400">
+          <Callout tone="warn" className="mt-3">
             The VM is running — the snapshot will include both disk and memory state.
-          </p>
+          </Callout>
         )}
       </Dialog>
 
@@ -1449,7 +1452,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
       <Dialog
         open={revertTarget !== null}
         onClose={() => setRevertTarget(null)}
-        title="Restore Snapshot"
+        title="Restore snapshot"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setRevertTarget(null)}>
@@ -1461,9 +1464,9 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
           </>
         }
       >
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[13.5px] leading-6 text-muted-foreground">
           Restore{' '}
-          <span className="font-mono font-semibold text-foreground">{revertTarget}</span>?{' '}
+          <span className="font-mono text-[13px] font-medium text-foreground">{revertTarget}</span>?{' '}
           All changes made since this snapshot was taken will be lost. The VM will be powered off
           and restarted after the restore completes.
         </p>
@@ -1473,7 +1476,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
       <Dialog
         open={toTemplateTarget !== null}
         onClose={() => { setToTemplateTarget(null); setTemplateName(''); }}
-        title="Convert Snapshot to Template"
+        title="Convert snapshot to template"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => { setToTemplateTarget(null); setTemplateName(''); }}>
@@ -1485,13 +1488,14 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
           </>
         }
       >
-        <p className="mb-3 text-sm text-muted-foreground">
+        <p className="mb-4 text-[13.5px] leading-6 text-muted-foreground">
           Snapshot{' '}
-          <span className="font-mono font-semibold text-foreground">{toTemplateTarget}</span>{' '}
+          <span className="font-mono text-[13px] font-medium text-foreground">{toTemplateTarget}</span>{' '}
           will be exported as a standalone template image. This may take a few minutes for large disks.
         </p>
         <Input
-          label="Template Name"
+          label="Template name"
+          id="template-name"
           placeholder="e.g. my-base-image"
           value={templateName}
           onChange={(e) => setTemplateName(e.target.value)}
@@ -1509,12 +1513,6 @@ function networkTypeLabel(type: string, ipMode?: string): string {
   return ipMode === 'dhcp' ? `${prefix} DHCP` : `${prefix} Static`;
 }
 
-function networkTypeClass(type: string, ipMode?: string): string {
-  if (type === 'nat') return 'text-blue-600 dark:text-blue-400';
-  if (ipMode === 'dhcp') return 'text-violet-600 dark:text-violet-400';
-  return 'text-emerald-600 dark:text-emerald-400';
-}
-
 interface AddPortForwardForm {
   protocol: 'tcp' | 'udp';
   hostPort: string;
@@ -1527,10 +1525,12 @@ const defaultPfForm: AddPortForwardForm = { protocol: 'tcp', hostPort: '', vmPor
 function PortForwardsSection({
   vmUuid,
   networkId,
+  networkName,
   mac,
 }: {
   vmUuid: string;
   networkId: string;
+  networkName: string;
   mac: string;
 }) {
   const { data: allForwards = [] } = useVmPortForwards(vmUuid);
@@ -1572,53 +1572,40 @@ function PortForwardsSection({
     Number(form.vmPort) < 1;
 
   return (
-    <div className="mt-3 rounded-xl border border-border bg-card shadow-card">
-      <div className="flex items-center justify-between border-b border-border px-5 py-3">
-        <span className="text-[12px] font-medium text-muted-foreground">
-          Port Forwards
-        </span>
-        <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
-          <Plus size={12} /> Add Rule
-        </Button>
-      </div>
+    <Panel className="overflow-hidden">
+      <PanelHeader
+        title="Port forwards"
+        meta={
+          <>
+            for <span className="font-mono text-[12px] text-foreground">{mac}</span>
+            {' '}on <span className="font-medium text-foreground">{networkName}</span>
+          </>
+        }
+        actions={
+          <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
+            <Plus size={14} /> Add rule
+          </Button>
+        }
+      />
 
       {forwards.length === 0 ? (
-        <div className="px-5 py-4 text-xs text-muted-foreground">
-          No port forwards. Add a rule to expose a service to the internet.
-        </div>
+        <EmptyState>No port forwards. Add a rule to expose a service to the internet.</EmptyState>
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/30">
-              {['Protocol', 'Host Port', 'VM Port', 'VM IP', 'Description', ''].map((h) => (
-                <th
-                  key={h}
-                  className={cn(
-                    'px-4 py-2 text-[12px] font-medium text-muted-foreground',
-                    h === '' ? 'text-right' : 'text-left'
-                  )}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {forwards.map((fwd: PortForward) => (
-              <tr key={fwd.id} className="transition-colors hover:bg-muted/30">
-                <td className="px-4 py-2.5">
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px] font-medium text-foreground">
-                    {fwd.protocol}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 font-mono text-xs text-foreground">{fwd.hostPort}</td>
-                <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{fwd.vmPort}</td>
-                <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{fwd.vmIp}</td>
-                <td className="px-4 py-2.5 text-xs text-muted-foreground">{fwd.description ?? '—'}</td>
-                <td className="px-4 py-2.5 text-right">
-                  <Tooltip label="Delete rule">
-                    <button
-                      type="button"
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <TableHead columns={['Protocol', 'Host port', 'VM port', 'VM IP', 'Description', '']} />
+            <tbody className="divide-y divide-border">
+              {forwards.map((fwd: PortForward) => (
+                <tr key={fwd.id} className="table-row">
+                  <td className="px-5 py-2.5 font-mono text-[12px] font-medium uppercase text-foreground">{fwd.protocol}</td>
+                  <td className="px-5 py-2.5 font-mono text-[12.5px] tabular-nums text-foreground">{fwd.hostPort}</td>
+                  <td className="px-5 py-2.5 font-mono text-[12.5px] tabular-nums text-muted-foreground">{fwd.vmPort}</td>
+                  <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{fwd.vmIp}</td>
+                  <td className="px-5 py-2.5 text-[12.5px] text-muted-foreground">{fwd.description ?? '—'}</td>
+                  <td className="px-5 py-1.5 text-right">
+                    <RowAction
+                      label="Delete rule"
+                      danger
                       onClick={async () => {
                         try {
                           await deleteForward.mutateAsync(fwd.id);
@@ -1627,41 +1614,41 @@ function PortForwardsSection({
                           toast.error('Failed to remove port forward');
                         }
                       }}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                     >
-                      <Trash2 size={12} />
-                    </button>
-                  </Tooltip>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                      <Trash2 size={14} />
+                    </RowAction>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <Dialog
         open={addOpen}
         onClose={() => { setAddOpen(false); setForm(defaultPfForm); }}
-        title="Add Port Forward"
+        title="Add port forward"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => { setAddOpen(false); setForm(defaultPfForm); }}>
               Cancel
             </Button>
             <Button size="sm" onClick={handleAdd} disabled={addDisabled}>
-              {createForward.isPending ? 'Creating…' : 'Add Rule'}
+              {createForward.isPending ? 'Creating…' : 'Add rule'}
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <Select label="Protocol" value={form.protocol} onChange={set('protocol')}>
+          <Select label="Protocol" id="pf-protocol" value={form.protocol} onChange={set('protocol')}>
             <option value="tcp">TCP</option>
             <option value="udp">UDP</option>
           </Select>
           <div className="grid grid-cols-2 gap-3">
             <Input
-              label="Host Port"
+              label="Host port"
+              id="pf-host-port"
               type="number"
               min="1"
               max="65535"
@@ -1671,7 +1658,8 @@ function PortForwardsSection({
               required
             />
             <Input
-              label="VM Port"
+              label="VM port"
+              id="pf-vm-port"
               type="number"
               min="1"
               max="65535"
@@ -1683,17 +1671,18 @@ function PortForwardsSection({
           </div>
           <Input
             label="Description (optional)"
+            id="pf-description"
             placeholder="e.g. nginx"
             value={form.description}
             onChange={set('description')}
           />
-          <p className="rounded-lg bg-blue-500/10 px-3 py-2.5 text-xs text-blue-600 dark:text-blue-400">
+          <Callout>
             A static DHCP reservation will be created for this NIC so its IP stays fixed.
             The VM must be rebooted once for the reservation to take effect if it is already running.
-          </p>
+          </Callout>
         </div>
       </Dialog>
-    </div>
+    </Panel>
   );
 }
 
@@ -1737,17 +1726,17 @@ function IpCell({
 
   if (!displayIp) {
     return (
-      <span className="text-xs text-muted-foreground/80">
+      <span className="text-[12.5px] text-muted-foreground">
         {networkType === 'nat' || networkType === 'bridge' || networkType === 'existing-bridge' ? 'DHCP · unresolved' : '—'}
       </span>
     );
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="font-mono text-xs text-foreground">{displayIp}</span>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="font-mono text-[12.5px] text-foreground">{displayIp}</span>
       {isReserved && (
-        <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[12px] font-medium text-emerald-600 dark:text-emerald-400">
+        <span className="text-[12px] font-medium text-emerald-700 dark:text-emerald-300">
           reserved
         </span>
       )}
@@ -1757,7 +1746,7 @@ function IpCell({
             type="button"
             onClick={handleReserve}
             disabled={reserveIp.isPending}
-            className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary disabled:opacity-50"
+            className="-my-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-primary transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             {reserveIp.isPending ? 'Reserving…' : 'Lock IP'}
           </button>
@@ -1906,99 +1895,80 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
 
   return (
     <div className="space-y-6">
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <SectionHeading>Network Interfaces</SectionHeading>
-          <Button size="sm" onClick={handleOpen} disabled={availableNetworks.length === 0 && (networks ?? []).length > 0}>
-            <Plus size={13} /> Add NIC
-          </Button>
-        </div>
+      <div className="space-y-4">
+        <Panel className="overflow-hidden">
+          <PanelHeader
+            title="Network interfaces"
+            actions={
+              <Button size="sm" onClick={handleOpen} disabled={availableNetworks.length === 0 && (networks ?? []).length > 0}>
+                <Plus size={14} /> Add NIC
+              </Button>
+            }
+          />
 
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
           {nics.length === 0 ? (
-            <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-              No network interfaces attached.
-            </div>
+            <EmptyState>No network interfaces attached.</EmptyState>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  {['MAC Address', 'Network', 'IP Address', 'Model', 'Rate Limit', ''].map((h) => (
-                    <th
-                      key={h}
-                      className={cn(
-                        'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
-                        h === '' ? 'text-right' : 'text-left'
-                      )}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {nics.map((nic) => {
-                  const network = networks?.find((n) => n.bridge === nic.source);
-                  const isPrimary = primaryMacs.has(nic.mac);
-                  return (
-                    <tr key={nic.mac} className="transition-colors hover:bg-muted/30">
-                      <td className="px-5 py-3.5 font-mono text-xs text-foreground">
-                        <div className="flex items-center gap-2">
-                          {nic.mac}
-                          {isPrimary && (
-                            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[12px] font-medium text-primary">
-                              primary
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <TableHead columns={['MAC address', 'Network', 'IP address', 'Model', 'Rate limit', '']} />
+                <tbody className="divide-y divide-border">
+                  {nics.map((nic) => {
+                    const network = networks?.find((n) => n.bridge === nic.source);
+                    const isPrimary = primaryMacs.has(nic.mac);
+                    return (
+                      <tr key={nic.mac} className="table-row">
+                        {/* Cells may wrap (MAC over its marker, name over its type) so the
+                            row actions never get pushed out of a narrow panel. */}
+                        <td className="px-5 py-2.5">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="whitespace-nowrap font-mono text-[12.5px] font-medium text-foreground">{nic.mac}</span>
+                            {isPrimary && (
+                              <span className="text-[12px] text-muted-foreground">primary</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-2.5 text-[13px]">
+                          {network ? (
+                            <span className="flex flex-wrap items-baseline gap-x-1.5">
+                              <span className="font-medium text-foreground">{network.name}</span>
+                              <span className="text-[12px] text-muted-foreground">
+                                {networkTypeLabel(network.type, network.ipMode)}
+                              </span>
                             </span>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-5 py-2.5">
+                          <IpCell
+                            nic={nic}
+                            ifAddrs={ifAddrs}
+                            reservations={reservations}
+                            meta={meta}
+                            networkType={network?.type}
+                            networkId={network?.id}
+                            vmUuid={vmUuid}
+                          />
+                        </td>
+                        <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{nic.model}</td>
+                        <td className="px-5 py-2.5 text-[12.5px] text-muted-foreground">
+                          {nic.inboundKbps || nic.outboundKbps ? (
+                            <span className="whitespace-nowrap font-mono text-[12px] tabular-nums text-foreground">
+                              ↓ {nic.inboundKbps ? `${mbpsFromKbps(nic.inboundKbps)} MB/s` : 'unlimited'}
+                              <span className="text-muted-foreground">{' · '}</span>
+                              ↑ {nic.outboundKbps ? `${mbpsFromKbps(nic.outboundKbps)} MB/s` : 'unlimited'}
+                            </span>
+                          ) : (
+                            'unlimited'
                           )}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5 text-xs text-muted-foreground">
-                        {network ? (
-                          <span className={cn('font-medium', networkTypeClass(network.type, network.ipMode))}>
-                            {network.name}
-                            <span className="ml-1.5 font-normal text-muted-foreground/80">
-                              {networkTypeLabel(network.type, network.ipMode)}
-                            </span>
-                          </span>
-                        ) : '—'}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <IpCell
-                          nic={nic}
-                          ifAddrs={ifAddrs}
-                          reservations={reservations}
-                          meta={meta}
-                          networkType={network?.type}
-                          networkId={network?.id}
-                          vmUuid={vmUuid}
-                        />
-                      </td>
-                      <td className="px-5 py-3.5 text-xs text-muted-foreground">{nic.model}</td>
-                      <td className="px-5 py-3.5 text-xs text-muted-foreground">
-                        {nic.inboundKbps || nic.outboundKbps ? (
-                          <span className="font-mono">
-                            ↓ {nic.inboundKbps ? `${mbpsFromKbps(nic.inboundKbps)} MB/s` : 'unlimited'}
-                            {' · '}
-                            ↑ {nic.outboundKbps ? `${mbpsFromKbps(nic.outboundKbps)} MB/s` : 'unlimited'}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/80">unlimited</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Tooltip label="Edit rate limit">
-                            <button
-                              type="button"
-                              onClick={() => openBandwidth(nic)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            >
-                              <Gauge size={13} />
-                            </button>
-                          </Tooltip>
-                          <Tooltip label="Remove NIC">
-                            <button
-                              type="button"
+                        </td>
+                        <td className="whitespace-nowrap px-5 py-1.5 text-right">
+                          <div className="inline-flex items-center justify-end gap-0.5">
+                            <RowAction label="Edit rate limit" onClick={() => openBandwidth(nic)}>
+                              <Gauge size={14} />
+                            </RowAction>
+                            <RowAction
+                              label="Remove NIC"
+                              danger
                               onClick={async () => {
                                 try {
                                   await detachNic.mutateAsync(nic.mac);
@@ -2007,35 +1977,32 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                                   toast.error('Failed to remove NIC');
                                 }
                               }}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                             >
-                              <Trash2 size={13} />
-                            </button>
-                          </Tooltip>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                              <Trash2 size={14} />
+                            </RowAction>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
-        </div>
+        </Panel>
 
         {/* Port forward sections — one per NAT NIC */}
         {nics.map((nic) => {
           const network = networks?.find((n) => n.bridge === nic.source);
           if (!network || network.type !== 'nat') return null;
           return (
-            <div key={nic.mac} className="mt-4">
-              <p className="mb-1 text-xs text-muted-foreground">
-                Port forwards for{' '}
-                <span className="font-mono font-medium text-foreground">{nic.mac}</span>
-                {' '}on{' '}
-                <span className="font-medium text-foreground">{network.name}</span>
-              </p>
-              <PortForwardsSection vmUuid={vmUuid} networkId={network.id} mac={nic.mac} />
-            </div>
+            <PortForwardsSection
+              key={nic.mac}
+              vmUuid={vmUuid}
+              networkId={network.id}
+              networkName={network.name}
+              mac={nic.mac}
+            />
           );
         })}
       </div>
@@ -2043,7 +2010,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
       <Dialog
         open={addOpen}
         onClose={handleClose}
-        title={addedNic ? 'NIC Attached' : 'Add Network Interface'}
+        title={addedNic ? 'NIC attached' : 'Add network interface'}
         footer={
           addedNic ? (
             <Button size="sm" onClick={handleClose}>Done</Button>
@@ -2064,17 +2031,17 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
         {addedNic ? (
           // ── Success: show config snippet ───────────────────────────────────
           <div className="space-y-3">
-            <p className="text-sm text-foreground">
+            <p className="text-[13.5px] text-foreground">
               <span className="font-semibold">{addedNic.network.name}</span> attached with MAC{' '}
-              <span className="font-mono text-xs">{addedNic.mac}</span>.
+              <span className="font-mono text-[12.5px]">{addedNic.mac}</span>.
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[12.5px] leading-5 text-muted-foreground">
               Cloud-init will not run again for this NIC — configure it inside the VM using your OS's
               network tools. The example below is for <span className="font-medium text-foreground">Ubuntu / Debian</span> (netplan);
               adapt as needed for other distributions or Windows.
             </p>
             <div className="relative">
-              <pre className="overflow-x-auto rounded-lg bg-muted px-4 py-3 font-mono text-[11px] leading-relaxed text-foreground">
+              <pre className="overflow-x-auto rounded-md border border-border bg-surface px-4 py-3 font-mono text-[12px] leading-relaxed text-foreground">
                 {buildNetplanSnippet(addedNic.mac, addedNic.network, addedNic.staticIp)}
               </pre>
               <button
@@ -2083,40 +2050,39 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                   void navigator.clipboard.writeText(buildNetplanSnippet(addedNic.mac, addedNic.network, addedNic.staticIp));
                   toast.success('Copied to clipboard');
                 }}
-                className="absolute right-2 top-2 rounded border border-border bg-card px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="absolute right-2 top-2 inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-card px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-surface"
               >
+                <Copy className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
                 Copy
               </button>
             </div>
           </div>
         ) : availableNetworks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">All configured networks are already attached to this VM.</p>
+          <p className="text-[13.5px] text-muted-foreground">All configured networks are already attached to this VM.</p>
         ) : (
           // ── Idle: network + IP picker ──────────────────────────────────────
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="space-y-2">
               {availableNetworks.map((n) => (
                 <button
                   key={n.id}
                   type="button"
+                  aria-pressed={selectedNetworkId === n.id}
                   onClick={() => handleNetworkSelect(n.id)}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-lg border p-3.5 text-left transition-colors',
+                    'flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors',
                     selectedNetworkId === n.id
-                      ? 'border-primary bg-primary/[0.07]'
-                      : 'border-border hover:bg-muted/30'
+                      ? 'border-primary bg-accent ring-1 ring-primary/30'
+                      : 'border-border bg-card hover:border-muted-foreground/40'
                   )}
                 >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
-                    <Network size={14} className="text-muted-foreground" />
-                  </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground">{n.name}</p>
-                    <p className="font-mono text-[11px] text-muted-foreground">
+                    <p className="text-[13.5px] font-semibold text-foreground">{n.name}</p>
+                    <p className="mt-0.5 font-mono text-[12px] text-muted-foreground">
                       {n.cidr} · br: {n.bridge}
                     </p>
                   </div>
-                  <span className={cn('shrink-0 text-xs font-medium', networkTypeClass(n.type, n.ipMode))}>
+                  <span className="shrink-0 text-[12px] font-medium text-muted-foreground">
                     {networkTypeLabel(n.type, n.ipMode)}
                   </span>
                 </button>
@@ -2125,6 +2091,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
             {isStaticNetwork && (
               <Select
                 label="IP address"
+                id="add-nic-ip"
                 value={selectedStaticIp}
                 onChange={(e) => setSelectedStaticIp(e.target.value)}
               >
@@ -2137,6 +2104,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
             <div className="grid grid-cols-2 gap-3">
               <Input
                 label="Inbound limit (MB/s)"
+                id="add-nic-inbound"
                 placeholder="unlimited"
                 inputMode="decimal"
                 value={addInbound}
@@ -2144,15 +2112,16 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
               />
               <Input
                 label="Outbound limit (MB/s)"
+                id="add-nic-outbound"
                 placeholder="unlimited"
                 inputMode="decimal"
                 value={addOutbound}
                 onChange={(e) => setAddOutbound(e.target.value)}
               />
             </div>
-            <p className="rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs text-amber-600 dark:text-amber-400">
+            <Callout tone="warn">
               Cloud-init will not configure this NIC automatically. Configuration steps will be shown after adding.
-            </p>
+            </Callout>
           </div>
         )}
       </Dialog>
@@ -2160,7 +2129,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
       <Dialog
         open={!!bandwidthNic}
         onClose={closeBandwidth}
-        title="Rate Limit"
+        title="Rate limit"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={closeBandwidth}>Cancel</Button>
@@ -2170,16 +2139,17 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
           </>
         }
       >
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
+        <div className="space-y-4">
+          <p className="text-[13px] leading-5 text-muted-foreground">
             Cap traffic on{' '}
-            <span className="font-mono text-foreground">{bandwidthNic?.mac}</span>. Leave a field blank for
+            <span className="font-mono text-[12.5px] text-foreground">{bandwidthNic?.mac}</span>. Leave a field blank for
             unlimited. Inbound and outbound are from the guest's perspective. Limits apply live and persist
             across reboots.
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Input
               label="Inbound (MB/s)"
+              id="bw-inbound"
               placeholder="unlimited"
               inputMode="decimal"
               value={bwInbound}
@@ -2187,13 +2157,14 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
             />
             <Input
               label="Outbound (MB/s)"
+              id="bw-outbound"
               placeholder="unlimited"
               inputMode="decimal"
               value={bwOutbound}
               onChange={(e) => setBwOutbound(e.target.value)}
             />
           </div>
-          <p className="text-[11px] text-muted-foreground/80">
+          <p className="text-[12px] text-muted-foreground">
             libvirt enforces these via Linux tc (token bucket). Useful for fairness; not strict policing.
           </p>
         </div>
@@ -2268,92 +2239,46 @@ function FirewallRulesTable({
   emptyLabel: string;
 }) {
   if (rules.length === 0) {
-    return (
-      <div className="rounded-xl border border-border bg-card px-6 py-8 text-center text-sm text-muted-foreground">
-        {emptyLabel}
-      </div>
-    );
+    return <EmptyState>{emptyLabel}</EmptyState>;
   }
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-muted/40">
-            {['#', 'Protocol', 'Port / Type', 'Source / Dest', 'Action', 'Description', ''].map((h) => (
-              <th
-                key={h}
-                className={cn(
-                  'px-4 py-2.5 text-[12px] font-medium text-muted-foreground',
-                  h === '' ? 'text-right' : 'text-left'
-                )}
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <TableHead columns={['#', 'Protocol', 'Port / type', 'Source / dest', 'Action', 'Description', '']} pad="px-4 first:pl-5 last:pr-5" />
         <tbody className="divide-y divide-border">
           {rules.map((rule, idx) => (
-            <tr key={rule.id} className="transition-colors hover:bg-muted/30">
-              <td className="px-4 py-3 text-xs text-muted-foreground/80">{idx + 1}</td>
-              <td className="px-4 py-3 font-mono text-[12px] text-foreground">{rule.protocol}</td>
-              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+            <tr key={rule.id} className="table-row">
+              <td className="py-2.5 pl-5 pr-4 font-mono text-[12px] tabular-nums text-muted-foreground">{idx + 1}</td>
+              <td className="px-4 py-2.5 font-mono text-[12px] font-medium uppercase text-foreground">{rule.protocol}</td>
+              <td className="px-4 py-2.5 font-mono text-[12px] text-muted-foreground">
                 {rule.protocol === 'icmp' ? (rule.icmpType ?? 'any') : (rule.portRange ?? 'any')}
               </td>
-              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{rule.source ?? rule.destination ?? '—'}</td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-2.5 font-mono text-[12px] text-muted-foreground">{rule.source ?? rule.destination ?? '—'}</td>
+              <td className="px-4 py-2.5">
                 <span className={cn(
-                  'rounded px-1.5 py-0.5 text-[12px] font-medium',
+                  'text-[12.5px] font-medium capitalize',
                   rule.action === 'allow'
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                    ? 'text-emerald-700 dark:text-emerald-300'
+                    : 'text-red-700 dark:text-red-300'
                 )}>
                   {rule.action}
                 </span>
               </td>
-              <td className="px-4 py-3 text-xs text-muted-foreground">{rule.description ?? '—'}</td>
-              <td className="px-4 py-3 text-right">
-                <div className="inline-flex items-center justify-end gap-1">
-                  <Tooltip label="Move up">
-                    <button
-                      type="button"
-                      onClick={() => onMoveUp(rule.id)}
-                      disabled={isPending || idx === 0}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-25"
-                    >
-                      <ChevronUp size={12} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip label="Move down">
-                    <button
-                      type="button"
-                      onClick={() => onMoveDown(rule.id)}
-                      disabled={isPending || idx === rules.length - 1}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-25"
-                    >
-                      <ChevronDown size={12} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip label="Edit rule">
-                    <button
-                      type="button"
-                      onClick={() => onEdit(rule)}
-                      disabled={isPending}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
-                    >
-                      <Pencil size={12} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip label="Remove rule">
-                    <button
-                      type="button"
-                      onClick={() => onDelete(rule.id)}
-                      disabled={isPending}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </Tooltip>
+              <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground">{rule.description ?? '—'}</td>
+              <td className="py-1.5 pl-4 pr-5 text-right">
+                <div className="inline-flex items-center justify-end gap-0.5">
+                  <RowAction label="Move up" onClick={() => onMoveUp(rule.id)} disabled={isPending || idx === 0}>
+                    <ChevronUp size={15} />
+                  </RowAction>
+                  <RowAction label="Move down" onClick={() => onMoveDown(rule.id)} disabled={isPending || idx === rules.length - 1}>
+                    <ChevronDown size={15} />
+                  </RowAction>
+                  <RowAction label="Edit rule" onClick={() => onEdit(rule)} disabled={isPending}>
+                    <Pencil size={14} />
+                  </RowAction>
+                  <RowAction label="Remove rule" danger onClick={() => onDelete(rule.id)} disabled={isPending}>
+                    <Trash2 size={14} />
+                  </RowAction>
                 </div>
               </td>
             </tr>
@@ -2549,8 +2474,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <SectionHeading>Firewall</SectionHeading>
+      <SectionHeading label="Firewall">
         <Tooltip
           label={
             vmStatus !== 'running'
@@ -2564,92 +2488,99 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
             onClick={handleApply}
             disabled={applyFirewall.isPending || vmStatus !== 'running'}
           >
-            <Shield size={13} />
-            {applyFirewall.isPending ? 'Applying…' : 'Apply Rules'}
+            <Shield size={14} />
+            {applyFirewall.isPending ? 'Applying…' : 'Apply rules'}
           </Button>
         </Tooltip>
-      </div>
+      </SectionHeading>
 
       {/* Default Policies */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        <p className="mb-3 text-[12px] font-medium text-muted-foreground">
-          Default Policies
-        </p>
-        <p className="mb-4 text-xs text-muted-foreground">
-          Applied after all explicit rules. Set to <span className="font-medium text-foreground">Drop all</span> to
-          block unmatched traffic, then add <span className="font-medium text-foreground">Allow</span> rules for
-          permitted ports.
-        </p>
-        {isLoading ? (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-4">
-              <Skeleton className="h-[60px]" />
-              <Skeleton className="h-[60px]" />
+      <Panel>
+        <PanelHeader title="Default policies" />
+        <div className="space-y-4 px-5 py-4">
+          <p className="text-[12.5px] leading-5 text-muted-foreground">
+            Applied after all explicit rules. Set to <span className="font-medium text-foreground">Drop all</span> to
+            block unmatched traffic, then add <span className="font-medium text-foreground">Allow</span> rules for
+            permitted ports.
+          </p>
+          {isLoading ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-4">
+                <Skeleton className="h-[60px]" />
+                <Skeleton className="h-[60px]" />
+              </div>
+              <Skeleton className="h-9" />
             </div>
-            <Skeleton className="h-8" />
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-4">
-              <Select
-                label="Inbound default"
-                value={current.defaultInbound}
-                onChange={(e) => handleSetDefault('inbound', e.target.value as 'allow' | 'drop')}
-                disabled={saveFirewall.isPending}
-              >
-                <option value="allow">Allow all</option>
-                <option value="drop">Drop all</option>
-              </Select>
-              <Select
-                label="Outbound default"
-                value={current.defaultOutbound}
-                onChange={(e) => handleSetDefault('outbound', e.target.value as 'allow' | 'drop')}
-                disabled={saveFirewall.isPending}
-              >
-                <option value="allow">Allow all</option>
-                <option value="drop">Drop all</option>
-              </Select>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-4">
+                <Select
+                  label="Inbound default"
+                  id="fw-default-inbound"
+                  value={current.defaultInbound}
+                  onChange={(e) => handleSetDefault('inbound', e.target.value as 'allow' | 'drop')}
+                  disabled={saveFirewall.isPending}
+                >
+                  <option value="allow">Allow all</option>
+                  <option value="drop">Drop all</option>
+                </Select>
+                <Select
+                  label="Outbound default"
+                  id="fw-default-outbound"
+                  value={current.defaultOutbound}
+                  onChange={(e) => handleSetDefault('outbound', e.target.value as 'allow' | 'drop')}
+                  disabled={saveFirewall.isPending}
+                >
+                  <option value="allow">Allow all</option>
+                  <option value="drop">Drop all</option>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {(['inbound', 'outbound'] as const).map((dir) => {
+                  const defaultIsAllow = dir === 'inbound' ? current.defaultInbound === 'allow' : current.defaultOutbound === 'allow';
+                  const isDisabled = saveFirewall.isPending || defaultIsAllow;
+                  return (
+                    // Unavailable reads as muted text on the recess, not as faded text:
+                    // it has to stay legible to explain why it's off.
+                    <label
+                      key={dir}
+                      className={cn(
+                        'flex h-9 items-center gap-2.5 rounded-md border px-3 text-[12.5px] transition-colors',
+                        isDisabled
+                          ? 'cursor-not-allowed border-border bg-surface text-muted-foreground'
+                          : 'cursor-pointer border-input bg-card text-foreground hover:border-muted-foreground/40'
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={dir === 'inbound' ? (current.allowEstablishedInbound ?? false) : (current.allowEstablishedOutbound ?? false)}
+                        onChange={(e) => handleSetEstablished(dir, e.target.checked)}
+                        disabled={isDisabled}
+                        className="h-3.5 w-3.5 accent-primary disabled:cursor-not-allowed"
+                      />
+                      Allow established & related ({dir})
+                    </label>
+                  );
+                })}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              {(['inbound', 'outbound'] as const).map((dir) => {
-                const defaultIsAllow = dir === 'inbound' ? current.defaultInbound === 'allow' : current.defaultOutbound === 'allow';
-                const isDisabled = saveFirewall.isPending || defaultIsAllow;
-                return (
-                  <label
-                    key={dir}
-                    className={`flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground transition-opacity ${isDisabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-muted/40'}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={dir === 'inbound' ? (current.allowEstablishedInbound ?? false) : (current.allowEstablishedOutbound ?? false)}
-                      onChange={(e) => handleSetEstablished(dir, e.target.checked)}
-                      disabled={isDisabled}
-                      className="h-3.5 w-3.5 accent-primary"
-                    />
-                    Allow established & related ({dir})
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </Panel>
 
       {/* Inbound Rules */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">Inbound Rules</span>
-            <span className="rounded bg-blue-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-600 dark:text-blue-400">
-              {inboundRules.length}
-            </span>
-          </div>
-          <Button size="sm" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('inbound'); }}>
-            <Plus size={13} /> Add Rule
-          </Button>
-        </div>
+      <Panel className="overflow-hidden">
+        <PanelHeader
+          title="Inbound rules"
+          meta={<span className="tabular-nums">{inboundRules.length}</span>}
+          actions={
+            <Button size="sm" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('inbound'); }}>
+              <Plus size={14} /> Add rule
+            </Button>
+          }
+        />
         {isLoading ? (
-          <Skeleton className="h-20 rounded-xl" />
+          <div className="p-5"><Skeleton className="h-12" /></div>
         ) : (
           <FirewallRulesTable
             rules={inboundRules}
@@ -2661,23 +2592,21 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
             emptyLabel="No inbound rules — traffic follows the default inbound policy."
           />
         )}
-      </div>
+      </Panel>
 
       {/* Outbound Rules */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">Outbound Rules</span>
-            <span className="rounded bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-violet-600 dark:text-violet-400">
-              {outboundRules.length}
-            </span>
-          </div>
-          <Button size="sm" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('outbound'); }}>
-            <Plus size={13} /> Add Rule
-          </Button>
-        </div>
+      <Panel className="overflow-hidden">
+        <PanelHeader
+          title="Outbound rules"
+          meta={<span className="tabular-nums">{outboundRules.length}</span>}
+          actions={
+            <Button size="sm" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('outbound'); }}>
+              <Plus size={14} /> Add rule
+            </Button>
+          }
+        />
         {isLoading ? (
-          <Skeleton className="h-20 rounded-xl" />
+          <div className="p-5"><Skeleton className="h-12" /></div>
         ) : (
           <FirewallRulesTable
             rules={outboundRules}
@@ -2689,13 +2618,13 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
             emptyLabel="No outbound rules — traffic follows the default outbound policy."
           />
         )}
-      </div>
+      </Panel>
 
       {/* Add / Edit Rule Dialog */}
       <Dialog
         open={addDirection !== null}
         onClose={closeDialog}
-        title={`${editingRuleId ? 'Edit' : 'Add'} ${addDirection === 'inbound' ? 'Inbound' : 'Outbound'} Rule`}
+        title={`${editingRuleId ? 'Edit' : 'Add'} ${addDirection === 'inbound' ? 'inbound' : 'outbound'} rule`}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={closeDialog}>
@@ -2706,21 +2635,21 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
               onClick={editingRuleId ? handleSaveEdit : handleAddRule}
               disabled={saveFirewall.isPending || !portRangeValid}
             >
-              {saveFirewall.isPending ? 'Saving…' : editingRuleId ? 'Save Changes' : 'Add Rule'}
+              {saveFirewall.isPending ? 'Saving…' : editingRuleId ? 'Save changes' : 'Add rule'}
             </Button>
           </>
         }
       >
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Action" value={form.action} onChange={setField('action')}>
+            <Select label="Action" id="fw-rule-action" value={form.action} onChange={setField('action')}>
               {FW_ACTIONS.map((a) => (
                 <option key={a} value={a}>
                   {a.charAt(0).toUpperCase() + a.slice(1)}
                 </option>
               ))}
             </Select>
-            <Select label="Protocol" value={form.protocol} onChange={setField('protocol')}>
+            <Select label="Protocol" id="fw-rule-protocol" value={form.protocol} onChange={setField('protocol')}>
               {FW_PROTOCOLS.map((p) => (
                 <option key={p} value={p}>
                   {p.toUpperCase()}
@@ -2729,14 +2658,15 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
             </Select>
           </div>
           {form.protocol === 'icmp' ? (
-            <Select label="ICMP type" value={form.icmpType} onChange={setField('icmpType')}>
+            <Select label="ICMP type" id="fw-rule-icmp" value={form.icmpType} onChange={setField('icmpType')}>
               {FW_ICMP_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </Select>
           ) : (
             <Input
-              label="Port / Range (leave blank for any)"
+              label="Port / range (leave blank for any)"
+              id="fw-rule-port"
               placeholder="e.g. 22, 80,443, or 8000-9000"
               value={form.portRange}
               onChange={setField('portRange')}
@@ -2746,6 +2676,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
           {addDirection !== null && (
             <Input
               label={addDirection === 'inbound' ? 'Source address (optional)' : 'Destination address (optional)'}
+              id="fw-rule-address"
               placeholder="e.g. 192.168.1.0/24"
               value={addDirection === 'inbound' ? form.source : form.destination}
               onChange={setField(addDirection === 'inbound' ? 'source' : 'destination')}
@@ -2753,12 +2684,13 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
           )}
           <Input
             label="Description (optional)"
+            id="fw-rule-description"
             placeholder="e.g. Allow SSH"
             value={form.description}
             onChange={setField('description')}
           />
           {!portRangeValid && (
-            <p className="text-xs text-destructive">Port must be a number or range, e.g. 22, 80,443, or 8000-9000.</p>
+            <p className="text-[12.5px] text-destructive">Port must be a number or range, e.g. 22, 80,443, or 8000-9000.</p>
           )}
         </div>
       </Dialog>
@@ -2790,45 +2722,37 @@ function DeviceRow({
   dimmed?: boolean;
   warn?: boolean;
 }) {
+  // "In use by another VM" rows are quieter: muted text, never faded (faded text fails
+  // contrast, and these rows still have to be read).
   return (
-    <tr className={cn('transition-colors hover:bg-muted/30', dimmed && 'opacity-55')}>
-      <td className="px-5 py-3.5">
-        <span
-          className={cn(
-            'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium',
-            device.type === 'pci'
-              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-              : 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
-          )}
-        >
-          {device.type === 'pci' ? <Cpu size={10} /> : <Usb size={10} />}
-          {device.type.toUpperCase()}
-        </span>
+    <tr className="table-row">
+      <td className={cn('px-5 py-3 text-[12.5px] font-medium', dimmed ? 'text-muted-foreground' : 'text-foreground')}>
+        {device.type.toUpperCase()}
       </td>
-      <td className="px-5 py-3.5">
-        <div className="text-xs font-medium text-foreground">{device.product}</div>
-        <div className="text-xs text-muted-foreground">{device.vendor}</div>
+      <td className="px-5 py-3">
+        <div className={cn('text-[13px] font-medium', dimmed ? 'text-muted-foreground' : 'text-foreground')}>{device.product}</div>
+        <div className="mt-0.5 text-[12px] text-muted-foreground">{device.vendor}</div>
       </td>
-      <td className="px-5 py-3.5 text-xs text-muted-foreground">
+      <td className="px-5 py-3 text-[12px] text-muted-foreground">
         {device.type === 'pci' && device.pciAddress ? (
           <div className="space-y-0.5">
             <div className="font-mono">{pciAddrStr(device.pciAddress)}</div>
-            <div className="flex flex-wrap items-center gap-x-2">
+            <div className="flex flex-wrap items-center gap-x-2.5">
               {device.pciClass && (
                 <span>
                   {PCI_CLASS_NAMES[device.pciClass.slice(0, 2).toLowerCase()] ?? device.pciClass}
                 </span>
               )}
               {device.iommuGroup !== undefined && (
-                <span className="text-amber-600 dark:text-amber-400">
+                <span className="tabular-nums">
                   IOMMU {device.iommuGroup}
                 </span>
               )}
               {device.driver && (
                 warn ? (
                   <Tooltip label="Host is currently using this device — attaching it will unbind it from the host and may disrupt host functionality">
-                    <span className="inline-flex cursor-help items-center gap-1 font-mono text-amber-600 dark:text-amber-400">
-                      <AlertTriangle size={11} />
+                    <span className="inline-flex cursor-help items-center gap-1 font-mono text-amber-700 dark:text-amber-300">
+                      <WarnGlyph />
                       {device.driver}
                     </span>
                   </Tooltip>
@@ -2845,7 +2769,7 @@ function DeviceRow({
           </span>
         ) : null}
       </td>
-      <td className="px-5 py-3.5 text-right">{action}</td>
+      <td className="px-5 py-2.5 text-right">{action}</td>
     </tr>
   );
 }
@@ -2880,37 +2804,18 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
     }
   };
 
-  const tableHeaders = (
-    <tr className="border-b border-border bg-muted/40">
-      {['Type', 'Device', 'Details', ''].map((h) => (
-        <th
-          key={h}
-          className={cn(
-            'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
-            h === '' ? 'text-right' : 'text-left',
-          )}
-        >
-          {h}
-        </th>
-      ))}
-    </tr>
-  );
+  const deviceColumns = ['Type', 'Device', 'Details', ''];
 
   return (
-    <div className="space-y-7">
-      {/* Filter pills */}
-      <div className="flex items-center gap-1.5">
+    <div className="space-y-6">
+      {/* Type filter */}
+      <div className="segmented" role="group" aria-label="Device type">
         {(['all', 'pci', 'usb'] as const).map((f) => (
           <button
             key={f}
             type="button"
             onClick={() => setTypeFilter(f)}
-            className={cn(
-              'rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors',
-              typeFilter === f
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:text-foreground',
-            )}
+            aria-pressed={typeFilter === f}
           >
             {f === 'all' ? 'All' : f.toUpperCase()}
           </button>
@@ -2918,33 +2823,31 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
       </div>
 
       {isLoading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-16 rounded-xl" />
-          <Skeleton className="h-16 rounded-xl" />
-          <Skeleton className="h-16 rounded-xl" />
+        <div className="space-y-4">
+          <Skeleton className="h-36 rounded-lg" />
+          <Skeleton className="h-56 rounded-lg" />
         </div>
       ) : (
         <>
           {/* Attached */}
-          <div>
-            <SectionHeading>Attached to this VM</SectionHeading>
-            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-              {attached.length === 0 ? (
-                <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-                  No devices attached to this VM.
-                </div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>{tableHeaders}</thead>
+          <Panel className="overflow-hidden">
+            <PanelHeader title="Attached to this VM" />
+            {attached.length === 0 ? (
+              <EmptyState>No devices attached to this VM.</EmptyState>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <TableHead columns={deviceColumns} />
                   <tbody className="divide-y divide-border">
                     {attached.map((d) => (
                       <DeviceRow
                         key={d.id}
                         device={d}
                         action={
+                          // Solid red is kept for the button that confirms a destructive act.
                           <Button
                             size="sm"
-                            variant="danger"
+                            variant="dangerOutline"
                             onClick={() => handleDetach(d.id)}
                             disabled={detach.isPending}
                           >
@@ -2955,26 +2858,24 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
-          </div>
+              </div>
+            )}
+          </Panel>
 
           {/* Available */}
-          <div>
-            <SectionHeading>Available Devices</SectionHeading>
-            <p className="mb-3 text-xs text-muted-foreground">
+          <Panel className="overflow-hidden">
+            <PanelHeader title="Available devices" />
+            <p className="border-b border-border px-5 py-3 text-[12.5px] leading-5 text-muted-foreground">
               PCI passthrough requires IOMMU support (intel_iommu=on / amd_iommu=on) and the{' '}
-              <span className="font-mono">vfio-pci</span> kernel module. Devices sharing an IOMMU
+              <span className="font-mono text-[12px] text-foreground">vfio-pci</span> kernel module. Devices sharing an IOMMU
               group must all be passed through together or left entirely on the host.
             </p>
-            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-              {available.length === 0 ? (
-                <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-                  No devices available — all host devices are either in use or filtered out.
-                </div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>{tableHeaders}</thead>
+            {available.length === 0 ? (
+              <EmptyState>No devices available — all host devices are either in use or filtered out.</EmptyState>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <TableHead columns={deviceColumns} />
                   <tbody className="divide-y divide-border">
                     {available.map((d) => (
                       <DeviceRow
@@ -2984,6 +2885,7 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
                         action={
                           <Button
                             size="sm"
+                            variant="secondary"
                             onClick={() => handleAttach(d.id)}
                             disabled={attach.isPending}
                           >
@@ -2994,28 +2896,17 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
-          </div>
+              </div>
+            )}
+          </Panel>
 
           {/* In use by other VMs */}
           {inUse.length > 0 && (
-            <div>
-              <SectionHeading>In Use by Other VMs</SectionHeading>
-              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/40">
-                      {['Type', 'Device', 'Details', 'Assigned To'].map((h) => (
-                        <th
-                          key={h}
-                          className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
+            <Panel className="overflow-hidden">
+              <PanelHeader title="In use by other VMs" />
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <TableHead columns={['Type', 'Device', 'Details', 'Assigned to']} right={['Assigned to']} />
                   <tbody className="divide-y divide-border">
                     {inUse.map((d) => (
                       <DeviceRow
@@ -3023,14 +2914,14 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
                         device={d}
                         dimmed
                         action={
-                          <span className="text-xs text-muted-foreground">{d.assignedTo}</span>
+                          <span className="font-mono text-[12px] text-muted-foreground">{d.assignedTo}</span>
                         }
                       />
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </Panel>
           )}
         </>
       )}
@@ -3039,8 +2930,6 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
 }
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
-
-import { MetricChart } from '@/components/ui/MetricChart';
 
 function fmtBps(bps: number): string {
   if (bps < 1024) return `${Math.round(bps)} B/s`;
@@ -3105,29 +2994,18 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
   const netRxData = points.map((s) => s.netRxBps);
   const netTxData = points.map((s) => s.netTxBps);
   const formatX = (ts: number) => formatChartTime(ts, range);
+  // An idle guest's I/O is all zeros, and the chart's auto-scale then picks a 0–1 B/s
+  // axis whose rounded labels repeat ("1 B/s, 1 B/s, 1 B/s, 0 B/s"). Byte-rate axes get
+  // a 1 KB/s floor instead; anything busier keeps the automatic scale.
+  const ioAxisMax = (...series: number[][]): number | undefined =>
+    series.reduce((peak, s) => s.reduce((m, v) => (v > m ? v : m), peak), 0) < 1024 ? 1024 : undefined;
 
   if (!isRunning) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
-          <Activity className="h-5 w-5 text-muted-foreground" />
-        </div>
-        <p className="text-sm font-medium text-foreground">VM is not running</p>
-        <p className="mt-1 text-xs text-muted-foreground">Start the VM to view per-VM metrics.</p>
-      </div>
-    );
+    return <MetricsNotice title="VM is not running" detail="Start the VM to view per-VM metrics." />;
   }
 
   if (isError || (!current && !liveHistory.length)) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
-          <Activity className="h-5 w-5 text-muted-foreground" />
-        </div>
-        <p className="text-sm font-medium text-foreground">Metrics unavailable</p>
-        <p className="mt-1 text-xs text-muted-foreground">Waiting for first sample…</p>
-      </div>
-    );
+    return <MetricsNotice title="Metrics unavailable" detail="Waiting for first sample…" />;
   }
 
   const memPct = current && current.memTotalMb > 0
@@ -3135,143 +3013,142 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
     : 0;
 
   return (
-    <div className="space-y-6">
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <MetricCard
+    <div className="space-y-7">
+      {/* Readouts — one strip */}
+      <StatStrip>
+        <Stat
           label="CPU"
           value={current ? `${Math.round(current.cpuPercent)}%` : '—'}
           sub={current ? `${current.vcpuCount} vCPU${current.vcpuCount !== 1 ? 's' : ''}` : ''}
-          accent={current && current.cpuPercent > 80 ? 'warn' : 'neutral'}
+          tone={current && current.cpuPercent > 80 ? 'warn' : undefined}
         />
-        <MetricCard
+        <Stat
           label="Memory"
           value={current ? `${memPct}%` : '—'}
           sub={current ? `${formatMemory(current.memUsedMb)} / ${formatMemory(current.memTotalMb)}` : ''}
-          accent={memPct > 90 ? 'warn' : 'neutral'}
+          tone={memPct > 90 ? 'warn' : undefined}
         />
-        <MetricCard
+        <Stat
           label="Disk I/O"
           value={current ? fmtBps(current.diskReadBps + current.diskWriteBps) : '—'}
           sub={current ? `↑ ${fmtBps(current.diskWriteBps)}  ↓ ${fmtBps(current.diskReadBps)}` : ''}
         />
-        <MetricCard
+        <Stat
           label="Network"
           value={current ? fmtBps(current.netRxBps + current.netTxBps) : '—'}
           sub={current ? `↑ ${fmtBps(current.netTxBps)}  ↓ ${fmtBps(current.netRxBps)}` : ''}
         />
-      </div>
+      </StatStrip>
 
-      {/* Range selector */}
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] font-medium text-muted-foreground">History</span>
-        <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-card">
-          {(['live', '1h', '24h', '7d', '30d'] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setRange(r)}
-              className={cn(
-                'px-3 py-1 text-[12px] font-medium rounded-md transition',
-                range === r
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {r === 'live' ? 'Live' : r}
-            </button>
-          ))}
-        </div>
-      </div>
+      <section className="space-y-3.5">
+        {/* Range selector */}
+        <SectionHeading label="History">
+          <div className="segmented" role="group" aria-label="Time range">
+            {(['live', '1h', '24h', '7d', '30d'] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRange(r)}
+                aria-pressed={range === r}
+                className="flex items-center gap-1.5"
+              >
+                {r === 'live' && (
+                  <StatusGlyph status={range === 'live' ? 'running' : 'stopped'} size={6} />
+                )}
+                {r === 'live' ? 'Live' : r}
+              </button>
+            ))}
+          </div>
+        </SectionHeading>
 
-      {/* Charts */}
-      {points.length > 1 ? (
-        <div className="flex flex-col gap-5">
-          <ChartCard
-            title="CPU Usage"
-            data={cpuData}
-            timestamps={timestamps}
-            color={CHART.cpu}
-            max={100}
-            formatY={(v) => `${Math.round(v)}%`}
-            formatX={formatX}
-          />
-          <ChartCard
-            title="Memory Usage"
-            data={memData}
-            timestamps={timestamps}
-            color={CHART.memory}
-            max={100}
-            formatY={(v) => `${Math.round(v)}%`}
-            formatX={formatX}
-          />
-          <ChartCard
-            title="Disk I/O"
-            data={diskRdData}
-            data2={diskWrData}
-            timestamps={timestamps}
-            color={CHART.inbound}
-            color2={CHART.outbound}
-            legend={['Read', 'Write']}
-            formatY={fmtBps}
-            formatX={formatX}
-          />
-          <ChartCard
-            title="Network I/O"
-            data={netRxData}
-            data2={netTxData}
-            timestamps={timestamps}
-            color={CHART.inbound}
-            color2={CHART.outbound}
-            legend={['RX', 'TX']}
-            formatY={fmtBps}
-            formatX={formatX}
-          />
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-12 text-center">
-          <p className="text-sm font-medium text-foreground">No samples yet</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {range === 'live'
-              ? 'Waiting for live samples…'
-              : 'Metrics are sampled every 30 seconds. History will appear shortly.'}
-          </p>
-        </div>
-      )}
+        {/* Charts */}
+        {points.length > 1 ? (
+          <div className="flex flex-col gap-4">
+            <ChartCard
+              title="CPU usage"
+              data={cpuData}
+              timestamps={timestamps}
+              color={CHART.cpu}
+              max={100}
+              formatY={(v) => `${Math.round(v)}%`}
+              formatX={formatX}
+            />
+            <ChartCard
+              title="Memory usage"
+              data={memData}
+              timestamps={timestamps}
+              color={CHART.memory}
+              max={100}
+              formatY={(v) => `${Math.round(v)}%`}
+              formatX={formatX}
+            />
+            <ChartCard
+              title="Disk I/O"
+              data={diskRdData}
+              data2={diskWrData}
+              timestamps={timestamps}
+              color={CHART.inbound}
+              color2={CHART.outbound}
+              legend={['Read', 'Write']}
+              formatY={fmtBps}
+              formatX={formatX}
+              max={ioAxisMax(diskRdData, diskWrData)}
+            />
+            <ChartCard
+              title="Network I/O"
+              data={netRxData}
+              data2={netTxData}
+              timestamps={timestamps}
+              color={CHART.inbound}
+              color2={CHART.outbound}
+              legend={['RX', 'TX']}
+              formatY={fmtBps}
+              formatX={formatX}
+              max={ioAxisMax(netRxData, netTxData)}
+            />
+          </div>
+        ) : (
+          <Panel className="flex flex-col items-center justify-center px-6 py-12 text-center">
+            <p className="text-[13.5px] font-medium text-foreground">No samples yet</p>
+            <p className="mt-1 text-[12.5px] text-muted-foreground">
+              {range === 'live'
+                ? 'Waiting for live samples…'
+                : 'Metrics are sampled every 30 seconds. History will appear shortly.'}
+            </p>
+          </Panel>
+        )}
+      </section>
     </div>
   );
 }
 
-function MetricCard({
-  label, value, sub, accent = 'neutral',
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  accent?: 'warn' | 'neutral';
-}) {
+// A whole-tab notice: centred in a panel, a plain muted icon at most.
+function MetricsNotice({ title, detail }: { title: string; detail: string }) {
   return (
-    <div className={cn(
-      'rounded-xl border border-border bg-card px-5 py-4 shadow-card',
-      accent === 'warn' && 'border-amber-500/25 bg-amber-500/5',
-    )}>
-      <div className="mb-2 flex items-center gap-2">
-        <div className={cn(
-          'flex h-7 w-7 items-center justify-center rounded-lg',
-          accent === 'warn' ? 'bg-amber-500/15' : 'bg-muted',
-        )}>
-          <Activity className={cn('h-3.5 w-3.5', accent === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')} />
-        </div>
-        <span className={cn(
-          'text-[12px] font-medium',
-          accent === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
-        )}>
-          {label}
-        </span>
-      </div>
-      <p className="text-[22px] font-semibold tabular-nums tracking-[-0.01em] text-foreground">{value}</p>
-      {sub && <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>}
-    </div>
+    <Panel className="flex flex-col items-center justify-center px-6 py-16 text-center">
+      <Activity className="h-5 w-5 text-muted-foreground" aria-hidden />
+      <p className="mt-3 text-[13.5px] font-medium text-foreground">{title}</p>
+      <p className="mt-1 text-[12.5px] text-muted-foreground">{detail}</p>
+    </Panel>
+  );
+}
+
+// A legend entry drawn the way the series is drawn: solid, or dashed for the outbound one.
+function LegendLine({ color, label, value, dashed }: { color: string; label: string; value?: string; dashed?: boolean }) {
+  return (
+    <span className="flex items-center gap-1.5 whitespace-nowrap text-[12px] text-muted-foreground">
+      <svg width="16" height="8" aria-hidden className="shrink-0">
+        <line
+          x1="1" y1="4" x2="15" y2="4"
+          stroke={color}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeDasharray={dashed ? '4 3' : undefined}
+        />
+      </svg>
+      {label}
+      {value && <span className="font-medium tabular-nums text-foreground">{value}</span>}
+    </span>
   );
 }
 
@@ -3292,29 +3169,26 @@ function ChartCard({
   const last = data[data.length - 1];
   const last2 = data2?.[data2.length - 1];
 
+  // Same title bar as the dashboard's host charts: the name on the left, the latest
+  // reading on the right — one big number, or each series beside its legend line.
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-      <div className="flex items-center justify-between border-b border-border px-5 py-3">
-        <span className="text-xs font-semibold text-foreground">{title}</span>
-        <div className="flex items-center gap-3">
-          {legend && color2 && last2 != null && (
-            <>
-              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <span className="h-1.5 w-3 rounded-full" style={{ background: color }} />
-                {legend[0]} {formatY(last)}
-              </span>
-              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <span className="h-px w-3 rounded-full" style={{ background: color2, borderBottom: `1px dashed ${color2}` }} />
-                {legend[1]} {formatY(last2)}
-              </span>
-            </>
-          )}
-          {!legend && last != null && (
-            <span className="nums text-xs font-semibold text-foreground">{formatY(last)}</span>
-          )}
-        </div>
-      </div>
-      <div className="px-3 pb-2 pt-3">
+    <Panel className="overflow-hidden">
+      <PanelHeader
+        title={title}
+        actions={
+          legend && color2 && last2 != null ? (
+            <span className="flex items-center gap-4">
+              <LegendLine color={color} label={legend[0]} value={formatY(last)} />
+              <LegendLine color={color2} label={legend[1]} value={formatY(last2)} dashed />
+            </span>
+          ) : !legend && last != null ? (
+            <span className="whitespace-nowrap text-[18px] font-semibold tracking-[-0.015em] tabular-nums text-foreground">
+              {formatY(last)}
+            </span>
+          ) : undefined
+        }
+      />
+      <div className="px-4 pb-3 pt-4">
         <MetricChart
           id={`vm-${title.replace(/\s/g, '-')}`}
           data={data}
@@ -3327,6 +3201,6 @@ function ChartCard({
           max={max}
         />
       </div>
-    </div>
+    </Panel>
   );
 }

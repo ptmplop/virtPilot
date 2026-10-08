@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Archive,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -24,31 +25,51 @@ import type { LogEntry } from '@/types';
 
 // ─── Display metadata ─────────────────────────────────────────────────────────
 
+// Every type the backend writes (grep appendLog in packages/backend). An unknown type
+// still shows, as its raw key, so a new one is visible rather than silently dropped.
 const LOG_TYPE_LABELS: Record<string, string> = {
   'vm.create': 'Create VM',
+  'vm.clone': 'Clone VM',
+  'vm.rename': 'Rename VM',
   'vm.delete': 'Delete VM',
   'vm.start': 'Start VM',
   'vm.stop': 'Stop VM',
-  'vm.stop.force': 'Force Stop VM',
+  'vm.stop.force': 'Force off VM',
   'vm.reboot': 'Reboot VM',
-  'vm.disk.attach': 'Attach Disk',
-  'vm.disk.detach': 'Detach Disk',
+  'vm.reboot.force': 'Hard reset VM',
+  'vm.autostart.set': 'Set autostart',
+  'vm.resources.update': 'Change resources',
+  'vm.disk.attach': 'Attach disk',
+  'vm.disk.detach': 'Detach disk',
+  'vm.disk.resize': 'Resize disk',
+  'vm.disk.move': 'Move disk',
+  'vm.disk.download': 'Download disk',
+  'vm.disk.orphan.delete': 'Delete orphaned disk',
   'vm.cdrom.attach': 'Attach ISO',
   'vm.cdrom.detach': 'Eject ISO',
   'vm.nic.attach': 'Attach NIC',
   'vm.nic.detach': 'Detach NIC',
-  'vm.snapshot.create': 'Create Snapshot',
-  'vm.snapshot.delete': 'Delete Snapshot',
-  'vm.snapshot.revert': 'Revert Snapshot',
-  'vm.snapshot.export': 'Export Snapshot',
-  'vm.firewall.apply': 'Apply Firewall',
-  'vm.boot-order.set': 'Set Boot Order',
-  'vm.boot-once': 'Boot Once',
-  'network.create': 'Create Network',
-  'network.delete': 'Delete Network',
-  'network.port-forward.create': 'Create Port Forward',
-  'network.port-forward.delete': 'Delete Port Forward',
-  'system.apt.upgrade': 'APT Upgrade',
+  'vm.nic.bandwidth': 'Set NIC rate limit',
+  'vm.device.attach': 'Attach device',
+  'vm.device.detach': 'Detach device',
+  'vm.snapshot.create': 'Create snapshot',
+  'vm.snapshot.delete': 'Delete snapshot',
+  'vm.snapshot.revert': 'Revert snapshot',
+  'vm.snapshot.export': 'Export snapshot',
+  'vm.firewall.apply': 'Apply firewall',
+  'vm.boot-order.set': 'Set boot order',
+  'vm.boot-once': 'Boot once',
+  'backup.create': 'Back up VM',
+  'backup.verify': 'Verify backup',
+  'backup.restore': 'Restore backup',
+  'backup.restore.new': 'Restore to new VM',
+  'backup.sweep': 'Prune backups',
+  'network.create': 'Create network',
+  'network.delete': 'Delete network',
+  'network.port-forward.create': 'Create port forward',
+  'network.port-forward.delete': 'Delete port forward',
+  'system.apt.upgrade': 'System upgrade (apt)',
+  'system.virtpilot.upgrade': 'Upgrade VirtPilot',
 };
 
 function typeLabel(type: string): string {
@@ -62,15 +83,17 @@ function TypeIcon({ type, className }: { type: string; className?: string }) {
   if (type.startsWith('vm.nic')) return <Network className={cls} />;
   if (type.startsWith('vm.firewall')) return <Shield className={cls} />;
   if (type.startsWith('vm.')) return <Server className={cls} />;
+  if (type.startsWith('backup.')) return <Archive className={cls} />;
   if (type.startsWith('network.')) return <Network className={cls} />;
   if (type.startsWith('system.apt')) return <Terminal className={cls} />;
   return <Terminal className={cls} />;
 }
 
-// ─── Filter categories shown in the pill bar ──────────────────────────────────
+// ─── Filter categories shown in the type filter ──────────────────────────────────
 
 const TYPE_GROUPS = [
   { label: 'VMs', prefix: 'vm.' },
+  { label: 'Backups', prefix: 'backup.' },
   { label: 'Networks', prefix: 'network.' },
   { label: 'System', prefix: 'system.' },
 ] as const;
@@ -85,9 +108,10 @@ function formatDuration(ms?: number): string {
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleString(undefined, {
+  // Dense on purpose (no year, with seconds), but in the app's day-month order.
+  return d.toLocaleString('en-GB', {
+    day: 'numeric',
     month: 'short',
-    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -108,11 +132,11 @@ function LogRow({ entry }: { entry: LogEntry }) {
         onClick={() => hasOutput && setExpanded((v) => !v)}
         className={cn(
           'flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors',
-          hasOutput ? 'cursor-pointer hover:bg-muted/30' : 'cursor-default'
+          hasOutput ? 'cursor-pointer hover:bg-surface/70' : 'cursor-default'
         )}
       >
         {/* Expand chevron */}
-        <span className="w-3.5 shrink-0 text-muted-foreground/80">
+        <span className="w-3.5 shrink-0 text-muted-foreground">
           {hasOutput ? (
             expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />
           ) : null}
@@ -137,20 +161,20 @@ function LogRow({ entry }: { entry: LogEntry }) {
         </span>
 
         {/* Output preview */}
-        <span className="flex-1 truncate text-xs text-muted-foreground/80">
+        <span className="flex-1 truncate text-xs text-muted-foreground">
           {entry.output ? entry.output.split('\n')[0] : ''}
         </span>
 
         {/* Duration */}
         {entry.durationMs != null && (
-          <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/80">
+          <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
             <Clock className="h-3 w-3" />
             {formatDuration(entry.durationMs)}
           </span>
         )}
 
         {/* Timestamp */}
-        <span className="w-36 shrink-0 text-right text-[11px] text-muted-foreground/80">
+        <span className="w-36 shrink-0 text-right text-[11px] text-muted-foreground">
           {formatTimestamp(entry.timestamp)}
         </span>
       </button>
@@ -219,7 +243,7 @@ export function LogsPage() {
         className="gap-1.5"
       >
         <Trash2 className="h-3.5 w-3.5" />
-        Clear Logs
+        Clear logs
       </Button>
     </div>
   );
@@ -231,51 +255,59 @@ export function LogsPage() {
       actions={actions}
     >
       {/* Filters */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Input
-          placeholder="Search by type, subject, or output…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-8 w-64 text-sm"
-        />
+      <div className="mb-4 flex flex-wrap items-center gap-2.5">
+        <div className="w-full max-w-[17rem]">
+          <Input
+            type="search"
+            aria-label="Search logs"
+            placeholder="Search by type, subject or output…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
 
-        <div className="flex items-center gap-1">
-          <PillButton active={groupFilter === null} onClick={() => setGroupFilter(null)}>
+        <div className="segmented" role="group" aria-label="Filter by type">
+          <button type="button" aria-pressed={groupFilter === null} onClick={() => setGroupFilter(null)}>
             All
-          </PillButton>
+          </button>
           {TYPE_GROUPS.map((g) => (
-            <PillButton
+            <button
+              type="button"
               key={g.prefix}
-              active={groupFilter === g.prefix}
+              aria-pressed={groupFilter === g.prefix}
               onClick={() => setGroupFilter(groupFilter === g.prefix ? null : g.prefix)}
             >
               {g.label}
-            </PillButton>
+            </button>
           ))}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="segmented" role="group" aria-label="Filter by outcome">
           {(['all', 'success', 'error'] as const).map((s) => (
-            <PillButton
+            <button
+              type="button"
               key={s}
-              active={statusFilter === s}
+              aria-pressed={statusFilter === s}
               onClick={() => setStatusFilter(s)}
-              variant={s === 'error' ? 'danger' : s === 'success' ? 'success' : undefined}
+              className={cn(
+                statusFilter === s && s === 'error' && '!text-red-700 dark:!text-red-300',
+                statusFilter === s && s === 'success' && '!text-emerald-700 dark:!text-emerald-300',
+              )}
             >
-              {s === 'all' ? 'Any status' : s.charAt(0).toUpperCase() + s.slice(1)}
-            </PillButton>
+              {s === 'all' ? 'Any outcome' : s === 'success' ? 'Succeeded' : 'Failed'}
+            </button>
           ))}
         </div>
 
         {logs && (
-          <span className="ml-auto text-xs text-muted-foreground">
-            {filtered.length} / {logs.length} entries
+          <span className="ml-auto text-[12.5px] tabular-nums text-muted-foreground">
+            {filtered.length} of {logs.length} entries
           </span>
         )}
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="panel overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-2 text-[12px] font-medium text-muted-foreground">
           <span className="w-3.5 shrink-0" />
@@ -295,9 +327,7 @@ export function LogsPage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
-              <Terminal className="h-6 w-6 text-muted-foreground" />
-            </div>
+            <Terminal className="mb-3 h-5 w-5 text-muted-foreground" />
             <p className="text-sm font-semibold text-foreground">
               {logs?.length === 0 ? 'No logs yet' : 'No entries match the filters'}
             </p>
@@ -314,35 +344,5 @@ export function LogsPage() {
         )}
       </div>
     </Layout>
-  );
-}
-
-// ─── PillButton ───────────────────────────────────────────────────────────────
-
-function PillButton({
-  children,
-  active,
-  onClick,
-  variant,
-}: {
-  children: React.ReactNode;
-  active: boolean;
-  onClick: () => void;
-  variant?: 'danger' | 'success';
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded border px-2.5 py-0.5 text-[11px] font-medium transition-all',
-        active && !variant && 'border-primary/30 bg-primary/10 text-primary',
-        active && variant === 'danger' && 'border-destructive/30 bg-destructive/10 text-destructive',
-        active && variant === 'success' && 'border-border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-        !active && 'border-border text-muted-foreground hover:border-border/80 hover:text-foreground'
-      )}
-    >
-      {children}
-    </button>
   );
 }

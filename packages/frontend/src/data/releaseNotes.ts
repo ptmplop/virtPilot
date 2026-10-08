@@ -13,6 +13,30 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.11.0',
+    date: '2026-10-08',
+    changes: [
+      { type: 'changed', text: 'A new design, built from the logo rather than recoloured around it. Every page keeps its layout, but the interface around it is new: the sidebar follows your theme (light in light mode, with the full-colour logo), each page sits on its own inset sheet, boxes are instruments with a title bar and a hairline frame, rows of figures are one ruled strip instead of a grid of cards with icon tiles, primary buttons are ink (frost in dark mode), and steel blue is kept for focus, selection, links and data.' },
+      { type: 'changed', text: 'The dashboard opens on an instrument cluster: CPU, memory, disk and running VMs drawn as gauges in the shape of the logo’s own dial, beside a one-line verdict for the host and the installed VirtPilot version. Host details are a ruled plate, the update card carries the logo, and the metric charts sit in titled panels with their live reading in the title bar.' },
+      { type: 'changed', text: 'Status reads by shape as well as colour — a solid disc is running, an open ring is stopped, two bars are paused, a diamond has crashed — so it still reads in greyscale and for colour-blind eyes.' },
+      { type: 'changed', text: 'Headlines use Inter Display, the logo’s own face, through Inter’s optical-size axis. The sign-in screen follows your theme, and native controls (drop-down menus, checkboxes, the browser’s toolbar colour) follow it too.' },
+      { type: 'added', text: 'The dashboard’s VM panel shows what the running VMs have been given against the host — vCPUs against cores, memory against RAM — and turns amber when the host is over-committed.' },
+      { type: 'added', text: 'A Backups filter on the Logs page.' },
+      { type: 'fixed', text: 'Three back links went to the Dashboard instead of the VM list: the Virtual machines breadcrumb on a VM’s page, Back to list on a VM that no longer exists, and the back link on Create virtual machine.' },
+      { type: 'fixed', text: 'Backups: a VM’s next scheduled run always read "just now"; row actions spilled over the Schedule column (narrow windows now get icon buttons); a paused schedule was listed as "None"; and an empty history pointed at a "Back Up Now" button that does not exist.' },
+      { type: 'fixed', text: 'The VM page counted an empty CD-ROM drive as a disk, never showed "No disks attached" when it should, and told a running VM to "Start VM to resolve" its IP address.' },
+      { type: 'fixed', text: 'Idle charts repeated their axis labels ("1 B/s, 1 B/s, 0 B/s") and long labels wrapped onto two lines.' },
+      { type: 'fixed', text: 'The new-VM wizard labelled every disk "(blank)" on the Review step, showed its ISO-install notes in near-invisible light amber, and gave no IP note for an existing OS bridge on DHCP.' },
+      { type: 'fixed', text: 'The same SSH key could be saved twice, so a VM provisioned with both entries got the key twice in authorized_keys. A duplicate is now refused with a message naming the entry that already holds it, and the form shows the server’s reason instead of "Failed to add SSH key".' },
+      { type: 'fixed', text: 'About twenty kinds of log entry — backups, restores, clones, renames, disk resize/move/download, device and NIC changes, hard resets, VirtPilot upgrades — showed their internal key (backup.create, vm.clone…). Every action now has a name.' },
+      { type: 'fixed', text: 'The VM list showed a generic server icon for VMs whose operating system the dashboard already showed, and the dashboard ignored a logo picked by hand. Both now use the chosen logo first and the template’s otherwise.' },
+      { type: 'fixed', text: 'The apt-upgrade and self-upgrade windows drew their dividers in the light theme’s border colour across a dark terminal, and the console header’s separators never appeared, because both used a colour class that does not exist. The upgrade windows are now proper dialogs that close with Escape once the job has finished.' },
+      { type: 'fixed', text: 'Tooltips never appeared on disabled buttons — exactly when they explain why — and long hints ran off the screen. Disabled buttons now show their tooltip, and long ones wrap.' },
+      { type: 'fixed', text: 'About thirty icon-only buttons were announced to screen readers as just "button", the wizard’s switches had no names, several labels were not tied to their fields, and saved SSH keys in the wizard needed a mouse. All are now named and keyboard-reachable.' },
+      { type: 'fixed', text: 'Dates were written four different ways, and snapshot and template dates followed the browser’s locale (10/8/2026, 4:33:17 PM). Every date now reads 8 Oct 2026, with 16:33 where the time matters. The VM pages also said "Active" and "Off" where every other page says Running and Stopped.' },
+    ],
+  },
+  {
     version: '2.10.0',
     date: '2026-10-08',
     changes: [

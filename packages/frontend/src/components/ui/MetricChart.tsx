@@ -11,13 +11,16 @@ interface MetricChartProps {
   formatX: (ts: number) => string;
   /** Fixed Y-axis maximum. When omitted, derived from data via niceMax(). */
   max?: number;
+  /** Lowest auto-scaled maximum. An idle byte-rate series otherwise gets a 0–1 axis whose
+   *  rounded labels repeat ("1 B/s, 1 B/s, 0 B/s"); 1024 gives 0 / 256 B/s … 1.0 KB/s. */
+  minMax?: number;
   /** Plot area height in px. Total component height is this + 18 for X labels. */
   height?: number;
 }
 
 const Y_TICK_COUNT = 5;
 const X_LABEL_COUNT = 5;
-const Y_LABEL_WIDTH = 56;
+const Y_LABEL_WIDTH = 68;
 
 function buildPath(pts: { x: number; y: number }[]): string {
   if (pts.length < 2) return '';
@@ -43,7 +46,7 @@ function niceMax(value: number): number {
 }
 
 export function MetricChart({
-  id, data, color, data2, color2, timestamps, formatY, formatX, max, height = 200,
+  id, data, color, data2, color2, timestamps, formatY, formatX, max, minMax, height = 200,
 }: MetricChartProps) {
   const W = 800;
   const H = 200;
@@ -51,8 +54,8 @@ export function MetricChart({
   const yMax = useMemo(() => {
     if (max != null) return max;
     const peak = Math.max(...data, ...(data2 ?? []), 0);
-    return niceMax(peak);
-  }, [data, data2, max]);
+    return Math.max(niceMax(peak), minMax ?? 0);
+  }, [data, data2, max, minMax]);
 
   const { line1, fill1, line2, fill2 } = useMemo(() => {
     const safeMax = yMax > 0 ? yMax : 1;
@@ -111,7 +114,7 @@ export function MetricChart({
         {yTicks.map((v, i) => (
           <span
             key={i}
-            className="nums absolute right-2 text-[10px] text-muted-foreground"
+            className="nums absolute right-2.5 whitespace-nowrap text-[11px] text-muted-foreground"
             style={{
               top: `${(i / (Y_TICK_COUNT - 1)) * 100}%`,
               transform: 'translateY(-50%)',
@@ -132,7 +135,7 @@ export function MetricChart({
         >
           <defs>
             <linearGradient id={`mg-${id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.16" />
+              <stop offset="0%" stopColor={color} stopOpacity="0.14" />
               <stop offset="100%" stopColor={color} stopOpacity="0" />
             </linearGradient>
             {color2 && (
@@ -154,9 +157,9 @@ export function MetricChart({
                 y1={y}
                 y2={y}
                 stroke="currentColor"
-                strokeOpacity={isBaseline ? 0.6 : 0.3}
+                strokeOpacity={isBaseline ? 1 : 0.7}
                 strokeWidth="1"
-                strokeDasharray={isBaseline ? undefined : '3 3'}
+                strokeDasharray={isBaseline ? undefined : '2 4'}
                 vectorEffect="non-scaling-stroke"
               />
             );
@@ -197,7 +200,7 @@ export function MetricChart({
             style={{ left: '100%', top: `${e.top}%`, transform: 'translate(-100%, -50%)' }}
           >
             <span
-              className="relative block h-[6px] w-[6px] rounded-full ring-2 ring-card"
+              className="relative block h-[7px] w-[7px] rounded-full ring-2 ring-card"
               style={{ background: e.color }}
             />
           </span>
@@ -223,7 +226,7 @@ export function MetricChart({
           return (
             <span
               key={idx}
-              className="nums absolute top-1 text-[10px] text-muted-foreground"
+              className="nums absolute top-1 whitespace-nowrap text-[11px] text-muted-foreground"
               style={{ left: `${left}%`, transform }}
             >
               {formatX(ts)}

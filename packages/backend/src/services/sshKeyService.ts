@@ -29,8 +29,26 @@ export async function listSshKeys(): Promise<SshKey[]> {
   return readAll();
 }
 
+// Two lines are the same key when their type and base64 body match; the trailing
+// comment is free text and does not make a different key.
+export function sameSshKey(a: string, b: string): boolean {
+  const [ta, ba] = a.trim().split(/\s+/);
+  const [tb, bb] = b.trim().split(/\s+/);
+  return !!ta && !!ba && ta === tb && ba === bb;
+}
+
+export class DuplicateSshKeyError extends Error {
+  constructor(public readonly existing: SshKey) {
+    super(`This key is already saved as "${existing.name}"`);
+  }
+}
+
 export async function addSshKey(name: string, publicKey: string): Promise<SshKey> {
   const keys = await readAll();
+  // Saving the same key twice only produced a second, indistinguishable entry —
+  // and a VM provisioned with both would carry the key twice in authorized_keys.
+  const existing = keys.find((k) => sameSshKey(k.publicKey, publicKey));
+  if (existing) throw new DuplicateSshKeyError(existing);
   const key: SshKey = {
     id: randomUUID(),
     name,

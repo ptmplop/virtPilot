@@ -16,3 +16,15 @@ export function formatBytes(bytes: number): string {
   if (mb < 1024) return `${mb.toFixed(1)} MB`;
   return `${(mb / 1024).toFixed(2)} GB`;
 }
+
+// One date language for the whole app: unambiguous day-month order in every browser
+// locale ("8 Oct 2026", "8 Oct 2026, 16:33"), never 10/8/2026.
+export function formatDate(iso: string | number | Date): string {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+export function formatDateTime(iso: string | number | Date): string {
+  return new Date(iso).toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
