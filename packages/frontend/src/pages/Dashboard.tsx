@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
 import { osSlugFromImage } from '@/data/templateSets';
 import { useLogoStore } from '@/store/logoStore';
+import { formatChartMoment, formatChartTime, formatUptime, formatMemory, formatRate } from '@/lib/format';
 import {
   useSystemStats, useSystemInfo, useAptPackages, useInvalidateApt,
   useVirtPilotVersion, useCheckVersionNow,
@@ -40,19 +41,10 @@ import { streamSse } from '@/lib/sseStream';
 
 // ─── Formatters ────────────────────────────────────────────────────────────────
 
+const fmtMb = formatMemory;
+const fmtBps = formatRate;
+
 function fmtPct(n: number) { return `${Math.round(n)}%`; }
-
-function fmtMb(mb: number): string {
-  if (mb < 1024) return `${Math.round(mb)} MB`;
-  return `${(mb / 1024).toFixed(1)} GB`;
-}
-
-function fmtBps(bps: number): string {
-  if (bps < 1024) return `${Math.round(bps)} B/s`;
-  if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
-  if (bps < 1024 * 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(1)} MB/s`;
-  return `${(bps / 1024 / 1024 / 1024).toFixed(2)} GB/s`;
-}
 
 function cleanCpuModel(raw: string): string {
   return raw
@@ -97,10 +89,9 @@ const STATUS_WORD: Record<VmStatus, string> = {
 // Tiny axis-less line for the roster rows — just enough to read the shape of a VM's
 // recent CPU. A flat wash under the line, no gradient.
 function Sparkline({
-  data, color, width = 56, height = 18,
-}: { data: number[]; color: string; width?: number; height?: number }) {
+  data, color, max, width = 56, height = 18,
+}: { data: number[]; color: string; max: number; width?: number; height?: number }) {
   if (!data || data.length < 2) return null;
-  const max = Math.max(...data, 1);
   const pts = data.map((v, i) => {
     const x = (i / (data.length - 1)) * width;
     const y = height - 1 - (Math.min(v, max) / max) * (height - 2);
@@ -124,26 +115,40 @@ function Sparkline({
   );
 }
 
-function AllocationMeter({ label, used, total, format }: {
-  label: string; used: number; total: number; format: (n: number) => string;
+// vCPUs are routinely over-committed on KVM (1.5× is ordinary), so a ratio above 1 is
+// shown, not alarmed: the bar scales to what is allocated, a tick marks the host's
+// capacity, and only an extreme ratio turns amber. Memory is different — committing
+// more than the host has means swapping or the OOM killer — so it warns above 100%.
+const VCPU_WARN_RATIO = 4;
+
+function AllocationMeter({ label, used, total, value, warn }: {
+  label: string; used: number; total: number; value: React.ReactNode; warn: boolean;
 }) {
-  const ratio = total > 0 ? used / total : 0;
-  const over = ratio > 1;
+  const scale = Math.max(used, total, 1);
+  const over = used > total && total > 0;
   return (
     <div className="min-w-0">
       <div className="flex items-baseline justify-between gap-3 text-[12px]">
         <span className="font-medium text-muted-foreground">{label}</span>
-        <span className="truncate tabular-nums text-muted-foreground">
-          <span className={cn('font-semibold', over ? 'text-amber-700 dark:text-amber-300' : 'text-foreground')}>{format(used)}</span>
-          {' '}of {format(total)}
+        <span className={cn('truncate tabular-nums', warn ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
+          {value}
         </span>
       </div>
-      {/* Thin strokes drawn as borders: they snap to whole pixels at any position. */}
-      <div className="mt-2 flex h-[5px] overflow-hidden rounded-[2px] bg-gauge-track">
-        <div
-          className={cn('h-full transition-[width] duration-700', over ? 'bg-amber-500' : 'bg-[#4F7CAC] dark:bg-[#86AEDA]')}
-          style={{ width: `${Math.min(ratio, 1) * 100}%` }}
-        />
+      <div className="relative mt-2">
+        <div className="flex h-[5px] overflow-hidden rounded-[2px] bg-gauge-track">
+          <div
+            className={cn('h-full transition-[width] duration-700', warn ? 'bg-amber-500' : 'bg-[#4F7CAC] dark:bg-[#86AEDA]')}
+            style={{ width: `${(Math.min(used, scale) / scale) * 100}%` }}
+          />
+        </div>
+        {over && (
+          <span
+            aria-hidden
+            className="absolute -top-0.5 h-[9px] w-px bg-foreground/60"
+            style={{ left: `${(total / scale) * 100}%` }}
+            title="Host capacity"
+          />
+        )}
       </div>
     </div>
   );
@@ -162,6 +167,9 @@ function VmRoster({ vms, cores, memTotalMb }: { vms: VmSummary[]; cores?: number
   });
   // A logo picked for the VM wins over the one its template implies (as on the VM list).
   const chosenLogos = useLogoStore((s) => s.vms);
+  // Every sparkline on one scale (at least 10%), so rows compare and an idle VM draws a
+  // low, quiet line instead of being stretched to fill its box.
+  const sparkMax = Math.max(10, ...live.flatMap((v) => v.cpuSpark ?? []));
 
   return (
     <Panel className="flex h-full flex-col">
@@ -225,14 +233,19 @@ function VmRoster({ vms, cores, memTotalMb }: { vms: VmSummary[]; cores?: number
                     </span>
 
                     {/* Recent-CPU sparkline (running VMs with samples) */}
-                    <span className="flex h-[18px] items-center justify-end">
+                    <span
+                      className="flex h-[18px] items-center justify-end"
+                      title={live && vm.cpuSpark && vm.cpuSpark.length >= 2
+                        ? `CPU, last ${Math.max(1, Math.round((vm.cpuSpark.length * 30) / 60))} min · peak ${Math.round(Math.max(...vm.cpuSpark))}%`
+                        : undefined}
+                    >
                       {live && vm.cpuSpark && vm.cpuSpark.length >= 2 && (
-                        <Sparkline data={vm.cpuSpark} color={CHART.cpu} />
+                        <Sparkline data={vm.cpuSpark} color={CHART.cpu} max={sparkMax} />
                       )}
                     </span>
 
                     {/* Allocation */}
-                    <span className="text-right font-mono text-[11.5px] tabular-nums text-muted-foreground group-hover/row:text-foreground">
+                    <span className="text-right text-[12.5px] tabular-nums text-muted-foreground group-hover/row:text-foreground">
                       {vm.cpus} vCPU · {fmtMb(vm.memoryMb)}
                     </span>
                   </Link>
@@ -250,13 +263,20 @@ function VmRoster({ vms, cores, memTotalMb }: { vms: VmSummary[]; cores?: number
             label="vCPU to running VMs"
             used={vcpus}
             total={cores ?? 0}
-            format={(n) => `${n}`}
+            warn={!!cores && vcpus / cores > VCPU_WARN_RATIO}
+            value={
+              <>
+                <span className="font-semibold text-foreground">{vcpus}</span> on {cores ?? '—'} cores
+                {!!cores && vcpus > cores && <> · {Number((vcpus / cores).toFixed(1))}×</>}
+              </>
+            }
           />
           <AllocationMeter
             label="Memory to running VMs"
             used={memMb}
             total={memTotalMb ?? 0}
-            format={fmtMb}
+            warn={!!memTotalMb && memMb > memTotalMb}
+            value={memTotalMb ? ofTotal(memMb, memTotalMb) : fmtMb(memMb)}
           />
         </div>
       )}
@@ -398,6 +418,9 @@ interface HostMetricCardProps {
   max?: number;
   /** Floor for the auto-scaled max (byte rates: 1 KB/s, so an idle host's axis still reads). */
   minMax?: number;
+  /** Series names for the hover readout. */
+  labels?: [string, string?];
+  formatTime?: (ts: number) => string;
   /** Plot-area height in px. */
   chartHeight?: number;
   loading?: boolean;
@@ -408,7 +431,7 @@ function HostMetricCard({
   id, label,
   primaryValue, formatValue, secondaryValue, legend,
   data, data2, color, color2,
-  timestamps, formatY, formatX, max, minMax,
+  timestamps, formatY, formatX, max, minMax, labels, formatTime,
   chartHeight = 200,
   loading, delay = 0,
 }: HostMetricCardProps) {
@@ -453,6 +476,8 @@ function HostMetricCard({
             formatX={formatX}
             max={max}
             minMax={minMax}
+            labels={labels}
+            formatTime={formatTime}
             height={chartHeight}
           />
         )}
@@ -880,8 +905,6 @@ function VirtPilotUpdateCard() {
     <Panel className="px-5 py-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-4">
-          <img src="/brand/virtpilot-symbol.svg" alt="" className="h-10 w-10 shrink-0 dark:hidden" />
-          <img src="/brand/virtpilot-symbol-dark.svg" alt="" className="hidden h-10 w-10 shrink-0 dark:block" />
           <div className="min-w-0">
             <p className="flex flex-wrap items-baseline gap-x-2 text-[15px] font-semibold tracking-[-0.01em] text-foreground">
               {headline}
@@ -974,12 +997,14 @@ function VirtPilotUpdateCard() {
 // Tweens a number towards its target with the shared count-up curve, then formats
 // it — the readouts count up on mount and glide between polls instead of snapping.
 function AnimatedNumber({ value, format }: { value: number; format: (n: number) => string }) {
-  const v = useCountUp(value);
+  // Shows the real reading at once (counting up from 0 on every visit briefly showed
+  // numbers that weren't true) and glides only when a new sample changes it.
+  const v = useCountUp(value, 700, value);
   return <>{format(v)}</>;
 }
 
 function Dial({
-  label, value, reading, unit, sub, tone,
+  label, value, reading, unit, sub, tone, ariaValue,
 }: {
   label: string;
   /** 0–1 */
@@ -988,10 +1013,12 @@ function Dial({
   unit?: string;
   sub?: React.ReactNode;
   tone: GaugeTone;
+  /** What a screen reader hears, when a percentage isn't the reading ("2 of 4"). */
+  ariaValue?: string;
 }) {
   return (
     <div className="flex min-w-0 flex-col items-center text-center">
-      <RingGauge value={value} size={92} stroke={7} tone={tone} label={`${label}: ${Math.round(value * 100)}%`}>
+      <RingGauge value={value} size={92} stroke={7} tone={tone} label={`${label}: ${ariaValue ?? `${Math.round(value * 100)}%`}`}>
         <span className="flex items-baseline text-[22px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-foreground">
           {reading}
           {unit && <span className="ml-px text-[13px] font-medium tracking-normal text-muted-foreground">{unit}</span>}
@@ -1009,7 +1036,15 @@ function gaugeTone(pct: number, warnAt: number): GaugeTone {
   return 'steel';
 }
 
-function HealthBand() {
+// "Used of total" with the unit said once: "5.5 of 7.6 GB", "512 of 2048 MB".
+function ofTotal(usedMb: number, totalMb: number): string {
+  if (totalMb >= 1024) return `${Number((usedMb / 1024).toFixed(1))} of ${Number((totalMb / 1024).toFixed(1))} GB`;
+  return `${Math.round(usedMb)} of ${Math.round(totalMb)} MB`;
+}
+
+interface Warning { title: string; detail: string }
+
+function HealthBand({ stale, lastSampleAt }: { stale: boolean; lastSampleAt: number }) {
   const { data: settings } = useSettings();
   const { data: info } = useSystemInfo();
   const { data: vms } = useVms();
@@ -1028,39 +1063,56 @@ function HealthBand() {
   const cpuPct  = current.cpuPercent;
 
   // Verdict — warnings turn the headline amber. Updates are informational, not a
-  // warning, so they don't.
-  const warnings: string[] = [];
-  if (!settings.kvmAvailable) warnings.push('Software emulation (no KVM)');
-  if (diskPct >= 85) warnings.push('Disk almost full');
-  if (memPct >= 90) warnings.push('Memory pressure');
-  if (cpuPct >= 90) warnings.push('CPU saturated');
+  // warning, so they don't. Each warning has a name and a line saying what it means.
+  const warnings: Warning[] = [];
+  if (!settings.kvmAvailable) warnings.push({ title: 'Software emulation', detail: 'No KVM: guests run without hardware acceleration' });
+  if (diskPct >= 85) warnings.push({ title: 'Disk almost full', detail: `${Math.round(diskPct)}% of ${current.diskTotalGb.toFixed(0)} GB used` });
+  if (memPct >= 90) warnings.push({ title: 'Memory pressure', detail: `${Math.round(memPct)}% of ${fmtMb(current.memTotalMb)} in use` });
+  if (cpuPct >= 90) warnings.push({ title: 'CPU saturated', detail: `${Math.round(cpuPct)}%${info ? ` across ${info.cpuCores} cores` : ''}` });
   const healthy = warnings.length === 0;
 
   const updateAvailable = version?.updateAvailable && version.repoOk;
 
+  const headline = stale ? 'Status unknown'
+    : healthy ? 'Healthy'
+    : warnings.length === 1 ? warnings[0].title
+    : `${warnings.length} warnings`;
+
+  // One sub line, always: what the headline needs to be read correctly.
+  const subLine = stale ? (
+    <>No data since {new Date(lastSampleAt).toLocaleTimeString('en-GB')}</>
+  ) : healthy ? (
+    <>
+      <span className="font-mono text-[12px] text-foreground">{info?.hostname ?? 'host'}</span>
+      {info?.uptimeSeconds != null && <> · up {formatUptime(info.uptimeSeconds)}</>}
+    </>
+  ) : warnings.length === 1 ? warnings[0].detail : warnings.map((w) => w.title).join(' · ');
+
+  const tone = (t: GaugeTone): GaugeTone => (stale ? 'muted' : t);
+
   return (
     <Panel className="animate-fade-up">
-      <div className="grid grid-cols-1 gap-x-8 gap-y-6 px-6 py-6 xl:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)_auto] xl:items-center">
-        {/* Verdict */}
-        <div className="min-w-0">
-          <p className="text-[12.5px] font-medium text-muted-foreground">Host status</p>
+      <div className="grid grid-cols-1 gap-x-8 gap-y-6 px-6 py-6 xl:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)_auto] xl:items-stretch">
+        {/* Verdict — label, value, one sub line: the same three rows as the version block */}
+        {/* Not a live region: its uptime changes every 30 s and would be re-announced
+            forever. The stale-data note in the header is the one that announces. */}
+        <div className="flex min-w-0 flex-col justify-center">
+          <p className="text-[12.5px] font-medium leading-5 text-muted-foreground">Host status</p>
           <p className={cn(
             'mt-1.5 flex items-center gap-2 text-[21px] font-semibold leading-7 tracking-[-0.022em]',
-            healthy ? 'text-foreground' : 'text-amber-800 dark:text-amber-200',
+            stale ? 'text-muted-foreground' : healthy ? 'text-foreground' : 'text-amber-800 dark:text-amber-200',
           )}>
-            {healthy ? <StatusGlyph status="running" size={9} /> : <WarnGlyph size={11} />}
-            {healthy ? 'All systems healthy' : `${warnings.length} warning${warnings.length > 1 ? 's' : ''}`}
+            {stale ? <StatusGlyph status="unknown" size={9} />
+              : healthy ? <StatusGlyph status="running" size={9} />
+              : <WarnGlyph size={11} />}
+            <span className="truncate">{headline}</span>
           </p>
-          {healthy ? (
-            <div className="mt-2 space-y-0.5 text-[13px] leading-5">
-              <p className="truncate font-mono text-[12.5px] text-foreground" title={info?.hostname}>{info?.hostname ?? 'host'}</p>
-              <p className="text-muted-foreground">{running} of {total} VMs running</p>
-            </div>
-          ) : (
-            <ul className="mt-2 space-y-0.5 text-[13px] leading-5 text-muted-foreground">
-              {warnings.map((w) => <li key={w}>{w}</li>)}
-            </ul>
-          )}
+          <p
+            className="mt-2 truncate text-[12.5px] leading-5 text-muted-foreground"
+            title={!healthy && warnings.length > 1 ? warnings.map((w) => `${w.title}: ${w.detail}`).join('\n') : undefined}
+          >
+            {subLine}
+          </p>
         </div>
 
         {/* Dials */}
@@ -1071,15 +1123,15 @@ function HealthBand() {
             reading={<AnimatedNumber value={cpuPct} format={(n) => String(Math.round(n))} />}
             unit="%"
             sub={info ? `${info.cpuCores} cores` : undefined}
-            tone={gaugeTone(cpuPct, 90)}
+            tone={tone(gaugeTone(cpuPct, 90))}
           />
           <Dial
             label="Memory"
             value={memPct / 100}
             reading={<AnimatedNumber value={memPct} format={(n) => String(Math.round(n))} />}
             unit="%"
-            sub={`${fmtMb(current.memUsedMb)} of ${fmtMb(current.memTotalMb)}`}
-            tone={gaugeTone(memPct, 90)}
+            sub={ofTotal(current.memUsedMb, current.memTotalMb)}
+            tone={tone(gaugeTone(memPct, 90))}
           />
           <Dial
             label="Disk"
@@ -1087,7 +1139,7 @@ function HealthBand() {
             reading={<AnimatedNumber value={diskPct} format={(n) => String(Math.round(n))} />}
             unit="%"
             sub={`${current.diskUsedGb.toFixed(0)} of ${current.diskTotalGb.toFixed(0)} GB`}
-            tone={gaugeTone(diskPct, 85)}
+            tone={tone(gaugeTone(diskPct, 85))}
           />
           <Dial
             label="VMs running"
@@ -1095,7 +1147,8 @@ function HealthBand() {
             reading={<AnimatedNumber value={running} format={(n) => String(Math.round(n))} />}
             unit={`/${total}`}
             sub={total - running > 0 ? `${total - running} stopped` : total ? 'all up' : 'none defined'}
-            tone="ok"
+            tone={tone('ok')}
+            ariaValue={`${running} of ${total}`}
           />
         </div>
 
@@ -1106,14 +1159,14 @@ function HealthBand() {
             e.preventDefault();
             document.getElementById('virtpilot-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }}
-          className="group flex min-w-0 items-center gap-3 rounded-md xl:flex-col xl:items-start xl:gap-1 xl:border-l xl:border-border xl:pl-8"
+          className="group flex min-w-0 items-center gap-3 rounded-md xl:flex-col xl:items-start xl:justify-center xl:gap-0 xl:border-l xl:border-border xl:pl-8"
         >
-          <span className="text-[12.5px] font-medium text-muted-foreground">VirtPilot</span>
-          <span className="font-mono text-[15px] font-semibold tabular-nums text-foreground group-hover:underline group-hover:decoration-border group-hover:underline-offset-4">
+          <span className="text-[12.5px] font-medium leading-5 text-muted-foreground">VirtPilot</span>
+          <span className="font-mono text-[15px] font-semibold leading-7 tabular-nums text-foreground group-hover:underline group-hover:decoration-border group-hover:underline-offset-4 xl:mt-1.5">
             v{version?.current ?? '—'}
           </span>
           <span className={cn(
-            'inline-flex items-center gap-1.5 text-[12px]',
+            'inline-flex items-center gap-1.5 text-[12.5px] leading-5 xl:mt-2',
             updateAvailable ? 'font-medium text-primary' : 'text-muted-foreground',
           )}>
             {updateAvailable ? <>v{version?.latest} available <ArrowRight className="h-3 w-3" /></> : 'Up to date'}
@@ -1139,24 +1192,31 @@ interface HostMetricsPoint {
   netTxBps: number;
 }
 
-function formatChartTime(ts: number, range: HostMetricsRange): string {
-  const d = new Date(ts);
-  const hh = d.getHours().toString().padStart(2, '0');
-  const mm = d.getMinutes().toString().padStart(2, '0');
-  if (range === 'live') {
-    const ss = d.getSeconds().toString().padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
-  }
-  if (range === '24h') {
-    const dd = d.getDate().toString().padStart(2, '0');
-    const mo = (d.getMonth() + 1).toString().padStart(2, '0');
-    return `${dd}/${mo} ${hh}:${mm}`;
-  }
-  return `${hh}:${mm}`;
+
+// Live means live: if the stats stop arriving (the backend restarting after an upgrade,
+// a dropped connection) the page says so, instead of freezing the last numbers under a
+// green "Live" and a healthy verdict. Samples come every 2 s; 10 s of silence is stale.
+// Nothing shows while data is fresh — no ticking "updated 2 s ago".
+function useStatsFreshness(dataUpdatedAt: number, isError: boolean): boolean {
+  const [now, setNow] = useState(() => Date.now());
+  const [visibleSince, setVisibleSince] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 2000);
+    // A tab coming back from the background gets a moment to refetch before it can
+    // be called stale, so returning to it never flashes the warning.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') { setVisibleSince(Date.now()); setNow(Date.now()); }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(tick); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
+  if (!dataUpdatedAt) return false;
+  return (isError || now - dataUpdatedAt > 10_000) && now - visibleSince > 4_000;
 }
 
 export function DashboardPage() {
-  const { data, isLoading } = useSystemStats();
+  const { data, isLoading, dataUpdatedAt, isError } = useSystemStats();
+  const stale = useStatsFreshness(dataUpdatedAt, isError);
   const liveHistory = data?.history ?? [];
   const current = data?.current;
 
@@ -1194,13 +1254,23 @@ export function DashboardPage() {
   const netRxData  = points.map((p) => p.netRxBps);
   const netTxData  = points.map((p) => p.netTxBps);
   const formatX = (ts: number) => formatChartTime(ts, range);
+  const formatTime = (ts: number) => formatChartMoment(ts, range);
 
   return (
-    <Layout title="Dashboard" subtitle="Live host metrics and system status.">
+    <Layout
+      title="Dashboard"
+      subtitle="Live host metrics and system status."
+      actions={stale ? (
+        <span role="status" className="inline-flex items-center gap-2 text-[12.5px] text-amber-800 dark:text-amber-200">
+          <WarnGlyph size={10} />
+          No data since {new Date(dataUpdatedAt).toLocaleTimeString('en-GB')} · retrying
+        </span>
+      ) : undefined}
+    >
       <div className="relative space-y-9">
 
         {/* ── Health summary ── */}
-        <HealthBand />
+        <HealthBand stale={stale} lastSampleAt={dataUpdatedAt} />
 
         {/* ── Overview ── */}
         <section className="space-y-3.5">
@@ -1221,7 +1291,8 @@ export function DashboardPage() {
               type="button"
               onClick={() => setMetricsCollapsed((v) => !v)}
               aria-expanded={!metricsCollapsed}
-              className="group flex min-w-0 flex-1 select-none items-center gap-1.5 rounded-md text-left"
+              // The chevron hangs in the margin, so this heading's tick lines up with the others.
+              className="group -ml-5 flex min-w-0 flex-1 select-none items-center gap-1.5 rounded-md text-left"
             >
               <ChevronDown
                 className={cn(
@@ -1242,7 +1313,7 @@ export function DashboardPage() {
                     className="flex items-center gap-1.5"
                   >
                     {r === 'live' && (
-                      <StatusGlyph status={range === 'live' ? 'running' : 'stopped'} size={6} />
+                      <StatusGlyph status={range !== 'live' ? 'stopped' : stale ? 'unknown' : 'running'} size={6} />
                     )}
                     {r === 'live' ? 'Live' : r}
                   </button>
@@ -1255,6 +1326,7 @@ export function DashboardPage() {
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <HostMetricCard
               id="host-cpu"
+              formatTime={formatTime}
               label="CPU"
               primaryValue={current?.cpuPercent ?? 0}
               formatValue={fmtPct}
@@ -1270,6 +1342,7 @@ export function DashboardPage() {
             />
             <HostMetricCard
               id="host-mem"
+              formatTime={formatTime}
               label="Memory"
               primaryValue={current?.memUsedMb ?? 0}
               formatValue={fmtMb}
@@ -1286,6 +1359,8 @@ export function DashboardPage() {
             />
             <HostMetricCard
               id="host-disk"
+              labels={['Read', 'Write']}
+              formatTime={formatTime}
               label="Disk I/O"
               primaryValue={current ? current.diskReadBps + current.diskWriteBps : 0}
               formatValue={fmtBps}
@@ -1310,6 +1385,8 @@ export function DashboardPage() {
             />
             <HostMetricCard
               id="host-net"
+              labels={['RX', 'TX']}
+              formatTime={formatTime}
               label="Network"
               primaryValue={current ? current.netRxBps + current.netTxBps : 0}
               formatValue={fmtBps}

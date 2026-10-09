@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import { Disc, Download, Pencil, Trash2, Upload, X, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
+import { formatBytes } from '@/lib/format';
 import { Stat, StatStrip } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -20,14 +21,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
 import { useUploadProgressStore } from '@/store/uploadProgressStore';
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
 
 // Mirrors the server's deriveIsoFilename (backend routes/isos.ts): compressed
 // uploads are decompressed before being saved, so the file lands under the
@@ -259,17 +252,19 @@ export function IsosPage() {
   return (
     <Layout
       title="ISOs"
-      subtitle="Manage ISO images for attaching as CDROMs to VMs. Supports .iso, .iso.gz, and .iso.tar.gz (compressed uploads are decompressed automatically)."
+      subtitle="Install media to attach to VMs as CD-ROMs."
       actions={
         <>
           <input ref={fileRef} type="file" accept=".iso,.gz,.tgz" className="hidden" onChange={handleFilePick} />
           <Button variant="secondary" onClick={() => setUrlDialogOpen(true)}>
             <Download size={14} /> From URL
           </Button>
-          <Button onClick={() => fileRef.current?.click()} disabled={uploadIso.isPending}>
-            {uploadIso.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
-            Upload ISO
-          </Button>
+          <Tooltip label="Accepts .iso, .iso.gz and .iso.tar.gz — compressed files are unpacked on upload">
+            <Button onClick={() => fileRef.current?.click()} disabled={uploadIso.isPending}>
+              {uploadIso.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
+              Upload ISO
+            </Button>
+          </Tooltip>
         </>
       }
     >

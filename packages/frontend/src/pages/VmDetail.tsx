@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useRef, useState } from 'react';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Activity, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
   Copy, CopyPlus, Disc, Download, Eye, EyeOff, FolderInput, Gauge, HardDrive, Info, Pencil, Plus,
@@ -38,7 +38,7 @@ import { useDownloadVmDisk } from '@/hooks/useVmDisks';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
-import { formatMemory, formatDisk, formatBytes, formatDateTime } from '@/lib/format';
+import { formatMemory, formatDisk, formatBytes, formatDateTime, formatChartTime, formatChartMoment, formatRate } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { CHART } from '@/lib/chartColors';
 import { useSettings } from '@/hooks/useSettings';
@@ -168,7 +168,31 @@ function WorkingBar() {
 export function VmDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('overview');
+  // The open tab lives in the URL (?tab=snapshots), so a reload, the way back from the
+  // console, or a link someone was sent all land on the same tab.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const tab: Tab = (TABS as readonly string[]).includes(tabParam ?? '') ? (tabParam as Tab) : 'overview';
+  const setTab = (t: Tab) =>
+    setSearchParams((p) => {
+      const next = new URLSearchParams(p);
+      if (t === 'overview') next.delete('tab'); else next.set('tab', t);
+      return next;
+    }, { replace: true });
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  // Arrow keys move between tabs (the selected tab is the one tab stop), as in any tab list.
+  const onTabKey = (e: React.KeyboardEvent, i: number) => {
+    const last = TABS.length - 1;
+    const to = e.key === 'ArrowRight' ? (i === last ? 0 : i + 1)
+      : e.key === 'ArrowLeft' ? (i === 0 ? last : i - 1)
+      : e.key === 'Home' ? 0
+      : e.key === 'End' ? last
+      : null;
+    if (to === null) return;
+    e.preventDefault();
+    setTab(TABS[to]);
+    tabRefs.current[TABS[to]]?.focus();
+  };
   const { data: vm, isLoading } = useVm(uuid!);
   const { data: metaData } = useVmMeta(uuid!);
   const vmMeta = metaData?.meta ?? null;
@@ -208,7 +232,7 @@ export function VmDetailPage() {
   };
 
   return (
-    <Layout>
+    <Layout docTitle={vm?.name}>
       {/* Breadcrumb — back to the VM list (/vms); "/" is the dashboard. */}
       <nav aria-label="Breadcrumb" className="mb-5">
         <Link
@@ -343,10 +367,16 @@ export function VmDetailPage() {
                   </Tooltip>
                 </>
               )}
+              {/* Power actions, then the tools: a hairline keeps the graceful, the forceful
+                  and the everyday apart. Each state has one ink action — Power on when
+                  stopped, Console when running. */}
+              {(vm.status === 'running' || vm.status === 'stopped') && (
+                <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+              )}
               <Tooltip label={openConsoleInPopup ? 'Open console (popup)' : 'Open console'}>
                 <Button
                   size="sm"
-                  variant="secondary"
+                  variant={vm.status === 'running' ? 'primary' : 'secondary'}
                   onClick={() => openVmConsole(uuid!, openConsoleInPopup, navigate)}
                 >
                   <Terminal size={14} /> Console
@@ -373,12 +403,17 @@ export function VmDetailPage() {
           {/* Tab bar: underline tabs on a full-width hairline. The underline hugs the
               label, so the first tab lines up with the content edge. */}
           <div role="tablist" aria-label="VM sections" className="mb-7 flex items-center gap-6 border-b border-border">
-            {TABS.map((t) => (
+            {TABS.map((t, i) => (
               <button
                 key={t}
+                ref={(el) => { tabRefs.current[t] = el; }}
                 type="button"
                 role="tab"
+                id={`vm-tab-${t}`}
+                aria-controls={`vm-panel-${t}`}
                 aria-selected={tab === t}
+                tabIndex={tab === t ? 0 : -1}
+                onKeyDown={(e) => onTabKey(e, i)}
                 onClick={() => setTab(t)}
                 className={cn(
                   '-mb-px shrink-0 border-b-2 pb-2.5 pt-1 text-[13.5px] font-medium capitalize transition-colors duration-150',
@@ -393,13 +428,13 @@ export function VmDetailPage() {
           </div>
 
           {/* Always mount tab panels so in-flight operations (e.g. snapshot progress) survive tab switches */}
-          <div className={tab !== 'overview' ? 'hidden' : undefined}><OverviewTab vm={vm} vmUuid={uuid!} /></div>
-          <div className={tab !== 'disks' ? 'hidden' : undefined}><DisksTab vmUuid={uuid!} disks={vm.disks} vmStatus={vm.status} /></div>
-          <div className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmUuid={uuid!} nics={vm.nics} meta={vmMeta} /></div>
-          <div className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
-          <div className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmUuid={uuid!} vmStatus={vm.status} /></div>
-          <div className={tab !== 'devices' ? 'hidden' : undefined}><DevicesTab vmUuid={uuid!} /></div>
-          <div className={tab !== 'metrics' ? 'hidden' : undefined}><MetricsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
+          <div role="tabpanel" id="vm-panel-overview" aria-labelledby="vm-tab-overview" className={tab !== 'overview' ? 'hidden' : undefined}><OverviewTab vm={vm} vmUuid={uuid!} /></div>
+          <div role="tabpanel" id="vm-panel-disks" aria-labelledby="vm-tab-disks" className={tab !== 'disks' ? 'hidden' : undefined}><DisksTab vmUuid={uuid!} disks={vm.disks} vmStatus={vm.status} /></div>
+          <div role="tabpanel" id="vm-panel-network" aria-labelledby="vm-tab-network" className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmUuid={uuid!} nics={vm.nics} meta={vmMeta} /></div>
+          <div role="tabpanel" id="vm-panel-snapshots" aria-labelledby="vm-tab-snapshots" className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
+          <div role="tabpanel" id="vm-panel-firewall" aria-labelledby="vm-tab-firewall" className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmUuid={uuid!} vmStatus={vm.status} /></div>
+          <div role="tabpanel" id="vm-panel-devices" aria-labelledby="vm-tab-devices" className={tab !== 'devices' ? 'hidden' : undefined}><DevicesTab vmUuid={uuid!} /></div>
+          <div role="tabpanel" id="vm-panel-metrics" aria-labelledby="vm-tab-metrics" className={tab !== 'metrics' ? 'hidden' : undefined}><MetricsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
         </>
       )}
     </Layout>
@@ -2931,11 +2966,7 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
-function fmtBps(bps: number): string {
-  if (bps < 1024) return `${Math.round(bps)} B/s`;
-  if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
-  return `${(bps / 1024 / 1024).toFixed(1)} MB/s`;
-}
+const fmtBps = formatRate;
 
 type ChartRange = 'live' | VmMetricsRange;
 
@@ -2950,22 +2981,6 @@ interface ChartPoint {
   netTxBps: number;
 }
 
-function formatChartTime(ts: number, range: ChartRange): string {
-  const d = new Date(ts);
-  const hh = d.getHours().toString().padStart(2, '0');
-  const mm = d.getMinutes().toString().padStart(2, '0');
-  if (range === 'live') {
-    const ss = d.getSeconds().toString().padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
-  }
-  if (range === '24h') {
-    // Show day boundary so a midnight crossover is obvious.
-    const dd = d.getDate().toString().padStart(2, '0');
-    const mo = (d.getMonth() + 1).toString().padStart(2, '0');
-    return `${dd}/${mo} ${hh}:${mm}`;
-  }
-  return `${hh}:${mm}`;
-}
 
 function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }) {
   const isRunning = vmStatus === 'running';
@@ -2994,6 +3009,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
   const netRxData = points.map((s) => s.netRxBps);
   const netTxData = points.map((s) => s.netTxBps);
   const formatX = (ts: number) => formatChartTime(ts, range);
+  const formatTime = (ts: number) => formatChartMoment(ts, range);
   // An idle guest's I/O is all zeros, and the chart's auto-scale then picks a 0–1 B/s
   // axis whose rounded labels repeat ("1 B/s, 1 B/s, 1 B/s, 0 B/s"). Byte-rate axes get
   // a 1 KB/s floor instead; anything busier keeps the automatic scale.
@@ -3065,6 +3081,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
         {points.length > 1 ? (
           <div className="flex flex-col gap-4">
             <ChartCard
+              formatTime={formatTime}
               title="CPU usage"
               data={cpuData}
               timestamps={timestamps}
@@ -3074,6 +3091,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
               formatX={formatX}
             />
             <ChartCard
+              formatTime={formatTime}
               title="Memory usage"
               data={memData}
               timestamps={timestamps}
@@ -3083,6 +3101,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
               formatX={formatX}
             />
             <ChartCard
+              formatTime={formatTime}
               title="Disk I/O"
               data={diskRdData}
               data2={diskWrData}
@@ -3095,6 +3114,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
               max={ioAxisMax(diskRdData, diskWrData)}
             />
             <ChartCard
+              formatTime={formatTime}
               title="Network I/O"
               data={netRxData}
               data2={netTxData}
@@ -3153,7 +3173,7 @@ function LegendLine({ color, label, value, dashed }: { color: string; label: str
 }
 
 function ChartCard({
-  title, data, data2, timestamps, color, color2, legend, formatY, formatX, max,
+  title, data, data2, timestamps, color, color2, legend, formatY, formatX, formatTime, max,
 }: {
   title: string;
   data: number[];
@@ -3164,6 +3184,7 @@ function ChartCard({
   legend?: string[];
   formatY: (v: number) => string;
   formatX: (ts: number) => string;
+  formatTime?: (ts: number) => string;
   max?: number;
 }) {
   const last = data[data.length - 1];
@@ -3198,6 +3219,8 @@ function ChartCard({
           color2={color2}
           formatY={formatY}
           formatX={formatX}
+          formatTime={formatTime}
+          labels={legend ? [legend[0], legend[1]] : undefined}
           max={max}
         />
       </div>

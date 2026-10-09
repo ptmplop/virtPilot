@@ -179,7 +179,7 @@ export function SettingsPage() {
   ] : [];
 
   return (
-    <Layout title="Settings" subtitle="Host configuration, log retention, and access control.">
+    <Layout title="Settings" subtitle="Host configuration, log retention and access control.">
       <div className="space-y-8">
 
       {/* Host configuration */}

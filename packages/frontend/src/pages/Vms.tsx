@@ -6,7 +6,6 @@ import {
   Power,
   PowerOff,
   RotateCcw,
-  Search,
   Server,
   Terminal,
   Trash2,
@@ -15,6 +14,7 @@ import {
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { Dialog } from '@/components/ui/Dialog';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -31,7 +31,9 @@ import { osSlugFromImage } from '@/data/templateSets';
 import { useUserPrefsStore } from '@/store/userPrefsStore';
 import { openVmConsole } from '@/lib/consoleOpener';
 
-const COLS = 'minmax(0,1fr) 120px 96px 112px 200px';
+// The actions column fits a running VM's seven buttons and two dividers (256px); the
+// fixed columns are kept tight so the name still has room at 1024px.
+const COLS = 'minmax(0,1fr) 104px 72px 80px 256px';
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -48,7 +50,7 @@ export function VmsPage() {
     v.name.toLowerCase().includes(search.toLowerCase().trim())
   );
 
-  const subtitle = 'Manage your KVM virtual machines';
+  const subtitle = 'Every virtual machine defined on this host.';
 
   return (
     <Layout
@@ -73,17 +75,13 @@ export function VmsPage() {
 
       {/* Search + console-popup pref */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="relative w-full max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="search"
-            placeholder="Search virtual machines…"
-            aria-label="Search virtual machines"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-full rounded-md border border-input bg-field pl-9 pr-3 text-[13.5px] text-foreground transition-[border-color,box-shadow] duration-150 hover:border-muted-foreground/40 focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/20"
-          />
-        </div>
+        <SearchInput
+          className="max-w-sm"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search virtual machines…"
+          label="Search virtual machines"
+        />
         {!isLoading && total > 0 && <ConsolePopupToggle />}
       </div>
 
@@ -91,13 +89,13 @@ export function VmsPage() {
       <Panel className="overflow-hidden">
         {/* Header */}
         <div
-          className="table-head grid items-center gap-4 px-5 py-2.5"
+          className="table-head grid items-center gap-3 px-5 py-2.5"
           style={{ gridTemplateColumns: COLS }}
         >
           <span>Name</span>
           <span>Status</span>
-          <span>CPU</span>
-          <span>Memory</span>
+          <span className="text-right">CPU</span>
+          <span className="text-right">Memory</span>
           <span className="text-right">Actions</span>
         </div>
 
@@ -232,8 +230,10 @@ function VmRow({ vm }: { vm: VmSummary }) {
   return (
     <>
       <div
+        // The whole row opens the VM: the name's link is stretched over it (one tab stop
+        // per row), and the actions sit above that layer.
         className={cn(
-          'group grid items-center gap-4 px-5 py-3 transition-colors duration-100 hover:bg-surface/70',
+          'group relative grid items-center gap-3 px-5 py-3 transition-colors duration-100 hover:bg-surface/70 has-[a:focus-visible]:bg-surface/70',
           flash === 'success' && 'bg-emerald-500/10',
           flash === 'error'   && 'bg-destructive/10',
         )}
@@ -245,7 +245,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
           <div className="min-w-0">
             <Link
               to={`/vms/${vm.id}`}
-              className="block truncate text-[13.5px] font-semibold text-foreground transition-colors hover:text-primary"
+              className="block truncate text-[13.5px] font-semibold text-foreground transition-colors after:absolute after:inset-0 after:content-[''] group-hover:text-primary"
             >
               {vm.name}
             </Link>
@@ -260,19 +260,19 @@ function VmRow({ vm }: { vm: VmSummary }) {
           <StatusBadge status={vm.status} />
         </div>
 
-        {/* CPU */}
-        <div className="font-mono text-[12.5px] tabular-nums">
+        {/* CPU — quantities in Inter's tabular figures, right-aligned; mono is for identifiers */}
+        <div className="text-right text-[13px] tabular-nums">
           <span className="font-semibold text-foreground">{vm.cpus}</span>
-          <span className="ml-1 text-[11.5px] text-muted-foreground">vCPU</span>
+          <span className="ml-1 text-muted-foreground">vCPU</span>
         </div>
 
         {/* Memory */}
-        <div className="font-mono text-[12.5px] font-semibold tabular-nums text-foreground">
+        <div className="text-right text-[13px] font-semibold tabular-nums text-foreground">
           {formatMemory(vm.memoryMb)}
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-0.5">
+        <div className="relative z-10 flex items-center justify-end gap-0.5">
           {vm.status === 'stopped' && (
             <Tooltip label="Power on">
               <ActionBtn
@@ -329,6 +329,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
               </Tooltip>
             </>
           )}
+          <span aria-hidden className="mx-1 h-4 w-px bg-border" />
           <Tooltip label={openConsoleInPopup ? 'Open console (popup)' : 'Open console'}>
             <a
               href={`/vms/${vm.id}/console`}
@@ -355,6 +356,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
               <CopyPlus className="h-3.5 w-3.5" />
             </ActionBtn>
           </Tooltip>
+          <span aria-hidden className="mx-1 h-4 w-px bg-border" />
           <Tooltip label="Delete VM">
             <ActionBtn
               label="Delete VM"

@@ -13,6 +13,22 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.12.0',
+    date: '2026-10-09',
+    changes: [
+      { type: 'changed', text: 'The sidebar’s collapse control moved off the logo. The logo row is now just the logo, which takes you to the Dashboard; collapsing is a small round handle half way down the edge of the sidebar (shown when the pointer is over it, and always once collapsed), and the [ key toggles it. Collapsing is one smooth motion — labels fade, icons stay put.' },
+      { type: 'changed', text: 'The dashboard’s status band says each thing once: a healthy host reads Healthy with its name and uptime, a single warning is named outright, and the numbers no longer count up from zero every time you open the page.' },
+      { type: 'changed', text: 'vCPU over-commit is shown, not alarmed: "6 on 4 cores · 1.5×" with a mark at the host’s capacity, amber only at an extreme ratio. Memory over-commit still warns.' },
+      { type: 'changed', text: 'The VM page has one main action — Console while running, Power on while stopped — and the power actions are set apart from the tools, here and in the VM list.' },
+      { type: 'changed', text: 'Quieter, more precise detail: titles line up with their content, OS logos are one-colour marks, figures are aligned and written one way, form controls share one size and style, and page descriptions say what each page holds.' },
+      { type: 'added', text: 'Hover a chart to read the exact values and time (tap on touch screens). Charts over 7 and 30 days label their axis with dates.' },
+      { type: 'added', text: 'The dashboard says when its data stops — "No data since 14:02:31 · retrying" — instead of freezing the last numbers under a healthy verdict.' },
+      { type: 'added', text: 'Each browser tab names its page and host, e.g. "Virtual machines · db-host · VirtPilot".' },
+      { type: 'added', text: 'Whole rows in the VM list and Backups open what they show; a VM’s open tab is kept in the address, and tabs move with the arrow keys.' },
+      { type: 'fixed', text: 'The 7- and 30-day charts labelled their axis with times of day only; the VM list’s row actions drew over the Memory column; several page titles sat 20 px left of their content.' },
+    ],
+  },
+  {
     version: '2.11.0',
     date: '2026-10-08',
     changes: [

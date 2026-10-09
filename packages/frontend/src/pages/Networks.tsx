@@ -232,7 +232,7 @@ export function NetworksPage() {
   return (
     <Layout
       title="Networks"
-      subtitle="Manage NAT and bridge networks for VMs."
+      subtitle="NAT and bridge networks your VMs connect to."
       actions={
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={() => setGuideOpen(true)}>
@@ -357,7 +357,7 @@ export function NetworksPage() {
 
           {form.type === 'bridge' && (
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-foreground">
+              <label className="block text-[13px] font-semibold text-foreground">
                 Physical NIC <span className="font-normal text-muted-foreground">(optional — must be a dedicated NIC with no active IPs)</span>
               </label>
               <Select value={form.physicalNic} onChange={set('physicalNic')}>

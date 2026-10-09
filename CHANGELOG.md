@@ -3,6 +3,38 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.12.0] — 2026-10-09
+
+### Changed
+
+- **The sidebar's collapse control moved off the logo.** The logo row is now just the logo, which takes you to the Dashboard. Collapsing is done with a small round handle half way down the edge between the sidebar and the page: it appears when the pointer is over the sidebar, stays visible once the sidebar is collapsed (and on touch screens), and the `[` key toggles it. Collapsing is now one smooth motion — the labels fade and the wordmark folds into the mark, but the icons don't move.
+
+- **The dashboard's status band says each thing once, and plainly.** A healthy host reads *Healthy*, with its name and how long it has been up; a single warning is named outright (*Software emulation — No KVM: guests run without hardware acceleration*) instead of "1 warning". The VM count is left to its gauge, and the numbers no longer count up from zero every time you open the page.
+
+- **vCPU over-commit is shown, not alarmed.** Giving running VMs more vCPUs than the host has cores is routine on KVM, so the dashboard now reads "6 on 4 cores · 1.5×" with a mark at the host's capacity, and only turns amber at an extreme ratio. Committing more memory than the host has still warns.
+
+- **The VM page has one main action.** Console is the primary button while a VM is running (Power on while it is stopped), and the power actions are set apart from the tools. The same grouping is used in the VM list.
+
+- **Quieter, more precise detail throughout.** Page titles line up with the content below them; operating-system logos are one-colour marks instead of coloured tiles; figures line up in their columns and are written one way everywhere ("1 GB", "1.5 GB", "237 ms"); form labels, drop-downs, search boxes and segmented controls share one size and style; disk size in the new-VM wizard is a single control; page descriptions are rewritten to say what each page holds.
+
+### Added
+
+- **Hover a chart to read it.** Every metrics chart on the dashboard and the VM Metrics tab now shows the exact values and time under the pointer (tap on a touch screen). Charts over 7 and 30 days now label their axis with dates rather than times of day.
+
+- **The dashboard says when its data stops.** If VirtPilot stops answering — during an upgrade restart, or a dropped connection — the dashboard shows "No data since 14:02:31 · retrying" and marks the host's status as unknown, instead of freezing the last numbers under a healthy verdict.
+
+- **Each browser tab names its page and host**, e.g. "Virtual machines · db-host · VirtPilot", so several VirtPilot hosts open at once can be told apart.
+
+- **Whole rows open what they show.** Click anywhere on a row in the VM list or Backups to open it. A VM's open tab is kept in the address (`?tab=snapshots`), so a reload or a shared link lands on the same tab, and the tabs can be moved between with the arrow keys.
+
+### Fixed
+
+- **On the 7-day and 30-day charts the time axis showed only hours and minutes**, so there was no way to tell which day a point was from.
+
+- **The VM list's row actions overflowed their column** on running VMs and drew over the Memory column.
+
+- **Several page titles sat 20 px to the left of their own content**, and jumped sideways between list pages and VM pages.
+
 ## [2.11.0] — 2026-10-08
 
 ### Changed

@@ -6,10 +6,11 @@ import { useEffect, useRef, useState } from 'react';
  * glide when the value changes on each poll. Honours `prefers-reduced-motion`
  * by snapping instantly.
  */
-export function useCountUp(target: number, duration = 700): number {
-  // Start at 0 so the first appearance counts up; later target changes glide
-  // from the currently-shown value.
-  const [value, setValue] = useState(0);
+export function useCountUp(target: number, duration = 700, initial = 0): number {
+  // Starts at `initial` (0 by default, so a first appearance counts up); later target
+  // changes glide from the currently-shown value. Pass the target itself as `initial`
+  // to show the true reading at once and only animate real changes.
+  const [value, setValue] = useState(initial);
   const valueRef = useRef(0);
   valueRef.current = value;
   const rafRef = useRef<number | null>(null);

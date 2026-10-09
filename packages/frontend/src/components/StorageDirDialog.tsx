@@ -138,7 +138,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
         )}
         {editing && (
           <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground">Path</label>
+            <label className="text-[13px] font-semibold text-foreground">Path</label>
             <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
               {editing.path}
             </p>
@@ -149,7 +149,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
         )}
 
         <div className="space-y-2">
-          <label className="text-xs font-medium text-foreground">Holds</label>
+          <label className="text-[13px] font-semibold text-foreground">Holds</label>
           <div className="space-y-1.5">
             {ALL_PURPOSES.map((p) => (
               <label key={p.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-surface/70">
@@ -169,7 +169,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-medium text-foreground">Use as default for</label>
+          <label className="text-[13px] font-semibold text-foreground">Use as default for</label>
           <div className="flex flex-wrap gap-3">
             {([
               { key: 'templates', label: 'Templates', checked: setDefaultTemplates, set: setSetDefaultTemplates, already: !!editing?.isDefaultTemplates },

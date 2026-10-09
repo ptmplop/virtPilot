@@ -12,6 +12,12 @@ Newness comes from structure and type; colour stays quiet.
   `Layout` owns it; pages never paint their own page background.
 - **Panels** (`.panel` / `<Panel>`): instruments on the sheet. White (`bg-card`), 1px `border-border`,
   8px corner (`rounded-lg`; `rounded-xl` is aliased to the same radius), no lift, no glow.
+- **One page column** (`PAGE_COLUMN` in Layout): the header's title and actions sit on the same left
+  and right edges as the panels below. Header and main both reserve the scrollbar gutter.
+- **The sidebar's control** is a round handle half way down the seam, never beside the logo: shown
+  while the pointer is over the sidebar, always on touch screens and when collapsed; `[` toggles it.
+  One set of markup serves both widths — labels fade and the wordmark is clipped into the mark, but
+  icons never move. The logo is the link home.
 
 ## Primitives — use these, don't restyle per page
 
@@ -45,6 +51,29 @@ Newness comes from structure and type; colour stays quiet.
   every icon-only button has `aria-label` and a `<Tooltip>`.
 - **Keys and values**: label column `text-[12.5px] text-muted-foreground`, value `font-mono text-[12px]
   text-foreground`, rows ruled with `divide-y divide-border`.
+- **Clickable rows**: when a row opens something, the name's link is stretched over the row
+  (`after:absolute after:inset-0`, row `relative`) and the actions cell sits above it (`relative z-10`).
+  One tab stop per row. A row's hover must never promise a click that does nothing.
+- **Fields**: one label style (13px semibold), 36px controls everywhere (fields, buttons, `.segmented`),
+  `<SearchInput>` for every search, and every `<select>` gets the drawn chevron from `index.css`.
+- **One ink action per view**: e.g. the VM header's Power on (stopped) or Console (running). Groups of
+  related actions are separated by a 1px rule, not by colour.
+- **OS logos** are one-colour marks in `text-muted-foreground`, never tiles; brand colour appears only in
+  the logo picker, where recognising a distro is the point.
+- **Live data says when it stopped**: if samples stop arriving the page states "No data since …", the
+  verdict becomes "Status unknown" and gauges go muted. Nothing ticks while data is fresh.
+- **Charts**: hover (or tap) shows a hairline, a dot per series and the exact values at that moment.
+  Byte-rate axes have a 1 KB/s floor (`minMax`), so idle charts never repeat their labels.
+
+## Numbers and words
+
+- One set of formatters in `lib/format.ts` — `formatBytes`, `formatMemory`, `formatRate`, `formatDuration`,
+  `formatDate`, `formatDateTime`, `formatChartTime`/`formatChartMoment`, `formatUptime`. At most one decimal,
+  no trailing `.0`, a space before every unit ("1 GB", "1.5 GB", "237 ms"); dates `8 Oct 2026, 16:33`.
+- Quantities are Inter with `tabular-nums`, right-aligned in tables; JetBrains Mono is for identifiers.
+- Say a fact once: a number shown in a gauge is not repeated in the verdict beside it.
+- Subtitles say what the page holds, in one sentence with a full stop — never "Manage …". The browser
+  tab reads "Page · host · VirtPilot" (`docTitle` for pages that draw their own header).
 
 ## Colour
 

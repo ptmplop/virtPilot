@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, formatBytes } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
@@ -136,12 +136,6 @@ function BackupAlertsBanner() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
-  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(0)} MB`;
-  return `${(bytes / 1_024).toFixed(0)} KB`;
-}
-
 // The app's one date-and-time format ("8 Oct 2026, 16:33").
 const formatDate = formatDateTime;
 
@@ -247,7 +241,7 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
   const scheduled = rows.filter((r) => r.schedule?.enabled).length;
 
   return (
-    <Layout title="Backups" subtitle="Manage VM backups and schedules">
+    <Layout title="Backups" subtitle="VM backups and the schedules that create them.">
       <div className="space-y-6 animate-slide-up">
 
         {/* Readouts */}
@@ -272,9 +266,10 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
                 style={{ gridTemplateColumns: narrow ? LIST_COLS_NARROW : LIST_COLS }}
               >
                 <span>Virtual machine</span>
-                <span>Backups</span>
-                <span>Size</span>
-                <span>Last backup</span>
+                <span className="text-right">Backups</span>
+                <span className="text-right">Size</span>
+                {/* A left-aligned column after a right-aligned figure needs air, or they read as one. */}
+                <span className="pl-4">Last backup</span>
                 <span>Schedule</span>
                 <span className="text-right">Actions</span>
               </div>
@@ -449,14 +444,16 @@ function SummaryRow({
   return (
     <>
       <div
-        className={cn('table-row grid items-center px-5 py-2.5', narrow ? 'gap-3' : 'gap-4', busy && 'bg-surface/70')}
+        // The whole row opens the VM's history (the name's button is stretched over it);
+        // the actions sit above that layer.
+        className={cn('table-row relative grid items-center px-5 py-2.5 has-[button:focus-visible]:bg-surface/70', narrow ? 'gap-3' : 'gap-4', busy && 'bg-surface/70')}
         style={{ gridTemplateColumns: narrow ? LIST_COLS_NARROW : LIST_COLS, animationDelay: `${index * 30}ms` }}
       >
         {/* Name */}
         <button
           type="button"
           onClick={() => onSelect(summary.vmUuid)}
-          className="group/name flex min-w-0 items-center gap-3 rounded-sm text-left"
+          className="group/name flex min-w-0 items-center gap-3 rounded-sm text-left after:absolute after:inset-0 after:content-['']"
         >
           <span className="flex h-5 w-5 shrink-0 items-center justify-center">
             {busy ? <Spinner className="h-4 w-4" /> : <VmLogo slug={logoSlug} size={20} />}
@@ -479,23 +476,23 @@ function SummaryRow({
 
         {/* Count — an empty cell's dash stays in the sans face so every blank in the row matches */}
         <span className={cn(
-          'text-[12.5px] tabular-nums',
-          summary.backupCount > 0 ? 'font-mono text-foreground' : 'text-muted-foreground'
+          'text-right text-[13px] tabular-nums',
+          summary.backupCount > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'
         )}>
           {summary.backupCount > 0 ? summary.backupCount : '—'}
         </span>
 
         {/* Size */}
         <span className={cn(
-          'text-[12.5px] tabular-nums',
-          summary.totalSizeBytes > 0 ? 'font-mono text-foreground' : 'text-muted-foreground'
+          'text-right text-[13px] tabular-nums',
+          summary.totalSizeBytes > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'
         )}>
           {summary.totalSizeBytes > 0 ? formatBytes(summary.totalSizeBytes) : '—'}
         </span>
 
         {/* Last backup */}
         <span
-          className="text-[13px] text-muted-foreground"
+          className="pl-4 text-[13px] text-muted-foreground"
           title={!busy && summary.lastBackupAt ? formatDate(summary.lastBackupAt) : undefined}
         >
           {busy ? 'Backing up…' : (summary.lastBackupAt ? formatRelative(summary.lastBackupAt) : '—')}
@@ -525,7 +522,7 @@ function SummaryRow({
         </span>
 
         {/* Actions */}
-        <div className={cn('flex items-center justify-end', narrow ? 'gap-1' : 'gap-1.5')}>
+        <div className={cn('relative z-10 flex items-center justify-end', narrow ? 'gap-1' : 'gap-1.5')}>
           {withTip(scheduleLabel, narrow,
             <Button
               variant="secondary"
@@ -669,7 +666,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
   const [tableRef, narrow] = useNarrow<HTMLDivElement>(BACKUP_FULL_MIN);
 
   return (
-    <Layout>
+    <Layout docTitle={`Backups of ${vmName}`}>
       <div className="space-y-6 animate-slide-up">
 
         {/* Breadcrumb */}
@@ -1317,7 +1314,7 @@ function ScheduleDialog({
         )}
 
         <div className="space-y-1.5">
-          <label htmlFor="schedule-retention" className="block text-[12.5px] font-medium text-foreground">
+          <label htmlFor="schedule-retention" className="block text-[13px] font-semibold text-foreground">
             Retention (days) <span className="font-normal text-muted-foreground">— leave blank to use global default</span>
           </label>
           <Input

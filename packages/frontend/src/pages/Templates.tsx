@@ -3,7 +3,7 @@ import { Download, HardDrive, PackageOpen, Pencil, Trash2, Upload, X, FolderInpu
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatBytes } from '@/lib/format';
 import { Stat, StatStrip } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -24,14 +24,6 @@ import { useLogoStore } from '@/store/logoStore';
 import { useUploadProgressStore, type TemplateBulkState } from '@/store/uploadProgressStore';
 import { TEMPLATE_SET } from '@/data/templateSets';
 import { startTemplateSetDownload, cancelTemplateSetDownload } from '@/lib/templateSetDownloader';
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
 
 function ProgressBar({ pct, indeterminate = false }: { pct?: number; indeterminate?: boolean }) {
   return (
@@ -409,7 +401,7 @@ export function TemplatesPage() {
   return (
     <Layout
       title="Templates"
-      subtitle="Manage qcow2 base images used for VM provisioning."
+      subtitle="Base images (qcow2) that new VMs are built from."
       actions={
         <>
           <input ref={fileRef} type="file" accept=".qcow2,.img" className="hidden" onChange={handleFilePick} />

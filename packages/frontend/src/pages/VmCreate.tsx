@@ -532,10 +532,10 @@ function ResourcesStep({
                 <span className="text-[13px] font-semibold text-foreground">
                   {p.label}
                 </span>
-                <span className={cn('mt-1.5 font-mono text-[12px] tabular-nums', sel ? 'text-accent-foreground' : 'text-muted-foreground')}>
+                <span className={cn('mt-1.5 text-[12.5px] tabular-nums', sel ? 'text-accent-foreground' : 'text-muted-foreground')}>
                   {p.cpus} vCPU
                 </span>
-                <span className={cn('font-mono text-[12px] tabular-nums', sel ? 'text-accent-foreground' : 'text-muted-foreground')}>
+                <span className={cn('text-[12.5px] tabular-nums', sel ? 'text-accent-foreground' : 'text-muted-foreground')}>
                   {mbToDisplay(p.memoryMb)}
                 </span>
               </button>
@@ -593,35 +593,20 @@ function ResourcesStep({
       {/* Disk size */}
       <div className="space-y-3">
         <FieldLabel>Disk size</FieldLabel>
-        <div className="flex flex-wrap gap-2">
-          {DISK_PRESETS.map((gb) => {
-            const sel = !customDisk && form.diskGb === gb;
-            return (
-              <button
-                key={gb}
-                type="button"
-                onClick={() => { setForm((f) => ({ ...f, diskGb: gb })); setCustomDisk(false); }}
-                aria-pressed={sel}
-                className={cn(
-                  OPTION,
-                  'h-9 rounded-md border px-4 text-[13px] font-medium tabular-nums',
-                  sel ? cn(OPTION_CHOSEN, 'text-accent-foreground') : cn(OPTION_REST, 'text-foreground')
-                )}
-              >
-                {gb} GB
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setCustomDisk((v) => !v)}
-            aria-pressed={customDisk}
-            className={cn(
-              OPTION,
-              'h-9 rounded-md border px-4 text-[13px] font-medium',
-              customDisk ? cn(OPTION_CHOSEN, 'text-accent-foreground') : cn(OPTION_REST, 'text-foreground')
-            )}
-          >
+        {/* One-line values, 2–6 options: the segmented control, like Boot source below. */}
+        <div className="segmented" role="group" aria-label="Disk size">
+          {DISK_PRESETS.map((gb) => (
+            <button
+              key={gb}
+              type="button"
+              onClick={() => { setForm((f) => ({ ...f, diskGb: gb })); setCustomDisk(false); }}
+              aria-pressed={!customDisk && form.diskGb === gb}
+              className="tabular-nums"
+            >
+              {gb} GB
+            </button>
+          ))}
+          <button type="button" onClick={() => setCustomDisk((v) => !v)} aria-pressed={customDisk}>
             Custom
           </button>
         </div>
@@ -1286,7 +1271,7 @@ function AuthStep({
             required
           />
           <div className="space-y-1.5">
-            <label htmlFor="vm-password" className="block text-[12.5px] font-medium text-foreground">Password</label>
+            <label htmlFor="vm-password" className="block text-[13px] font-semibold text-foreground">Password</label>
             <div className="relative">
               <input
                 id="vm-password"
@@ -1579,7 +1564,7 @@ export function VmCreatePage() {
   };
 
   return (
-    <Layout>
+    <Layout docTitle="New VM">
       <div className="mb-5">
         {/* Labelled "Virtual machines", so it goes there: it used to lead to the dashboard. */}
         <Link

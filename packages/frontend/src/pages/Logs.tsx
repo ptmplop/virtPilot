@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clock,
   HardDrive,
   Network,
   RefreshCw,
@@ -16,8 +15,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
+import { formatDuration } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { useLogs, useClearLogs } from '@/hooks/useLogs';
@@ -100,12 +100,6 @@ const TYPE_GROUPS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatDuration(ms?: number): string {
-  if (ms == null) return '';
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
   // Dense on purpose (no year, with seconds), but in the app's day-month order.
@@ -130,6 +124,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
       <button
         type="button"
         onClick={() => hasOutput && setExpanded((v) => !v)}
+        aria-expanded={hasOutput ? expanded : undefined}
         className={cn(
           'flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors',
           hasOutput ? 'cursor-pointer hover:bg-surface/70' : 'cursor-default'
@@ -150,38 +145,35 @@ function LogRow({ entry }: { entry: LogEntry }) {
         )}
 
         {/* Type + icon */}
-        <span className="flex w-44 shrink-0 items-center gap-1.5 text-xs font-medium text-foreground">
+        <span className="flex w-44 shrink-0 items-center gap-1.5 text-[13px] font-medium text-foreground">
           <TypeIcon type={entry.type} className="text-muted-foreground" />
           {typeLabel(entry.type)}
         </span>
 
         {/* Subject */}
-        <span className="w-40 shrink-0 truncate font-mono text-xs text-muted-foreground">
+        <span className="w-40 shrink-0 truncate font-mono text-[12px] text-muted-foreground">
           {entry.subject}
         </span>
 
         {/* Output preview */}
-        <span className="flex-1 truncate text-xs text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted-foreground">
           {entry.output ? entry.output.split('\n')[0] : ''}
         </span>
 
-        {/* Duration */}
-        {entry.durationMs != null && (
-          <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
-            <Clock className="h-3 w-3" />
-            {formatDuration(entry.durationMs)}
-          </span>
-        )}
+        {/* Duration — a fixed column, so the output's edge doesn't move from row to row */}
+        <span className="w-16 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
+          {entry.durationMs != null ? formatDuration(entry.durationMs) : '—'}
+        </span>
 
         {/* Timestamp */}
-        <span className="w-36 shrink-0 text-right text-[11px] text-muted-foreground">
+        <span className="w-36 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
           {formatTimestamp(entry.timestamp)}
         </span>
       </button>
 
       {expanded && entry.output && (
-        <div className="border-t border-border/50 bg-muted/20 px-4 py-3">
-          <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-muted-foreground">
+        <div className="border-t border-border bg-surface px-4 py-3">
+          <pre className="whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-foreground">
             {entry.output}
           </pre>
         </div>
@@ -251,20 +243,18 @@ export function LogsPage() {
   return (
     <Layout
       title="Logs"
-      subtitle="Transaction history for all platform actions."
+      subtitle="A record of every action taken in VirtPilot."
       actions={actions}
     >
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
-        <div className="w-full max-w-[17rem]">
-          <Input
-            type="search"
-            aria-label="Search logs"
-            placeholder="Search by type, subject or output…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        <SearchInput
+          className="max-w-[17rem]"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search by type, subject or output…"
+          label="Search logs"
+        />
 
         <div className="segmented" role="group" aria-label="Filter by type">
           <button type="button" aria-pressed={groupFilter === null} onClick={() => setGroupFilter(null)}>

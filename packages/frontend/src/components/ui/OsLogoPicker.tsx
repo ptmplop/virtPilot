@@ -26,7 +26,7 @@ interface OsIconProps {
 function OsIcon({ path, hex, size, useCurrentColor = false }: OsIconProps) {
   return (
     <svg
-      role="img"
+      aria-hidden
       viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
       width={size}
@@ -38,30 +38,13 @@ function OsIcon({ path, hex, size, useCurrentColor = false }: OsIconProps) {
   );
 }
 
-// Tile background + icon colour for a logo, chosen so the icon is always
-// readable on both light and dark themes. For brand colours below a luminance
-// threshold (pfSense, MikroTik, SUSE, …) we ignore the brand hex for the
-// background and render the icon in the foreground colour instead.
-function tileStyle(logo: OsLogo): { bgClass: string; bgStyle?: React.CSSProperties; useCurrentColor: boolean } {
-  if (isDarkHex(logo.hex)) {
-    return { bgClass: 'bg-foreground/10 text-foreground', useCurrentColor: true };
-  }
-  return {
-    bgClass: '',
-    bgStyle: { background: `#${logo.hex}1e` },
-    useCurrentColor: false,
-  };
-}
-
+// In the picker, where recognising a distro is the point, a logo keeps its brand colour
+// (or the text colour, for brands too dark to read on a dark theme) — on no tile.
 function LogoTile({ logo, size }: { logo: OsLogo; size: number }) {
-  const { bgClass, bgStyle, useCurrentColor } = tileStyle(logo);
   return (
-    <div
-      className={cn('flex shrink-0 items-center justify-center rounded-md', bgClass)}
-      style={{ width: size, height: size, ...bgStyle }}
-    >
-      <OsIcon path={logo.path} hex={logo.hex} size={size * 0.65} useCurrentColor={useCurrentColor} />
-    </div>
+    <span className="flex shrink-0 items-center justify-center text-foreground" style={{ width: size, height: size }}>
+      <OsIcon path={logo.path} hex={logo.hex} size={Math.round(size * 0.8)} useCurrentColor={isDarkHex(logo.hex)} />
+    </span>
   );
 }
 
@@ -143,9 +126,7 @@ export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
           </>
         ) : (
           <>
-            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted">
-              <Server size={11} className="text-muted-foreground" />
-            </div>
+            <Server size={15} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
             <span className="text-muted-foreground">None</span>
           </>
         )}
@@ -198,9 +179,7 @@ export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               )}
             >
-              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted">
-                <Server size={11} className="text-muted-foreground" />
-              </div>
+              <Server size={15} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
               None
             </button>
 
@@ -260,17 +239,17 @@ interface VmLogoProps {
 
 export function VmLogo({ slug, size = 20, fallbackIcon: FallbackIcon = Server }: VmLogoProps) {
   const logo = slug ? findLogo(slug) : undefined;
-
-  if (!logo) {
-    return (
-      <div
-        className="flex shrink-0 items-center justify-center rounded-md bg-muted"
-        style={{ width: size, height: size }}
-      >
-        <FallbackIcon size={size * 0.55} className="text-muted-foreground" />
-      </div>
-    );
-  }
-
-  return <LogoTile logo={logo} size={size} />;
+  // Everywhere else an OS logo is a one-colour mark in the muted text colour: no tinted
+  // tile, and no brand red or green beside status colours that mean failed or running.
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center text-muted-foreground"
+      style={{ width: size, height: size }}
+      aria-hidden
+    >
+      {logo
+        ? <OsIcon path={logo.path} hex={logo.hex} size={Math.round(size * 0.8)} useCurrentColor />
+        : <FallbackIcon size={Math.round(size * 0.8)} strokeWidth={1.75} />}
+    </span>
+  );
 }

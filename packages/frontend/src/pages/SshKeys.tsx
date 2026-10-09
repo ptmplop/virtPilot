@@ -53,7 +53,7 @@ function AddKeyForm({ onDone }: { onDone: () => void }) {
           onChange={(e) => setName(e.target.value)}
         />
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-foreground">Public key</label>
+          <label className="text-[13px] font-semibold text-foreground">Public key</label>
           <textarea
             className={cn(
               'block w-full resize-none rounded-lg border border-input bg-background px-3 py-2.5',
@@ -161,7 +161,7 @@ export function SshKeysPage() {
   return (
     <Layout
       title="SSH keys"
-      subtitle="Manage public keys available for VM provisioning."
+      subtitle="Public keys you can add to new VMs."
       actions={
         !showForm && (
           <Button size="sm" onClick={() => setShowForm(true)}>

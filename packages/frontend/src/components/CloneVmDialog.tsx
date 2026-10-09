@@ -94,7 +94,7 @@ export function CloneVmDialog({ open, vmUuid, vmName, vmStatus, onClose }: Props
           </div>
         )}
 
-        <label className="flex items-start gap-2 text-xs text-foreground">
+        <label className="flex items-start gap-2 text-[13px] text-foreground">
           <input
             type="checkbox"
             checked={regenerateCloudInit}
@@ -121,7 +121,7 @@ export function CloneVmDialog({ open, vmUuid, vmName, vmStatus, onClose }: Props
           />
         )}
 
-        <label className="flex items-center gap-2 text-xs text-foreground">
+        <label className="flex items-center gap-2 text-[13px] text-foreground">
           <input type="checkbox" checked={startAfter} onChange={(e) => setStartAfter(e.target.checked)} />
           <span>Start the clone once it is created</span>
         </label>

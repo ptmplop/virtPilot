@@ -9,6 +9,8 @@ export interface SystemInfo {
   load: [number, number, number];
   kernelVersion: string;
   qemuVersion: string;
+  /** Seconds since the host booted (absent from backends older than 2.12). */
+  uptimeSeconds?: number;
 }
 
 export interface StatsSample {
@@ -95,6 +97,20 @@ export function useSystemInfo() {
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
+}
+
+// The host's name, for page titles. Shares the info query's cache; fetched once per
+// session here (the dashboard's own observer keeps it fresh while it is open).
+export function useHostName(): string | undefined {
+  const { data } = useQuery({
+    queryKey: ['system', 'info'],
+    queryFn: async () => {
+      const { data } = await api.get<SystemInfo>('/api/system/info');
+      return data;
+    },
+    staleTime: Infinity,
+  });
+  return data?.hostname;
 }
 
 // Stable across renders so consumers can list it in useEffect deps without

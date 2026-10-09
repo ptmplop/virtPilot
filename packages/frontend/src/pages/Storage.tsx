@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { HardDrive, Download, Trash2, Plus, Pencil, FolderOpen, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
+import { formatBytes } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -43,15 +44,6 @@ function DefaultChips({ dir }: { dir: StorageDir }) {
       {active.join(' · ')}
     </span>
   );
-}
-
-function formatBytes(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
-  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
 function UsageBar({ dir }: { dir: StorageDirWithUsage }) {
@@ -117,7 +109,7 @@ export function StoragePage() {
   const openEdit = (dir: StorageDir) => { setEditingDir(dir); setDirDialogOpen(true); };
 
   return (
-    <Layout title="Storage" subtitle="Configure storage directories and review disk usage across templates, ISOs, and VMs.">
+    <Layout title="Storage" subtitle="Where templates, ISOs and VM disks are stored, and the space they use.">
       {/* Summary */}
       <StatStrip className="mb-8">
         <Stat label="Templates" value={templates?.length ?? 0} sub={`${totalTemplateGb.toFixed(1)} GB total`} />

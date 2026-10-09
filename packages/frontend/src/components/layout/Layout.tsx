@@ -1,7 +1,9 @@
-import { useState, type ReactNode, type ComponentType } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState, type ReactNode, type ComponentType } from 'react';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
   ArchiveIcon,
+  ChevronLeft,
+  ChevronRight,
   Database,
   Disc,
   HardDrive,
@@ -9,53 +11,91 @@ import {
   LayoutDashboard,
   LogOut,
   type LucideProps,
+  Moon,
   Network,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   ScrollText,
   Server,
   Settings2,
+  Sun,
 } from 'lucide-react';
-import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { StatusGlyph } from '@/components/ui/Badge';
 import { cn } from '@/lib/cn';
 import { useVms } from '@/hooks/useVms';
 import { useAuthStore } from '@/store/authStore';
+import { useThemeStore } from '@/store/themeStore';
+import { useHostName } from '@/hooks/useSystemStats';
 
 // The version the operator sees. scripts/check-versions.sh checks this literal, and the
 // login screen imports it so the two can never disagree again.
-export const APP_VERSION = 'v2.11.0';
+export const APP_VERSION = 'v2.12.0';
 
 interface LayoutProps {
   children?: ReactNode;
   actions?: ReactNode;
   title?: string;
   subtitle?: string;
+  /** The browser-tab title, for pages that draw their own header (a VM's name…). */
+  docTitle?: string;
 }
 
-export function Layout({ children, actions, title, subtitle }: LayoutProps) {
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem('virtpilotSidebarCollapsed') === 'true'
+const SIDEBAR_KEY = 'virtpilotSidebarCollapsed';
+
+// One column for the page: the header's title and actions line up with the panels below.
+const PAGE_COLUMN = 'mx-auto max-w-6xl px-6 lg:px-8';
+
+// "[" toggles the sidebar, as in most tools that have one — unless the key is meant for
+// something else: a field, an editor, the console terminal, or an open dialog.
+function isTypingTarget(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false;
+  return t.isContentEditable || !!t.closest('input, textarea, select, [contenteditable="true"], .xterm');
+}
+
+export function Layout({ children, actions, title, subtitle, docTitle }: LayoutProps) {
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_KEY) === 'true');
+
+  const toggle = useCallback(
+    () =>
+      setCollapsed((v) => {
+        localStorage.setItem(SIDEBAR_KEY, String(!v));
+        return !v;
+      }),
+    [],
   );
 
-  const toggle = () =>
-    setCollapsed((v) => {
-      localStorage.setItem('virtpilotSidebarCollapsed', String(!v));
-      return !v;
-    });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '[' || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      if (isTypingTarget(e.target) || document.querySelector('[aria-modal="true"]')) return;
+      e.preventDefault();
+      toggle();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggle]);
+
+  // Each tab says which page, on which host: "Virtual machines · db-host · VirtPilot".
+  const host = useHostName();
+  const page = docTitle ?? title;
+  useEffect(() => {
+    document.title = [page, host, 'VirtPilot'].filter(Boolean).join(' · ');
+  }, [page, host]);
 
   // The frame: navigation sits on the canvas, and each page is a sheet inset on it.
+  // The sidebar's own control lives on the seam between the two, not beside the logo.
   return (
     <div className="flex h-screen bg-canvas text-foreground">
-      <Sidebar collapsed={collapsed} onToggle={toggle} />
+      <div className="group/nav relative flex shrink-0">
+        <Sidebar collapsed={collapsed} />
+        <SidebarHandle collapsed={collapsed} onToggle={toggle} />
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col py-2 pr-2">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-sheet-border bg-background shadow-sheet">
           {(title || actions) && (
-            <header className="shrink-0 border-b border-border px-6 pb-5 pt-6">
-              <div className="mx-auto max-w-6xl lg:px-2">
+            <header className="shrink-0 overflow-hidden border-b border-border pb-5 pt-6 [scrollbar-gutter:stable]">
+              <div className={PAGE_COLUMN}>
                 <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
                   <div className="min-w-0 flex-[1_1_22rem]">
                     {title && (
@@ -70,8 +110,10 @@ export function Layout({ children, actions, title, subtitle }: LayoutProps) {
               </div>
             </header>
           )}
-          <main className="flex-1 overflow-auto">
-            <div className="mx-auto max-w-6xl px-6 py-7 lg:px-8">
+          {/* Both reserve the same scrollbar gutter, so a classic (non-overlay) scrollbar
+              can't pull the content out of line with the title. */}
+          <main className="flex-1 overflow-auto [scrollbar-gutter:stable]">
+            <div className={cn(PAGE_COLUMN, 'py-7')}>
               {children}
             </div>
           </main>
@@ -82,128 +124,128 @@ export function Layout({ children, actions, title, subtitle }: LayoutProps) {
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
+//
+// One set of markup for both widths, so collapsing is a single motion: the width
+// shrinks, labels fade, the wordmark is clipped back into its mark — and the icons
+// never move. Group labels fade to a short rule of the same height for the same reason.
 
-function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+const ICON = 'h-4 w-4 shrink-0 transition-colors';
+const FADE = 'transition-opacity duration-150 motion-reduce:transition-none';
+
+function Sidebar({ collapsed }: { collapsed: boolean }) {
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
+  const { theme, toggle: toggleTheme } = useThemeStore();
 
   function handleLogout() {
     logout();
     navigate('/login', { replace: true });
   }
 
-  const quiet =
-    'flex items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-foreground';
-
   return (
     <aside
       className={cn(
-        'flex shrink-0 flex-col overflow-hidden transition-[width] duration-200 ease-out',
+        'flex flex-col overflow-hidden transition-[width] duration-200 ease-out motion-reduce:transition-none',
         collapsed ? 'w-[64px]' : 'w-[236px]'
       )}
     >
-      {/* Brand */}
-      {collapsed ? (
-        <div className="flex flex-col items-center gap-2 pb-2 pt-[18px]">
-          <img src="/brand/virtpilot-symbol-small.svg" alt="VirtPilot" className="h-7 w-7 dark:hidden" />
-          <img src="/brand/virtpilot-symbol-small-dark.svg" alt="VirtPilot" className="hidden h-7 w-7 dark:block" />
-          <Tooltip label="Expand sidebar" side="right">
-            <button type="button" onClick={onToggle} aria-label="Expand sidebar" className={cn(quiet, 'h-7 w-7')}>
-              <PanelLeftOpen size={14} strokeWidth={1.75} />
-            </button>
-          </Tooltip>
-        </div>
-      ) : (
-        <div className="flex h-[72px] items-center gap-2 pl-[22px] pr-3">
-          <img src="/brand/virtpilot-horizontal.svg" alt="VirtPilot" className="h-[26px] w-auto dark:hidden" />
-          <img src="/brand/virtpilot-horizontal-dark.svg" alt="VirtPilot" className="hidden h-[26px] w-auto dark:block" />
-          <Tooltip label="Collapse sidebar" side="right">
-            <button type="button" onClick={onToggle} aria-label="Collapse sidebar" className={cn(quiet, 'ml-auto h-7 w-7 shrink-0')}>
-              <PanelLeftClose size={14} strokeWidth={1.75} />
-            </button>
-          </Tooltip>
-        </div>
-      )}
+      {/* Brand — the way home, nothing else */}
+      <div className="flex h-[72px] shrink-0 items-center px-3">
+        <Link
+          to="/"
+          aria-label="VirtPilot — Dashboard"
+          className="flex h-10 items-center rounded-md px-[7px] focus-visible:outline-offset-0"
+        >
+          <span
+            className={cn(
+              'block h-[26px] overflow-hidden transition-[width] duration-200 ease-out motion-reduce:transition-none',
+              collapsed ? 'w-[26px]' : 'w-[83px]'
+            )}
+          >
+            <img src="/brand/virtpilot-horizontal.svg" alt="" className="h-[26px] w-[83px] max-w-none dark:hidden" />
+            <img src="/brand/virtpilot-horizontal-dark.svg" alt="" className="hidden h-[26px] w-[83px] max-w-none dark:block" />
+          </span>
+        </Link>
+      </div>
 
       {/* Navigation */}
-      <nav aria-label="Main" className={cn('flex-1 overflow-y-auto pb-3 pt-1', collapsed ? 'px-3' : 'px-3')}>
-        {collapsed ? (
-          <div className="flex flex-col items-center gap-1">
-            <CollapsedNavItem to="/" icon={LayoutDashboard} label="Dashboard" end />
-            <CollapsedNavItem to="/vms/new" icon={Plus} label="New VM" />
-            <div className="my-2 w-6 border-t border-sheet-border" />
-            <CollapsedNavItem to="/vms" icon={Server} label="Virtual machines" badge={<RunningVmsDot />} />
-            <CollapsedNavItem to="/networks" icon={Network} label="Networks" />
-            <CollapsedNavItem to="/templates" icon={HardDrive} label="Templates" />
-            <CollapsedNavItem to="/isos" icon={Disc} label="ISOs" />
-            <CollapsedNavItem to="/storage" icon={Database} label="Storage" />
-            <CollapsedNavItem to="/backups" icon={ArchiveIcon} label="Backups" />
-            <div className="my-2 w-6 border-t border-sheet-border" />
-            <CollapsedNavItem to="/ssh-keys" icon={KeyRound} label="SSH keys" />
-            <CollapsedNavItem to="/logs" icon={ScrollText} label="Logs" />
-            <CollapsedNavItem to="/settings" icon={Settings2} label="Settings" />
-          </div>
-        ) : (
-          <>
-            <NavSection label="Compute">
-              <NavItem to="/" label="Dashboard" icon={LayoutDashboard} end />
-              <NavItem to="/vms/new" label="New VM" icon={Plus} />
-            </NavSection>
-            <NavSection label="Resources">
-              <NavItem to="/vms" label="Virtual machines" icon={Server} badge={<RunningVmsBadge />} />
-              <NavItem to="/networks" label="Networks" icon={Network} />
-              <NavItem to="/templates" label="Templates" icon={HardDrive} />
-              <NavItem to="/isos" label="ISOs" icon={Disc} />
-              <NavItem to="/storage" label="Storage" icon={Database} />
-              <NavItem to="/backups" label="Backups" icon={ArchiveIcon} />
-            </NavSection>
-            <NavSection label="System">
-              <NavItem to="/ssh-keys" label="SSH keys" icon={KeyRound} />
-              <NavItem to="/logs" label="Logs" icon={ScrollText} />
-              <NavItem to="/settings" label="Settings" icon={Settings2} />
-            </NavSection>
-          </>
-        )}
+      <nav aria-label="Main" className="flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-1">
+        <NavGroup label="Compute" collapsed={collapsed} first>
+          <NavItem to="/" label="Dashboard" icon={LayoutDashboard} end collapsed={collapsed} />
+          <NavItem to="/vms/new" label="New VM" icon={Plus} collapsed={collapsed} />
+        </NavGroup>
+        <NavGroup label="Resources" collapsed={collapsed}>
+          <NavItem to="/vms" label="Virtual machines" icon={Server} collapsed={collapsed} badge={<RunningVmsBadge />} dot={<RunningVmsDot />} />
+          <NavItem to="/networks" label="Networks" icon={Network} collapsed={collapsed} />
+          <NavItem to="/templates" label="Templates" icon={HardDrive} collapsed={collapsed} />
+          <NavItem to="/isos" label="ISOs" icon={Disc} collapsed={collapsed} />
+          <NavItem to="/storage" label="Storage" icon={Database} collapsed={collapsed} />
+          <NavItem to="/backups" label="Backups" icon={ArchiveIcon} collapsed={collapsed} />
+        </NavGroup>
+        <NavGroup label="System" collapsed={collapsed}>
+          <NavItem to="/ssh-keys" label="SSH keys" icon={KeyRound} collapsed={collapsed} />
+          <NavItem to="/logs" label="Logs" icon={ScrollText} collapsed={collapsed} />
+          <NavItem to="/settings" label="Settings" icon={Settings2} collapsed={collapsed} />
+        </NavGroup>
       </nav>
 
-      {/* Footer */}
-      <div className={cn('pb-3 pt-2', collapsed ? 'px-3' : 'px-3')}>
-        {collapsed ? (
-          <div className="flex flex-col items-center gap-1">
-            <ThemeToggle />
-            <Tooltip label="Sign out" side="right">
-              <button type="button" onClick={handleLogout} aria-label="Sign out" className={cn(quiet, 'h-8 w-8')}>
-                <LogOut size={14} strokeWidth={1.75} />
-              </button>
-            </Tooltip>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="flex flex-1 items-center gap-3 rounded-md px-2.5 py-[7px] text-[13.5px] text-[#3A4556] transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-foreground dark:text-[#A9B2BF]"
-              >
-                <LogOut size={16} strokeWidth={1.75} className="text-muted-foreground" />
-                <span>Sign out</span>
-              </button>
-              <ThemeToggle />
-            </div>
-            <p className="mt-2 px-2.5 font-mono text-[11px] text-muted-foreground">VirtPilot {APP_VERSION}</p>
-          </>
-        )}
+      {/* Footer — session controls, styled as the items above so they align with them */}
+      <div className="shrink-0 space-y-px px-3 pb-3 pt-2">
+        <FooterItem
+          icon={theme === 'dark' ? Sun : Moon}
+          label={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+          onClick={toggleTheme}
+          collapsed={collapsed}
+        />
+        <FooterItem icon={LogOut} label="Sign out" onClick={handleLogout} collapsed={collapsed} />
+        <p className={cn('truncate px-3 pt-2 font-mono text-[11px] text-muted-foreground', FADE, collapsed && 'opacity-0')}>
+          VirtPilot {APP_VERSION}
+        </p>
       </div>
     </aside>
   );
 }
 
+// The sidebar's control: a small round handle on the seam. It shows while the pointer
+// is over the sidebar (always on touch screens, and whenever it has keyboard focus),
+// and stays visible once collapsed — the way back must never be hidden.
+function SidebarHandle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  return (
+    <div className="absolute -right-3 top-1/2 z-20 -translate-y-1/2">
+      <Tooltip label={label} shortcut="[" side="right">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={label}
+          aria-expanded={!collapsed}
+          className={cn(
+            'flex h-6 w-6 items-center justify-center rounded-full border border-sheet-border bg-card text-muted-foreground',
+            'shadow-[0_1px_3px_rgb(27_36_51/0.12)] dark:shadow-[0_1px_3px_rgb(0_0_0/0.55)]',
+            'transition-[opacity,color,border-color] duration-150 hover:border-input hover:text-foreground focus-visible:opacity-100',
+            collapsed ? 'opacity-100' : 'opacity-0 group-hover/nav:opacity-100 [@media(hover:none)]:opacity-100'
+          )}
+        >
+          {collapsed ? <ChevronRight size={14} strokeWidth={2} /> : <ChevronLeft size={14} strokeWidth={2} />}
+        </button>
+      </Tooltip>
+    </div>
+  );
+}
+
 // ─── Nav helpers ──────────────────────────────────────────────────────────────
 
-function NavSection({ label, children }: { label: string; children: ReactNode }) {
+function NavGroup({ label, collapsed, first, children }: { label: string; collapsed: boolean; first?: boolean; children: ReactNode }) {
   return (
-    <div className="mb-5">
-      <p className="mb-1 px-2.5 text-[11.5px] font-medium text-muted-foreground">{label}</p>
+    <div className="mb-4">
+      <div className="relative mb-1 h-5" aria-hidden={collapsed}>
+        <p className={cn('absolute inset-0 truncate px-3 text-[11.5px] font-medium leading-5 text-muted-foreground', FADE, collapsed && 'opacity-0')}>
+          {label}
+        </p>
+        {!first && (
+          <span className={cn('absolute left-3 top-1/2 h-px w-4 bg-input', FADE, collapsed ? 'opacity-100' : 'opacity-0')} />
+        )}
+      </div>
       <div className="space-y-px">{children}</div>
     </div>
   );
@@ -212,6 +254,7 @@ function NavSection({ label, children }: { label: string; children: ReactNode })
 // The active page is lifted onto the sheet's own white, with its icon in steel.
 const navActive = 'bg-[hsl(var(--nav-active))] font-medium text-foreground shadow-nav [&>svg]:text-[#3B6797] dark:[&>svg]:text-[#86AEDA]';
 const navIdle = 'text-[#3A4556] hover:bg-foreground/[0.05] hover:text-foreground dark:text-[#A9B2BF] [&>svg]:text-muted-foreground hover:[&>svg]:text-foreground';
+const navItem = 'relative flex h-9 w-full items-center gap-3 overflow-hidden rounded-md px-3 text-[13.5px] transition-colors duration-150';
 
 function NavItem({
   to,
@@ -219,60 +262,46 @@ function NavItem({
   icon: Icon,
   end,
   badge,
+  dot,
+  collapsed,
 }: {
   to: string;
   label: string;
   icon: ComponentType<LucideProps>;
   end?: boolean;
   badge?: ReactNode;
+  dot?: ReactNode;
+  collapsed: boolean;
 }) {
   return (
-    <NavLink
-      to={to}
-      end={end}
-      className={({ isActive }) =>
-        cn(
-          'flex items-center gap-3 rounded-md px-2.5 py-[7px] text-[13.5px] transition-colors duration-150',
-          isActive ? navActive : navIdle
-        )
-      }
-    >
-      <Icon className="h-4 w-4 shrink-0 transition-colors" strokeWidth={1.75} />
-      <span className="whitespace-nowrap">{label}</span>
-      {badge}
-    </NavLink>
+    <Tooltip label={label} side="right" disabled={!collapsed} className="flex w-full">
+      <NavLink to={to} end={end} className={({ isActive }) => cn(navItem, isActive ? navActive : navIdle)}>
+        <Icon className={ICON} strokeWidth={1.75} />
+        <span className={cn('whitespace-nowrap', FADE, collapsed && 'opacity-0')}>{label}</span>
+        {badge && <span className={cn('ml-auto', FADE, collapsed && 'opacity-0')}>{badge}</span>}
+        {dot && <span className={cn('absolute left-[25px] top-[8px]', FADE, collapsed ? 'opacity-100' : 'opacity-0')}>{dot}</span>}
+      </NavLink>
+    </Tooltip>
   );
 }
 
-function CollapsedNavItem({
-  to,
+function FooterItem({
   icon: Icon,
   label,
-  end,
-  badge,
+  onClick,
+  collapsed,
 }: {
-  to: string;
   icon: ComponentType<LucideProps>;
   label: string;
-  end?: boolean;
-  badge?: ReactNode;
+  onClick: () => void;
+  collapsed: boolean;
 }) {
   return (
-    <Tooltip label={label} side="right">
-      <NavLink
-        to={to}
-        end={end}
-        aria-label={label}
-        className={({ isActive }) =>
-          cn(
-            'relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-150',
-            isActive ? navActive : navIdle
-          )
-        }
-      >
-        <Icon className="h-4 w-4 shrink-0 transition-colors" strokeWidth={1.75} />
-        {badge && <span className="absolute right-1 top-1">{badge}</span>}
-      </NavLink>
+    <Tooltip label={label} side="right" disabled={!collapsed} className="flex w-full">
+      <button type="button" onClick={onClick} className={cn(navItem, navIdle)}>
+        <Icon className={ICON} strokeWidth={1.75} />
+        <span className={cn('whitespace-nowrap', FADE, collapsed && 'opacity-0')}>{label}</span>
+      </button>
     </Tooltip>
   );
 }
@@ -284,7 +313,7 @@ function RunningVmsBadge() {
   const running = vms?.filter((v) => v.status === 'running').length ?? 0;
   if (!running) return null;
   return (
-    <span className="ml-auto flex items-center gap-1.5 text-[12px] tabular-nums text-muted-foreground" title={`${running} running`}>
+    <span className="flex items-center gap-1.5 text-[12px] tabular-nums text-muted-foreground" title={`${running} running`}>
       <StatusGlyph status="running" size={6} />
       {running}
     </span>

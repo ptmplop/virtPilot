@@ -6,6 +6,12 @@ interface TooltipProps {
   label: string;
   side?: 'top' | 'right' | 'bottom' | 'left';
   children: ReactNode;
+  /** A keyboard shortcut shown after the label, quieter than it. */
+  shortcut?: string;
+  /** Keeps the wrapper (so layout and focus never change) but shows nothing. */
+  disabled?: boolean;
+  /** Classes for the wrapper, e.g. to let a full-width child stay full width. */
+  className?: string;
 }
 
 // True when a subtree renders any text of its own (so it already has a visible name).
@@ -29,7 +35,7 @@ function withName(child: ReactNode, label: string): ReactNode {
   return cloneElement(child as ReactElement<{ 'aria-label'?: string }>, { 'aria-label': label });
 }
 
-export function Tooltip({ label, side = 'top', children }: TooltipProps) {
+export function Tooltip({ label, side = 'top', children, shortcut, disabled, className }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
   const anchorRef = useRef<HTMLSpanElement>(null);
@@ -68,14 +74,14 @@ export function Tooltip({ label, side = 'top', children }: TooltipProps) {
       ref={anchorRef}
       // A disabled control fires no mouse events, so it lets them through to this
       // wrapper — otherwise the hint that explains *why* it is disabled never shows.
-      className="relative inline-flex [&>:disabled]:pointer-events-none"
-      onMouseEnter={() => setVisible(true)}
+      className={cn('relative inline-flex [&>:disabled]:pointer-events-none', className)}
+      onMouseEnter={() => !disabled && setVisible(true)}
       onMouseLeave={() => setVisible(false)}
-      onFocusCapture={() => setVisible(true)}
+      onFocusCapture={() => !disabled && setVisible(true)}
       onBlurCapture={() => setVisible(false)}
     >
-      {Children.count(children) === 1 ? withName(children, label) : children}
-      {visible &&
+      {Children.count(children) === 1 && !disabled ? withName(children, label) : children}
+      {visible && !disabled &&
         createPortal(
           <span
             style={{ top: coords.top, left: coords.left, transform: transformMap[side] }}
@@ -86,6 +92,9 @@ export function Tooltip({ label, side = 'top', children }: TooltipProps) {
             )}
           >
             {label}
+            {shortcut && (
+              <kbd className="ml-2 font-mono text-[11px] font-medium text-[#A9B2BF] dark:text-[#5D6779]">{shortcut}</kbd>
+            )}
           </span>,
           document.body
         )}

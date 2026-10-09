@@ -84,7 +84,7 @@ systemRouter.get('/info', async (_req, res) => {
       if (m) qemuVersion = m[1];
     } catch { /* qemu not installed */ }
 
-    res.json({ hostname: os.hostname(), cpuModel, cpuCores, load, kernelVersion, qemuVersion });
+    res.json({ hostname: os.hostname(), cpuModel, cpuCores, load, kernelVersion, qemuVersion, uptimeSeconds: Math.round(os.uptime()) });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

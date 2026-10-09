@@ -1,4 +1,4 @@
-import { useState, useRef, type FormEvent, type ChangeEvent } from 'react';
+import { useEffect, useState, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
@@ -30,6 +30,8 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const totpInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { document.title = 'Sign in · VirtPilot'; }, []);
 
   async function handlePasswordSubmit(e: FormEvent) {
     e.preventDefault();
@@ -108,7 +110,7 @@ export function LoginPage() {
 
               <form onSubmit={handlePasswordSubmit} className="mt-6 space-y-5">
                 <div className="space-y-1.5">
-                  <label htmlFor="login-password" className="block text-[12.5px] font-medium text-foreground">
+                  <label htmlFor="login-password" className="block text-[13px] font-semibold text-foreground">
                     Password
                   </label>
                   <div className="relative">
@@ -153,7 +155,7 @@ export function LoginPage() {
 
               <form onSubmit={handleTotpSubmit} className="mt-6 space-y-5">
                 <div className="space-y-1.5">
-                  <label htmlFor="login-totp" className="block text-[12.5px] font-medium text-foreground">
+                  <label htmlFor="login-totp" className="block text-[13px] font-semibold text-foreground">
                     Authenticator code
                   </label>
                   <input
