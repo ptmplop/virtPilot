@@ -92,10 +92,11 @@ export const TEMPLATE_SET: TemplateSet = {
   ],
 };
 
-// Best-effort OS-logo slug for a VM's source image filename. Tries the bundled
-// template set first (exact match), then a substring match against known OS
-// slugs, then a few codename aliases. Returns undefined when nothing matches,
-// so callers fall back to a generic icon.
+// Best-effort OS-logo slug for an image filename (a VM's source template, a template
+// or an ISO). Tries the bundled template set first (exact match), then a substring
+// match against known OS slugs, then codenames and short names, and only then the
+// generic Linux mark — so "alpine-linux-3.20" is Alpine, not Tux. Returns undefined
+// when nothing matches, so callers fall back to a generic icon.
 export function osSlugFromImage(filename?: string): string | undefined {
   if (!filename) return undefined;
   const f = filename.toLowerCase();
@@ -105,15 +106,24 @@ export function osSlugFromImage(filename?: string): string | undefined {
   }
 
   // Longest slugs first so e.g. 'archlinux' wins over a hypothetical 'arch'.
-  const slugs = OS_LOGOS.map((l) => l.slug).sort((a, b) => b.length - a.length);
+  const slugs = OS_LOGOS.map((l) => l.slug).filter((s) => s !== 'linux').sort((a, b) => b.length - a.length);
   for (const slug of slugs) {
     if (f.includes(slug)) return slug;
   }
 
-  // Distro codenames / short names that differ from their logo slug.
+  // Distro codenames / short names that differ from their logo slug. A short name
+  // must stand alone ("win" in "virtio-win", not in "darwin").
+  const word = (w: string) => new RegExp(`(^|[^a-z])${w}([^a-z]|$)`).test(f);
   if (/(noble|jammy|focal|ubuntu)/.test(f)) return 'ubuntu';
   if (/(trixie|bookworm|bullseye|debian)/.test(f)) return 'debian';
   if (/rocky/.test(f)) return 'rockylinux';
   if (/alma/.test(f)) return 'almalinux';
+  if (/alpine/.test(f)) return 'alpinelinux';
+  if (/kali/.test(f)) return 'kalilinux';
+  if (word('arch')) return 'archlinux';
+  if (word('rhel')) return 'redhat';
+  if (word('mint')) return 'linuxmint';
+  if (word('win') || /windows|win1[01]|win20\d\d/.test(f)) return 'windows';
+  if (f.includes('linux')) return 'linux';
   return undefined;
 }

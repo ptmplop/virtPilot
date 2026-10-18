@@ -2,8 +2,7 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import { Disc, Download, Pencil, Trash2, Upload, X, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
-import { formatBytes } from '@/lib/format';
-import { Stat, StatStrip } from '@/components/ui/Panel';
+import { formatBytes, formatDisk } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
@@ -20,6 +19,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { useQueryClient } from '@tanstack/react-query';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
+import { osSlugFromImage } from '@/data/templateSets';
 import { useUploadProgressStore } from '@/store/uploadProgressStore';
 
 // Mirrors the server's deriveIsoFilename (backend routes/isos.ts): compressed
@@ -268,12 +268,6 @@ export function IsosPage() {
         </>
       }
     >
-      {/* Stats */}
-      <StatStrip className="mb-6">
-        <Stat label="ISOs" value={isLoading ? '—' : String(isos?.length ?? 0)} />
-        <Stat label="Total size" value={isLoading ? '—' : `${totalIsoGb.toFixed(1)} GB`} />
-      </StatStrip>
-
       {/* Upload progress */}
       {uploadPct !== null && (
         <div className="mb-5 rounded-xl border border-border bg-card px-5 py-4">
@@ -353,7 +347,7 @@ export function IsosPage() {
                 {['Name', 'File', 'Location', 'Size', ''].map((h) => (
                   <th
                     key={h}
-                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' ? 'text-right' : 'text-left'} ${h === 'File' ? 'hidden xl:table-cell' : ''}`}
+                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' || h === 'Size' ? 'text-right' : 'text-left'} ${h === 'File' ? 'hidden xl:table-cell' : ''}`}
                   >
                     {h}
                   </th>
@@ -365,13 +359,13 @@ export function IsosPage() {
                 <tr key={iso.filename} className="transition-colors hover:bg-surface/70">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
-                      <VmLogo slug={isoLogos[iso.filename]} size={24} fallbackIcon={Disc} />
+                      <VmLogo slug={isoLogos[iso.filename] ?? osSlugFromImage(iso.filename)} size={24} fallbackIcon={Disc} />
                       <InlineName filename={iso.filename} name={iso.name} />
                     </div>
                   </td>
                   <td className="hidden px-5 py-3 font-mono text-xs text-muted-foreground xl:table-cell">{iso.filename}</td>
                   <td className="whitespace-nowrap px-5 py-3 text-[12.5px] text-muted-foreground">{iso.storageDirName}</td>
-                  <td className="whitespace-nowrap px-5 py-3 font-mono text-xs tabular-nums text-muted-foreground">{iso.sizeGb} GB</td>
+                  <td className="whitespace-nowrap px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(iso.sizeGb)}</td>
                   <td className="px-5 py-3 text-right">
                     <div className="inline-flex items-center gap-1">
                       <Tooltip label="Move to another storage directory">
@@ -384,19 +378,31 @@ export function IsosPage() {
                           <FolderInput size={13} />
                         </button>
                       </Tooltip>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(iso.filename)}
-                        aria-label={`Delete ${iso.name}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      <Tooltip label="Delete">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(iso.filename)}
+                          aria-label={`Delete ${iso.name}`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </Tooltip>
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
+            {/* The count and the total, set under their own columns. */}
+            <tfoot>
+              <tr className="border-t border-border bg-surface/60 text-[12px] text-muted-foreground">
+                <td className="px-5 py-2.5 tabular-nums">{isos.length} {isos.length === 1 ? 'ISO' : 'ISOs'}</td>
+                <td className="hidden xl:table-cell" />
+                <td />
+                <td className="whitespace-nowrap px-5 py-2.5 text-right font-medium tabular-nums text-foreground">{formatDisk(totalIsoGb)}</td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         )}
       </div>

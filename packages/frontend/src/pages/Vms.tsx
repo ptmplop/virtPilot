@@ -15,7 +15,6 @@ import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
 import { SearchInput } from '@/components/ui/SearchInput';
-import { Dialog } from '@/components/ui/Dialog';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { CloneVmDialog } from '@/components/CloneVmDialog';
@@ -26,6 +25,8 @@ import type { VmSummary } from '@/types';
 import { Panel, Stat, StatStrip } from '@/components/ui/Panel';
 import { StatusBadge } from '@/components/ui/Badge';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
+import { Menu } from '@/components/ui/Menu';
+import { DeleteVmDialog } from '@/components/DeleteVmDialog';
 import { useLogoStore } from '@/store/logoStore';
 import { osSlugFromImage } from '@/data/templateSets';
 import { useUserPrefsStore } from '@/store/userPrefsStore';
@@ -33,7 +34,11 @@ import { openVmConsole } from '@/lib/consoleOpener';
 
 // The actions column fits a running VM's seven buttons and two dividers (256px); the
 // fixed columns are kept tight so the name still has room at 1024px.
-const COLS = 'minmax(0,1fr) 104px 72px 80px 256px';
+// Columns step down with the room there is: every column from 1024px; name, status
+// and actions from 640px (a tablet beside the sidebar); name and status on a phone,
+// where the row itself opens the VM and every action is on its page.
+const COLS = 'grid-cols-[minmax(0,1fr)_96px] sm:grid-cols-[minmax(0,1fr)_104px_168px] lg:grid-cols-[minmax(0,1fr)_104px_72px_80px_168px]';
+const WIDE_ONLY = 'hidden lg:block';
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -88,15 +93,12 @@ export function VmsPage() {
       {/* Table */}
       <Panel className="overflow-hidden">
         {/* Header */}
-        <div
-          className="table-head grid items-center gap-3 px-5 py-2.5"
-          style={{ gridTemplateColumns: COLS }}
-        >
+        <div className={cn('table-head grid items-center gap-3 px-5 py-2.5', COLS)}>
           <span>Name</span>
           <span>Status</span>
-          <span className="text-right">CPU</span>
-          <span className="text-right">Memory</span>
-          <span className="text-right">Actions</span>
+          <span className={cn(WIDE_ONLY, 'text-right')}>CPU</span>
+          <span className={cn(WIDE_ONLY, 'text-right')}>Memory</span>
+          <span className="hidden text-right sm:block">Actions</span>
         </div>
 
         {/* Loading */}
@@ -200,9 +202,9 @@ function VmRow({ vm }: { vm: VmSummary }) {
 
   const handleAction = async (a: 'start' | 'stop' | 'reboot', force?: boolean) => {
     const label =
-      a === 'stop'   ? (force ? 'Force off'   : 'Shutdown') :
-      a === 'reboot' ? (force ? 'Hard reset'  : 'Reboot')   :
-      'Start';
+      a === 'stop'   ? (force ? 'Force off'   : 'Power off') :
+      a === 'reboot' ? (force ? 'Hard reset'  : 'Reboot')    :
+      'Power on';
     try {
       await action.mutateAsync({ action: a, params: force ? { force: 'true' } : undefined });
       toast.success(`${label} command sent`);
@@ -234,10 +236,10 @@ function VmRow({ vm }: { vm: VmSummary }) {
         // per row), and the actions sit above that layer.
         className={cn(
           'group relative grid items-center gap-3 px-5 py-3 transition-colors duration-100 hover:bg-surface/70 has-[a:focus-visible]:bg-surface/70',
+          COLS,
           flash === 'success' && 'bg-emerald-500/10',
           flash === 'error'   && 'bg-destructive/10',
         )}
-        style={{ gridTemplateColumns: COLS }}
       >
         {/* Name */}
         <div className="flex min-w-0 items-center gap-3">
@@ -261,18 +263,18 @@ function VmRow({ vm }: { vm: VmSummary }) {
         </div>
 
         {/* CPU — quantities in Inter's tabular figures, right-aligned; mono is for identifiers */}
-        <div className="text-right text-[13px] tabular-nums">
+        <div className={cn(WIDE_ONLY, 'text-right text-[13px] tabular-nums')}>
           <span className="font-semibold text-foreground">{vm.cpus}</span>
           <span className="ml-1 text-muted-foreground">vCPU</span>
         </div>
 
         {/* Memory */}
-        <div className="text-right text-[13px] font-semibold tabular-nums text-foreground">
+        <div className={cn(WIDE_ONLY, 'text-right text-[13px] font-semibold tabular-nums text-foreground')}>
           {formatMemory(vm.memoryMb)}
         </div>
 
         {/* Actions */}
-        <div className="relative z-10 flex items-center justify-end gap-0.5">
+        <div className="relative z-10 hidden items-center justify-end gap-0.5 sm:flex">
           {vm.status === 'stopped' && (
             <Tooltip label="Power on">
               <ActionBtn
@@ -285,49 +287,25 @@ function VmRow({ vm }: { vm: VmSummary }) {
               </ActionBtn>
             </Tooltip>
           )}
-          {isRunning && (
-            <>
-              <Tooltip label="Reboot (ACPI)">
-                <ActionBtn
-                  label="Reboot"
-                  onClick={() => handleAction('reboot')}
-                  disabled={isPending}
-                  className="hover:bg-muted hover:text-foreground"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                </ActionBtn>
-              </Tooltip>
-              <Tooltip label="Hard reset (immediate)">
-                <ActionBtn
-                  label="Hard reset"
-                  onClick={() => handleAction('reboot', true)}
-                  disabled={isPending}
-                  className="hover:bg-amber-500/10 hover:text-amber-700 dark:hover:text-amber-300"
-                >
-                  <Zap className="h-3.5 w-3.5" />
-                </ActionBtn>
-              </Tooltip>
-              <Tooltip label="Shutdown (ACPI)">
-                <ActionBtn
-                  label="Shut down"
-                  onClick={() => handleAction('stop')}
-                  disabled={isPending}
-                  className="hover:bg-muted hover:text-foreground"
-                >
-                  <Power className="h-3.5 w-3.5" />
-                </ActionBtn>
-              </Tooltip>
-              <Tooltip label="Force off (kill immediately)">
-                <ActionBtn
-                  label="Force off"
-                  onClick={() => handleAction('stop', true)}
-                  disabled={isPending}
-                  className="hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <PowerOff className="h-3.5 w-3.5" />
-                </ActionBtn>
-              </Tooltip>
-            </>
+          {/* One power control per row: Power on when stopped; when running, the four
+              power commands sit behind one button, graceful above forceful, so a row
+              never needs seven icons and the name keeps its width. */}
+          {(isRunning || vm.status === 'paused' || vm.status === 'crashed') && (
+            <Menu
+              label={`Power: ${vm.name}`}
+              tooltip="Power"
+              icon={<Power className="h-3.5 w-3.5" />}
+              disabled={isPending}
+              items={isRunning ? [
+                { label: 'Reboot', hint: 'ACPI', icon: <RotateCcw className="h-3.5 w-3.5" />, onSelect: () => handleAction('reboot') },
+                { label: 'Power off', hint: 'ACPI', icon: <Power className="h-3.5 w-3.5" />, onSelect: () => handleAction('stop') },
+                { label: 'Hard reset', hint: 'immediate', icon: <Zap className="h-3.5 w-3.5" />, onSelect: () => handleAction('reboot', true), separated: true },
+                { label: 'Force off', hint: 'immediate', icon: <PowerOff className="h-3.5 w-3.5" />, onSelect: () => handleAction('stop', true), danger: true },
+              ] : [
+                // Paused or crashed: nothing graceful can answer, but it can be forced off.
+                { label: 'Force off', hint: 'immediate', icon: <PowerOff className="h-3.5 w-3.5" />, onSelect: () => handleAction('stop', true), danger: true },
+              ]}
+            />
           )}
           <span aria-hidden className="mx-1 h-4 w-px bg-border" />
           <Tooltip label={openConsoleInPopup ? 'Open console (popup)' : 'Open console'}>
@@ -369,7 +347,7 @@ function VmRow({ vm }: { vm: VmSummary }) {
         </div>
       </div>
 
-      <DeleteDialog
+      <DeleteVmDialog
         open={deleteOpen}
         vmName={vm.name}
         isPending={deleteVm.isPending}
@@ -414,43 +392,5 @@ function ActionBtn({
     >
       {children}
     </button>
-  );
-}
-
-// ─── Delete dialog ────────────────────────────────────────────────────────────
-
-function DeleteDialog({
-  open, vmName, isPending, onClose, onConfirm,
-}: {
-  open: boolean;
-  vmName: string;
-  isPending: boolean;
-  onClose: () => void;
-  onConfirm: (deleteStorage: boolean) => void;
-}) {
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={`Delete ${vmName}?`}
-      description="This will undefine the VM in libvirt. Storage deletion is optional."
-      footer={
-        <>
-          <Button variant="secondary" size="sm" onClick={onClose} disabled={isPending}>
-            Cancel
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => onConfirm(false)} disabled={isPending}>
-            Delete (keep storage)
-          </Button>
-          <Button variant="danger" size="sm" onClick={() => onConfirm(true)} disabled={isPending}>
-            {isPending ? 'Deleting…' : 'Delete + storage'}
-          </Button>
-        </>
-      }
-    >
-      <p className="text-[13.5px] text-foreground">
-        The VM will be stopped and removed. Choose whether to also delete its disk images.
-      </p>
-    </Dialog>
   );
 }

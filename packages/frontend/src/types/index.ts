@@ -54,6 +54,8 @@ export interface VmStatsSample {
   cpuPercent: number;
   memUsedMb: number;
   memTotalMb: number;
+  /** 'host' when the guest reports no memory stats and the figure is QEMU's resident size. */
+  memSource?: 'guest' | 'host';
   diskReadBps: number;
   diskWriteBps: number;
   netRxBps: number;
@@ -253,6 +255,8 @@ export interface Settings {
   backupRoot: string;
   maxLogs: number;
   ipWhitelist: string[];
+  /** The address this browser reaches the backend from, as the allowlist sees it. */
+  clientIp?: string;
   totpEnabled: boolean;
   backup: BackupSettings;
   templateSetDismissed: boolean;

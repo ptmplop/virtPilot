@@ -7,11 +7,42 @@ import { Layout } from '@/components/layout/Layout';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Dialog } from '@/components/ui/Dialog';
 import { useSettings } from '@/hooks/useSettings';
 import { api } from '@/lib/api';
 import type { Settings, BackupSettings } from '@/types';
 
 type TotpSetupState = 'idle' | 'setup';
+
+// Whether an allowlist entry (an address, or an IPv4 CIDR range) covers an address —
+// so the page offers to add yours only when the list doesn't already let you in.
+function ipv4ToInt(ip: string): number | null {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const p of parts) {
+    const v = Number(p);
+    if (!/^\d{1,3}$/.test(p) || v > 255) return null;
+    n = n * 256 + v;
+  }
+  return n;
+}
+
+function entryCovers(entry: string, ip: string): boolean {
+  if (entry === ip) return true;
+  const [net, bitsText] = entry.split('/');
+  if (bitsText === undefined) return false;
+  const a = ipv4ToInt(net);
+  const b = ipv4ToInt(ip);
+  const bits = Number(bitsText);
+  if (a === null || b === null || !(bits >= 0 && bits <= 32)) return false;
+  const size = 2 ** (32 - bits);
+  return Math.floor(a / size) === Math.floor(b / size);
+}
+
+function apiError(err: unknown): string | undefined {
+  return (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+}
 
 export function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
@@ -51,7 +82,8 @@ export function SettingsPage() {
       queryClient.setQueryData(['settings'], (prev: typeof settings) => prev ? { ...prev, ...updated } : prev);
       toast.success('IP whitelist saved');
     },
-    onError: () => toast.error('Failed to save IP whitelist'),
+    // The server refuses a list that would shut you out, and says which address it saw.
+    onError: (err) => toast.error(apiError(err) ?? 'Failed to save IP whitelist'),
   });
 
   function handleSaveMaxLogs() {
@@ -124,6 +156,8 @@ export function SettingsPage() {
     onError: () => toast.error('Invalid code — please try again'),
   });
 
+  // Removing 2FA clears the secret (the authenticator must be enrolled again), so it asks first.
+  const [removeTotpOpen, setRemoveTotpOpen] = useState(false);
   const disable2fa = useMutation({
     mutationFn: async () => {
       await api.delete('/api/2fa');
@@ -132,6 +166,7 @@ export function SettingsPage() {
       queryClient.setQueryData(['settings'], (prev: typeof settings) =>
         prev ? { ...prev, totpEnabled: false } : prev,
       );
+      setRemoveTotpOpen(false);
       toast.success('Two-factor authentication removed');
     },
     onError: () => toast.error('Failed to remove 2FA'),
@@ -168,6 +203,16 @@ export function SettingsPage() {
     saveBackupSettings.mutate({ retentionDays: n, compression: backupCompression });
   }
 
+  // A section's Save is live only when its fields differ from what is saved, and is
+  // the ink action only then — at rest the page has nothing pending to commit.
+  // Numbers, not the text typed: "0500" saves as 500 and must not stay "unsaved" after.
+  const logsDirty = settings?.maxLogs != null && parseInt(maxLogs, 10) !== settings.maxLogs;
+  const backupDirty = settings?.backup != null
+    && (parseInt(backupRetentionDays, 10) !== settings.backup.retentionDays || backupCompression !== settings.backup.compression);
+  const ipDirty = JSON.stringify(ipWhitelist) !== JSON.stringify(rawWhitelist ?? []);
+  const clientIp = settings?.clientIp;
+  const clientCovered = !!clientIp && ipWhitelist.some((e) => entryCovers(e, clientIp));
+
   const configRows: [string, string][] = settings ? [
     ['Storage root',        settings.storageRoot],
     ['Templates directory', settings.templatesDir],
@@ -199,8 +244,8 @@ export function SettingsPage() {
           ) : (
             <dl className="divide-y divide-border">
               {configRows.map(([label, value]) => (
-                <div key={label} className="flex items-baseline gap-4 px-5 py-3 hover:bg-muted/20 transition-colors">
-                  <dt className="w-44 shrink-0 text-[12px] font-medium text-muted-foreground">{label}</dt>
+                <div key={label} className="flex flex-col gap-1 px-5 py-3 transition-colors hover:bg-muted/20 sm:flex-row sm:items-baseline sm:gap-4">
+                  <dt className="text-[12px] font-medium text-muted-foreground sm:w-44 sm:shrink-0">{label}</dt>
                   <dd className="min-w-0 truncate font-mono text-xs text-foreground" title={value}>{value}</dd>
                 </div>
               ))}
@@ -226,7 +271,7 @@ export function SettingsPage() {
           {isLoading ? (
             <Skeleton className="h-10 w-48 rounded-lg" />
           ) : (
-            <div className="flex items-end gap-3">
+            <div className="flex flex-wrap items-end gap-3">
               <div className="w-48">
                 <Input
                   label="Max log entries"
@@ -238,10 +283,9 @@ export function SettingsPage() {
                 />
               </div>
               <Button
-                size="sm"
+                variant={logsDirty ? 'primary' : 'secondary'}
                 onClick={handleSaveMaxLogs}
-                disabled={saveSettings.isPending}
-                className="gap-1.5"
+                disabled={!logsDirty || saveSettings.isPending}
               >
                 <Save className="h-3.5 w-3.5" />
                 Save
@@ -275,7 +319,7 @@ export function SettingsPage() {
                   onChange={(e) => setBackupRetentionDays(e.target.value)}
                 />
               </div>
-              <label className="flex cursor-pointer items-center gap-2 pb-1.5 text-sm">
+              <label className="flex min-h-9 cursor-pointer flex-wrap items-center gap-x-2 text-[13.5px]">
                 <input
                   type="checkbox"
                   checked={backupCompression}
@@ -283,13 +327,12 @@ export function SettingsPage() {
                   className="accent-primary"
                 />
                 <span className="text-foreground">Compress backups</span>
-                <span className="text-xs text-muted-foreground">(smaller files, slower)</span>
+                <span className="text-[12.5px] text-muted-foreground">smaller files, slower to make</span>
               </label>
               <Button
-                size="sm"
+                variant={backupDirty ? 'primary' : 'secondary'}
                 onClick={handleSaveBackup}
-                disabled={saveBackupSettings.isPending}
-                className="gap-1.5"
+                disabled={!backupDirty || saveBackupSettings.isPending}
               >
                 <Save className="h-3.5 w-3.5" />
                 Save
@@ -308,24 +351,41 @@ export function SettingsPage() {
             <span className="font-mono">203.0.113.1</span> or{' '}
             <span className="font-mono">10.0.0.0/8</span>). Leave empty to allow all IPs.
           </p>
-          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300 font-medium">
-            Ensure your own IP is listed before saving, or you will be locked out.
-          </p>
         </div>
         <div className="overflow-hidden rounded-xl border border-border bg-card px-5 py-4">
           {isLoading ? (
             <Skeleton className="h-24 rounded-lg" />
           ) : (
             <div className="space-y-3">
+              {/* The fact that prevents a lock-out, stated before the list is touched. */}
+              {clientIp && (
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                  <p className="text-[12.5px] text-muted-foreground">
+                    You are connecting from{' '}
+                    <span className="font-mono text-[12px] text-foreground">{clientIp}</span>
+                    {ipWhitelist.length > 0 && (clientCovered ? ', which this list allows.' : ', which this list does not include yet.')}
+                  </p>
+                  {ipWhitelist.length > 0 && !clientCovered && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => { setIpWhitelist((prev) => [...prev, clientIp]); setIpError(null); }}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add this address
+                    </Button>
+                  )}
+                </div>
+              )}
               {ipWhitelist.length > 0 ? (
-                <ul className="space-y-1.5">
+                <ul className="divide-y divide-border rounded-md border border-border">
                   {ipWhitelist.map((entry) => (
-                    <li key={entry} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
-                      <span className="font-mono text-xs text-foreground">{entry}</span>
+                    <li key={entry} className="flex items-center justify-between gap-3 py-1 pl-3 pr-1">
+                      <span className="font-mono text-[12px] text-foreground">{entry}</span>
                       <button
                         type="button"
                         onClick={() => setIpWhitelist(prev => prev.filter(e => e !== entry))}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                         aria-label={`Remove ${entry}`}
                       >
                         <X className="h-3.5 w-3.5" />
@@ -334,12 +394,12 @@ export function SettingsPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-xs text-muted-foreground italic">No restrictions — all IPs are allowed.</p>
+                <p className="text-[12.5px] text-muted-foreground">No restrictions: every IP address may sign in.</p>
               )}
 
-              <div className="flex items-end justify-between gap-3 pt-1">
-                <div className="flex items-end gap-2 min-w-0">
-                  <div className="w-64 shrink-0">
+              <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
+                <div className="flex min-w-0 flex-1 items-end gap-2">
+                  <div className="min-w-0 flex-1 sm:w-64 sm:flex-none">
                     <Input
                       label="Add IP or CIDR"
                       type="text"
@@ -350,16 +410,15 @@ export function SettingsPage() {
                       error={ipError ?? undefined}
                     />
                   </div>
-                  <Button size="sm" variant="secondary" onClick={handleAddIp} className="gap-1.5 shrink-0">
+                  <Button variant="secondary" onClick={handleAddIp}>
                     <Plus className="h-3.5 w-3.5" />
                     Add
                   </Button>
                 </div>
                 <Button
-                  size="sm"
+                  variant={ipDirty ? 'primary' : 'secondary'}
                   onClick={() => saveIpWhitelist.mutate(ipWhitelist)}
-                  disabled={saveIpWhitelist.isPending}
-                  className="gap-1.5 shrink-0"
+                  disabled={!ipDirty || saveIpWhitelist.isPending}
                 >
                   <Save className="h-3.5 w-3.5" />
                   Save
@@ -388,11 +447,9 @@ export function SettingsPage() {
                 <span className="text-sm font-medium text-foreground">2FA is enabled</span>
               </div>
               <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => disable2fa.mutate()}
+                variant="dangerOutline"
+                onClick={() => setRemoveTotpOpen(true)}
                 disabled={disable2fa.isPending}
-                className="gap-1.5 text-destructive hover:text-destructive"
               >
                 <ShieldOff className="h-3.5 w-3.5" />
                 Remove 2FA
@@ -405,10 +462,8 @@ export function SettingsPage() {
                 <span className="text-sm text-muted-foreground">2FA is not enabled</span>
               </div>
               <Button
-                size="sm"
                 onClick={() => setup2fa.mutate()}
                 disabled={setup2fa.isPending}
-                className="gap-1.5"
               >
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Set up authenticator
@@ -432,7 +487,7 @@ export function SettingsPage() {
                   <p className="break-all font-mono text-xs text-foreground select-all">{totpSecret}</p>
                 </div>
               </div>
-              <div className="flex items-end gap-3">
+              <div className="flex flex-wrap items-end gap-3">
                 <div className="w-40">
                   <Input
                     ref={totpConfirmRef}
@@ -453,16 +508,13 @@ export function SettingsPage() {
                   />
                 </div>
                 <Button
-                  size="sm"
                   onClick={() => enable2fa.mutate(totpConfirmCode)}
                   disabled={enable2fa.isPending || totpConfirmCode.length !== 6}
-                  className="gap-1.5"
                 >
                   <ShieldCheck className="h-3.5 w-3.5" />
                   Activate
                 </Button>
                 <Button
-                  size="sm"
                   variant="secondary"
                   onClick={() => { setTotpSetupState('idle'); setTotpConfirmCode(''); }}
                 >
@@ -475,6 +527,28 @@ export function SettingsPage() {
       </section>
 
       </div>
+
+      <Dialog
+        open={removeTotpOpen}
+        onClose={() => setRemoveTotpOpen(false)}
+        title="Remove two-factor authentication?"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setRemoveTotpOpen(false)} disabled={disable2fa.isPending}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => disable2fa.mutate()} disabled={disable2fa.isPending}>
+              {disable2fa.isPending ? 'Removing…' : 'Remove 2FA'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13.5px] leading-6 text-muted-foreground">
+          Signing in will need only the password. The authenticator's secret is deleted, so turning
+          2FA back on means scanning a new code.
+        </p>
+      </Dialog>
     </Layout>
   );
 }

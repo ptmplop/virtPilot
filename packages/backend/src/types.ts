@@ -54,6 +54,8 @@ export interface VmStatsSample {
   cpuPercent: number;
   memUsedMb: number;
   memTotalMb: number;
+  /** 'guest': the guest's balloon stats; 'host': it reports none, so the QEMU process's resident size. */
+  memSource: 'guest' | 'host';
   diskReadBps: number;
   diskWriteBps: number;
   netRxBps: number;

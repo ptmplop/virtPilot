@@ -467,7 +467,7 @@ export function VmConsolePage() {
   const isNotRunning = vm && vm.status !== 'running';
 
   return (
-    <div className="flex h-screen flex-col" style={{ background: themeBg }}>
+    <div className="app-frame flex flex-col" style={{ background: themeBg }}>
       {/* Header bar — always dark: it sits on a terminal. */}
       <div className="dark flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 text-foreground">
         {/* Brand mark */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, type FormEvent, Fragment } from 'react';
+import React, { useEffect, useId, useRef, useState, type FormEvent, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, Link } from 'react-router-dom';
 import {
@@ -25,6 +25,8 @@ import { useNetworks, useNetwork } from '@/hooks/useNetworks';
 import { cn } from '@/lib/cn';
 import { useLogoStore } from '@/store/logoStore';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
+import { osSlugFromImage } from '@/data/templateSets';
+import { formatDisk } from '@/lib/format';
 
 // ─── Types & constants ────────────────────────────────────────────────────────
 
@@ -249,10 +251,12 @@ function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
               >
                 {done ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : i + 1}
               </div>
+              {/* A phone has room for one label: the current step's. The others keep
+                  their number, and their name for a screen reader. */}
               <span
                 className={cn(
-                  'text-[13px] transition-colors',
-                  active ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground'
+                  'whitespace-nowrap text-[13px] transition-colors',
+                  active ? 'font-semibold text-foreground' : 'sr-only font-medium text-muted-foreground sm:not-sr-only'
                 )}
               >
                 {STEP_META[s].label}
@@ -261,7 +265,7 @@ function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
             {i < steps.length - 1 && (
               <div
                 className={cn(
-                  'mx-4 h-px flex-1 transition-colors duration-500',
+                  'mx-3 h-px flex-1 transition-colors duration-500 sm:mx-4',
                   done ? 'bg-primary/40' : 'bg-border'
                 )}
               />
@@ -285,18 +289,19 @@ function SummarySidebar({
   networkSummary?: string;
 }) {
   const sourceLabel = form.sourceType === 'iso' ? 'Install ISO' : 'Template';
-  const rows: [string, string][] = [
-    ['Name',      form.name || '—'],
-    [sourceLabel, sourceName || '—'],
-    ['vCPU',      form.cpus],
-    ['RAM',       mbToDisplay(form.memoryMb)],
-    ['Disk',      `${form.diskGb} GB`],
-    ['Networks',  networkSummary || '—'],
+  // Identifiers (names, images, networks) are mono; quantities are Inter's tabular figures.
+  const rows: [string, string, 'id' | 'qty'][] = [
+    ['Name',      form.name || '—', 'id'],
+    [sourceLabel, sourceName || '—', 'id'],
+    ['vCPU',      form.cpus, 'qty'],
+    ['RAM',       mbToDisplay(form.memoryMb), 'qty'],
+    ['Disk',      `${form.diskGb} GB`, 'qty'],
+    ['Networks',  networkSummary || '—', 'id'],
     ...(form.sourceType === 'template'
       ? ([
-          ['Hostname', form.hostname || form.name || '—'],
-          ['Username', form.username],
-        ] as [string, string][])
+          ['Hostname', form.hostname || form.name || '—', 'id'],
+          ['Username', form.username, 'id'],
+        ] as [string, string, 'id' | 'qty'][])
       : []),
   ];
 
@@ -304,12 +309,13 @@ function SummarySidebar({
     <Panel>
       <PanelHeader title="VM summary" />
       <dl className="divide-y divide-border px-5 py-1">
-        {rows.map(([label, value]) => (
+        {rows.map(([label, value, kind]) => (
           <div key={label} className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-center gap-x-3 py-[9px]">
             <dt className="text-[12.5px] text-muted-foreground">{label}</dt>
             <dd
               className={cn(
-                'min-w-0 truncate text-right font-mono text-[12px] tabular-nums',
+                'min-w-0 truncate text-right tabular-nums',
+                kind === 'id' && value !== '—' ? 'font-mono text-[12px]' : 'text-[13px]',
                 value === '—' ? 'text-muted-foreground' : 'text-foreground'
               )}
               title={value !== '—' ? value : undefined}
@@ -370,7 +376,10 @@ function SourceDropdown({
   const [openUpward, setOpenUpward] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
   const selected = items.find((i) => i.filename === value) ?? null;
+  // A mark picked for the image wins; otherwise the one its filename implies.
+  const slugOf = (filename: string) => slugs[filename] ?? osSlugFromImage(filename);
 
   useEffect(() => {
     if (!open) return;
@@ -384,17 +393,38 @@ function SourceDropdown({
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const toggle = () => {
-    if (!open && triggerRef.current) {
-      const r = triggerRef.current.getBoundingClientRect();
-      setRect(r);
-      // 260 = max-h-60 (240px) + 6px gap + 14px buffer
-      setOpenUpward(r.bottom + 260 > window.innerHeight);
-    }
-    setOpen((v) => !v);
-  };
+  // Opening moves focus to the chosen option (or the first), as a listbox does.
+  useEffect(() => {
+    if (!open) return;
+    const opts = Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
+    (opts.find((o) => o.getAttribute('aria-selected') === 'true') ?? opts[0])?.focus();
+  }, [open]);
 
-  const select = (filename: string) => { onChange(filename); setOpen(false); };
+  const show = () => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    setRect(r);
+    // 260 = max-h-60 (240px) + 6px gap + 14px buffer
+    setOpenUpward(r.bottom + 260 > window.innerHeight);
+    setOpen(true);
+  };
+  const close = () => { setOpen(false); triggerRef.current?.focus(); };
+  const select = (filename: string) => { onChange(filename); close(); };
+
+  // Keyboard as in any listbox: arrows, Home/End, Enter or Space picks, Escape or Tab
+  // closes and returns to the field.
+  const onListKey = (e: React.KeyboardEvent) => {
+    const opts = Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
+    const i = opts.indexOf(document.activeElement as HTMLButtonElement);
+    const to = e.key === 'ArrowDown' ? Math.min(i + 1, opts.length - 1)
+      : e.key === 'ArrowUp' ? Math.max(i - 1, 0)
+      : e.key === 'Home' ? 0
+      : e.key === 'End' ? opts.length - 1
+      : null;
+    if (to !== null) { e.preventDefault(); opts[to]?.focus(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
+    if (e.key === 'Tab') close();
+  };
 
   const panelStyle: React.CSSProperties = rect
     ? openUpward
@@ -406,24 +436,28 @@ function SourceDropdown({
     <div
       ref={panelRef}
       style={panelStyle}
+      onKeyDown={onListKey}
       className="overflow-hidden rounded-lg border border-border bg-card shadow-pop animate-fade-in"
     >
-      <div className="max-h-60 overflow-y-auto p-1">
+      <div id={listId} role="listbox" aria-label={placeholder} className="max-h-60 overflow-y-auto p-1">
         {items.map((item) => {
           const isSel = item.filename === value;
           return (
             <button
               key={item.filename}
               type="button"
+              role="option"
+              aria-selected={isSel}
+              tabIndex={-1}
               onClick={() => select(item.filename)}
               className={cn(
-                'flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-[13.5px] transition-colors',
+                'flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-[13.5px] transition-colors focus-visible:outline-offset-[-2px]',
                 isSel ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-muted'
               )}
             >
-              <VmLogo slug={slugs[item.filename]} size={22} fallbackIcon={fallbackIcon} />
+              <VmLogo slug={slugOf(item.filename)} size={22} fallbackIcon={fallbackIcon} />
               <span className={cn('flex-1 truncate text-left', isSel && 'font-medium')}>{item.name}</span>
-              <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">{item.sizeGb} GB</span>
+              <span className="shrink-0 text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(item.sizeGb)}</span>
               {isSel ? <Check size={14} className="shrink-0 text-primary" /> : <span className="w-[14px] shrink-0" />}
             </button>
           );
@@ -433,28 +467,34 @@ function SourceDropdown({
     document.body
   );
 
+  // 36px, like every other field.
   return (
     <>
       <button
         ref={triggerRef}
         type="button"
-        onClick={toggle}
+        onClick={() => (open ? close() : show())}
+        onKeyDown={(e) => {
+          if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); show(); }
+        }}
+        aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? listId : undefined}
         className={cn(
-          'flex h-11 w-full items-center gap-3 rounded-md border bg-field px-3 text-[13.5px] transition-[border-color,box-shadow] duration-150',
+          'flex h-9 w-full items-center gap-2.5 rounded-md border bg-field px-3 text-[13.5px] transition-[border-color,box-shadow] duration-150',
           'focus:outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/20',
           open ? 'border-ring ring-[3px] ring-ring/20' : 'border-input hover:border-muted-foreground/40'
         )}
       >
         {selected ? (
           <>
-            <VmLogo slug={slugs[selected.filename]} size={22} fallbackIcon={fallbackIcon} />
+            <VmLogo slug={slugOf(selected.filename)} size={18} fallbackIcon={fallbackIcon} />
             <span className="flex-1 truncate text-left text-foreground">{selected.name}</span>
-            <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">{selected.sizeGb} GB</span>
+            <span className="shrink-0 text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(selected.sizeGb)}</span>
           </>
         ) : (
           <>
-            <VmLogo slug={undefined} size={22} fallbackIcon={fallbackIcon} />
+            <VmLogo slug={undefined} size={18} fallbackIcon={fallbackIcon} />
             <span className="flex-1 text-left text-muted-foreground">{placeholder}</span>
           </>
         )}
@@ -509,6 +549,83 @@ function ResourcesStep({
           required
           className={FIELD}
         />
+      </div>
+
+      {/* Boot source — the one choice with no default, so it comes first */}
+      <div className="space-y-3">
+        <FieldLabel>Boot source</FieldLabel>
+
+        {/* Source type toggle */}
+        <div className="segmented flex w-full" role="group" aria-label="Boot source">
+          {(['template', 'iso'] as SourceType[]).map((type) => {
+            const sel = form.sourceType === type;
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={() => switchSource(type)}
+                aria-pressed={sel}
+                className="flex flex-1 items-center justify-center gap-2 py-1.5"
+              >
+                {type === 'template' ? (
+                  <><HardDrive className="h-3.5 w-3.5" /> Cloud image</>
+                ) : (
+                  <><Disc className="h-3.5 w-3.5" /> Install from ISO</>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Template picker */}
+        {form.sourceType === 'template' && (
+          templates.length === 0 ? (
+            <EmptySource title="No templates available">
+              <Link to="/templates" className={LINK}>
+                Upload a qcow2 image
+              </Link>{' '}
+              on the Templates page first.
+            </EmptySource>
+          ) : (
+            <SourceDropdown
+              items={templates}
+              value={form.templateFilename}
+              onChange={(filename) => setForm((f) => ({ ...f, templateFilename: filename }))}
+              placeholder="Select a template…"
+              slugs={templateLogos}
+            />
+          )
+        )}
+
+        {/* ISO picker */}
+        {form.sourceType === 'iso' && (
+          <>
+            {isos.length === 0 ? (
+              <EmptySource title="No ISOs available">
+                <Link to="/isos" className={LINK}>
+                  Upload an ISO
+                </Link>{' '}
+                on the ISOs page first.
+              </EmptySource>
+            ) : (
+              <SourceDropdown
+                items={isos}
+                value={form.isoFilename}
+                onChange={(filename) => setForm((f) => ({ ...f, isoFilename: filename }))}
+                placeholder="Select an ISO…"
+                slugs={isoLogos}
+                fallbackIcon={Disc}
+              />
+            )}
+            <p className={CALLOUT_ATTENTION}>
+              <WarnGlyph size={10} className="mt-[5px]" />
+              <span>
+                A blank disk will be created. The VM will boot from the ISO so you can install the OS manually.
+                Eject the ISO after installation and reboot to boot from disk.
+              </span>
+            </p>
+          </>
+        )}
       </div>
 
       {/* Size presets */}
@@ -593,7 +710,7 @@ function ResourcesStep({
       {/* Disk size */}
       <div className="space-y-3">
         <FieldLabel>Disk size</FieldLabel>
-        {/* One-line values, 2–6 options: the segmented control, like Boot source below. */}
+        {/* One-line values, 2–6 options: the segmented control, like Boot source above. */}
         <div className="segmented" role="group" aria-label="Disk size">
           {DISK_PRESETS.map((gb) => (
             <button
@@ -711,83 +828,6 @@ function ResourcesStep({
               />
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Boot Source */}
-      <div className="space-y-3">
-        <FieldLabel>Boot source</FieldLabel>
-
-        {/* Source type toggle */}
-        <div className="segmented flex w-full" role="group" aria-label="Boot source">
-          {(['template', 'iso'] as SourceType[]).map((type) => {
-            const sel = form.sourceType === type;
-            return (
-              <button
-                key={type}
-                type="button"
-                onClick={() => switchSource(type)}
-                aria-pressed={sel}
-                className="flex flex-1 items-center justify-center gap-2 py-1.5"
-              >
-                {type === 'template' ? (
-                  <><HardDrive className="h-3.5 w-3.5" /> Cloud image</>
-                ) : (
-                  <><Disc className="h-3.5 w-3.5" /> Install from ISO</>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Template picker */}
-        {form.sourceType === 'template' && (
-          templates.length === 0 ? (
-            <EmptySource title="No templates available">
-              <Link to="/templates" className={LINK}>
-                Upload a qcow2 image
-              </Link>{' '}
-              on the Templates page first.
-            </EmptySource>
-          ) : (
-            <SourceDropdown
-              items={templates}
-              value={form.templateFilename}
-              onChange={(filename) => setForm((f) => ({ ...f, templateFilename: filename }))}
-              placeholder="Select a template…"
-              slugs={templateLogos}
-            />
-          )
-        )}
-
-        {/* ISO picker */}
-        {form.sourceType === 'iso' && (
-          <>
-            {isos.length === 0 ? (
-              <EmptySource title="No ISOs available">
-                <Link to="/isos" className={LINK}>
-                  Upload an ISO
-                </Link>{' '}
-                on the ISOs page first.
-              </EmptySource>
-            ) : (
-              <SourceDropdown
-                items={isos}
-                value={form.isoFilename}
-                onChange={(filename) => setForm((f) => ({ ...f, isoFilename: filename }))}
-                placeholder="Select an ISO…"
-                slugs={isoLogos}
-                fallbackIcon={Disc}
-              />
-            )}
-            <p className={CALLOUT_ATTENTION}>
-              <WarnGlyph size={10} className="mt-[5px]" />
-              <span>
-                A blank disk will be created. The VM will boot from the ISO so you can install the OS manually.
-                Eject the ISO after installation and reboot to boot from disk.
-              </span>
-            </p>
-          </>
         )}
       </div>
     </div>
@@ -1481,6 +1521,21 @@ export function VmCreatePage() {
 
   const resourcesStepValid = !!form.name && (isIsoInstall ? !!form.isoFilename : !!form.templateFilename);
 
+  // What Continue is waiting for, said beside it rather than left to a dead button.
+  const missing: string[] = step === 'resources'
+    ? [
+        ...(!form.name ? ['name the VM'] : []),
+        ...(!(isIsoInstall ? form.isoFilename : form.templateFilename) ? [isIsoInstall ? 'choose an ISO' : 'choose a template'] : []),
+      ]
+    : step === 'network' && !networkStepValid
+      ? [form.networks.length === 0 ? 'choose at least one network'
+        : !form.networks.some((s) => s.isPrimary) ? 'mark one network as primary'
+        : 'pick an IP for each static network']
+      : [];
+  const missingHint = missing.length
+    ? `${missing.join(' and ').replace(/^./, (c) => c.toUpperCase())}.`
+    : null;
+
   const handleCreate = async () => {
     try {
       let createdUuid: string;
@@ -1533,8 +1588,10 @@ export function VmCreatePage() {
         });
         createdUuid = result.uuid;
       }
+      // An ISO install records no source image, so the mark its ISO implies is kept now;
+      // a template's is derived from the image name wherever the VM is shown.
       const inheritedSlug = isIsoInstall
-        ? isoLogos[form.isoFilename]
+        ? isoLogos[form.isoFilename] ?? osSlugFromImage(form.isoFilename)
         : templateLogos[form.templateFilename];
       if (inheritedSlug) setVmLogo(form.name, inheritedSlug);
       if (startAfterCreate) {
@@ -1548,7 +1605,8 @@ export function VmCreatePage() {
       } else {
         toast.success(`VM "${form.name}" created`);
       }
-      navigate('/vms');
+      // Straight to the new machine: its page has the console, which an ISO install needs next.
+      navigate(`/vms/${createdUuid}`);
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -1619,16 +1677,21 @@ export function VmCreatePage() {
               </Button>
 
               {step !== 'review' ? (
-                <Button
-                  type="button"
-                  onClick={next}
-                  disabled={
-                    (step === 'resources' && !resourcesStepValid) ||
-                    (step === 'network'   && !networkStepValid)
-                  }
-                >
-                  Continue <ArrowRight size={14} />
-                </Button>
+                <div className="flex min-w-0 items-center gap-3">
+                  {missingHint && (
+                    <p className="hidden truncate text-[12.5px] text-muted-foreground sm:block">{missingHint}</p>
+                  )}
+                  <Button
+                    type="button"
+                    onClick={next}
+                    disabled={
+                      (step === 'resources' && !resourcesStepValid) ||
+                      (step === 'network'   && !networkStepValid)
+                    }
+                  >
+                    Continue <ArrowRight size={14} />
+                  </Button>
+                </div>
               ) : (
                 <Button type="button" onClick={handleCreate} disabled={createVm.isPending}>
                   {createVm.isPending ? (

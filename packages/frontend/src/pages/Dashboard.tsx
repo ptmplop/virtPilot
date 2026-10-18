@@ -46,9 +46,13 @@ const fmtBps = formatRate;
 
 function fmtPct(n: number) { return `${Math.round(n)}%`; }
 
+// "Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz" → "Intel Xeon Gold 6338"; QEMU's own model
+// names carry a flag list ("Intel Xeon Processor (Skylake, IBRS, no TSX)"), which keeps
+// only its generation. The full string stays in the row's title.
 function cleanCpuModel(raw: string): string {
   return raw
     .replace(/\(R\)/g, '').replace(/\(TM\)/g, '')
+    .replace(/\(([^,()]+),[^)]*\)/, '($1)')
     .replace(/\s+CPU\b/i, '')
     .replace(/\s+@\s+[\d.]+\s*GHz/i, '')
     .replace(/\s+\d+-Core\s+Processor\b/i, '')
@@ -87,21 +91,25 @@ const STATUS_WORD: Record<VmStatus, string> = {
 };
 
 // Tiny axis-less line for the roster rows — just enough to read the shape of a VM's
-// recent CPU. A flat wash under the line, no gradient.
+// recent CPU. It sits in a quiet track (the allocation bars' own colour), so an idle
+// VM's flat line reads as a chart at rest rather than an underline. No gradient.
 function Sparkline({
   data, color, max, width = 56, height = 18,
 }: { data: number[]; color: string; max: number; width?: number; height?: number }) {
   if (!data || data.length < 2) return null;
+  const pad = 3;
+  const floor = height - pad;
   const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * width;
-    const y = height - 1 - (Math.min(v, max) / max) * (height - 2);
+    const x = pad + (i / (data.length - 1)) * (width - pad * 2);
+    const y = floor - (Math.min(v, max) / max) * (height - pad * 2);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
   const line = `M${pts.join(' L')}`;
-  const area = `${line} L${width},${height} L0,${height} Z`;
+  const area = `${line} L${width - pad},${floor} L${pad},${floor} Z`;
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden className="overflow-visible">
-      <path d={area} fill={color} fillOpacity={0.1} />
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden>
+      <rect width={width} height={height} rx={3} fill="hsl(var(--gauge-track))" fillOpacity={0.6} />
+      <path d={area} fill={color} fillOpacity={0.12} />
       <path
         d={line}
         fill="none"
@@ -121,20 +129,20 @@ function Sparkline({
 // more than the host has means swapping or the OOM killer — so it warns above 100%.
 const VCPU_WARN_RATIO = 4;
 
+// A ruled row, like the Host plate's Load and Network rows beside it — label, bar,
+// value — so the two panels' feet share their rules.
 function AllocationMeter({ label, used, total, value, warn }: {
   label: string; used: number; total: number; value: React.ReactNode; warn: boolean;
 }) {
   const scale = Math.max(used, total, 1);
   const over = used > total && total > 0;
   return (
-    <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-3 text-[12px]">
-        <span className="font-medium text-muted-foreground">{label}</span>
-        <span className={cn('truncate tabular-nums', warn ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
-          {value}
-        </span>
-      </div>
-      <div className="relative mt-2">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 py-[9px] sm:grid-cols-[9.5rem_minmax(0,1fr)_auto]">
+      <span className="truncate text-[12.5px] text-muted-foreground">{label}</span>
+      <span className={cn('truncate text-right text-[12px] tabular-nums sm:order-last', warn ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
+        {value}
+      </span>
+      <div className="relative col-span-2 sm:col-span-1">
         <div className="flex h-[5px] overflow-hidden rounded-[2px] bg-gauge-track">
           <div
             className={cn('h-full transition-[width] duration-700', warn ? 'bg-amber-500' : 'bg-[#4F7CAC] dark:bg-[#86AEDA]')}
@@ -202,7 +210,7 @@ function VmRoster({ vms, cores, memTotalMb }: { vms: VmSummary[]; cores?: number
                 <li key={vm.id}>
                   <Link
                     to={`/vms/${vm.id}`}
-                    className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_5.5rem_3.5rem_7.25rem] items-center gap-x-3 px-5 py-[9px] transition-colors hover:bg-surface"
+                    className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_5.5rem] items-center gap-x-3 px-5 py-[9px] transition-colors hover:bg-surface sm:grid-cols-[1.25rem_minmax(0,1fr)_5.5rem_3.5rem_7.25rem]"
                   >
                     <span className="block h-5 w-5 shrink-0">
                       <VmLogo slug={chosenLogos[vm.name] ?? osSlugFromImage(vm.sourceTemplateFilename)} size={20} />
@@ -234,7 +242,7 @@ function VmRoster({ vms, cores, memTotalMb }: { vms: VmSummary[]; cores?: number
 
                     {/* Recent-CPU sparkline (running VMs with samples) */}
                     <span
-                      className="flex h-[18px] items-center justify-end"
+                      className="hidden h-[18px] items-center justify-end sm:flex"
                       title={live && vm.cpuSpark && vm.cpuSpark.length >= 2
                         ? `CPU, last ${Math.max(1, Math.round((vm.cpuSpark.length * 30) / 60))} min · peak ${Math.round(Math.max(...vm.cpuSpark))}%`
                         : undefined}
@@ -245,7 +253,7 @@ function VmRoster({ vms, cores, memTotalMb }: { vms: VmSummary[]; cores?: number
                     </span>
 
                     {/* Allocation */}
-                    <span className="text-right text-[12.5px] tabular-nums text-muted-foreground group-hover/row:text-foreground">
+                    <span className="hidden text-right text-[12.5px] tabular-nums text-muted-foreground group-hover/row:text-foreground sm:block">
                       {vm.cpus} vCPU · {fmtMb(vm.memoryMb)}
                     </span>
                   </Link>
@@ -258,7 +266,7 @@ function VmRoster({ vms, cores, memTotalMb }: { vms: VmSummary[]; cores?: number
 
       {/* What the running guests have been given, against the host */}
       {total > 0 && (
-        <div className="mt-auto grid grid-cols-1 gap-x-8 gap-y-3 border-t border-border bg-surface/60 px-5 py-3.5 sm:grid-cols-2">
+        <div className="mt-auto divide-y divide-border border-t border-border bg-surface/60 px-5 py-1">
           <AllocationMeter
             label="vCPU to running VMs"
             used={vcpus}
@@ -298,12 +306,9 @@ function PlateRow({ label, children }: { label: string; children: React.ReactNod
 }
 
 function LoadValue({ load, cores }: { load?: [number, number, number]; cores?: number }) {
-  const color = (v: number) => {
-    const r = v / Math.max(cores ?? 1, 1);
-    if (r > 1.0) return 'text-red-700 dark:text-red-300';
-    if (r > 0.7) return 'text-amber-700 dark:text-amber-300';
-    return 'text-foreground';
-  };
+  // More runnable work than cores needs attention, not alarm: red is kept for failure.
+  const color = (v: number) =>
+    v / Math.max(cores ?? 1, 1) > 1 ? 'text-amber-700 dark:text-amber-300' : 'text-foreground';
   if (!load) return <span className="text-muted-foreground">—</span>;
   const spans = ['1m', '5m', '15m'];
   return (
@@ -355,27 +360,19 @@ function HostOverview() {
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1.4fr]">
       {/* Host plate */}
       <Panel className="animate-fade-up flex flex-col" style={{ animationDelay: '60ms' }}>
-        <PanelHeader
-          title="Host"
-          actions={
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 text-[12.5px] font-medium',
-                isKvm ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300',
-              )}
-              title={isKvm ? 'Hardware-accelerated virtualisation' : 'Software emulation — reduced performance'}
-            >
-              {isKvm ? <StatusGlyph status="running" size={7} /> : <WarnGlyph size={9} />}
-              {isKvm ? 'KVM · hardware accelerated' : 'TCG · software emulation'}
-            </span>
-          }
-        />
+        {/* Acceleration is the status band's verdict; here it is one plain fact on the
+            QEMU row, so the first screen says it once. */}
+        <PanelHeader title="Host" />
         <dl className="divide-y divide-border px-5 py-1">
           <PlateRow label="Hostname">{info?.hostname ?? '—'}</PlateRow>
           <PlateRow label="CPU">
-            <span title={info?.cpuModel}>{info ? `${cleanCpuModel(info.cpuModel)} · ${info.cpuCores} cores` : '—'}</span>
+            <span title={info?.cpuModel}>{info ? cleanCpuModel(info.cpuModel) : '—'}</span>
           </PlateRow>
-          <PlateRow label="QEMU">{info?.qemuVersion ?? '—'}</PlateRow>
+          <PlateRow label="QEMU">
+            <span title={isKvm ? 'Hardware-accelerated virtualisation (KVM)' : 'Software emulation (TCG): reduced performance'}>
+              {info?.qemuVersion ?? '—'} · {isKvm ? 'KVM' : 'TCG'}
+            </span>
+          </PlateRow>
           <PlateRow label="Kernel">{info?.kernelVersion ?? '—'}</PlateRow>
           <PlateRow label="Libvirt">{settings.libvirtUri}</PlateRow>
         </dl>
@@ -400,7 +397,6 @@ function HostOverview() {
 // Metrics tab uses — axis labels, ruled grid, auto-scaled "nice" max.
 
 interface HostMetricCardProps {
-  id: string;
   label: string;
   /** Raw current value; animated via count-up and rendered through formatValue. */
   primaryValue: number;
@@ -428,7 +424,7 @@ interface HostMetricCardProps {
 }
 
 function HostMetricCard({
-  id, label,
+  label,
   primaryValue, formatValue, secondaryValue, legend,
   data, data2, color, color2,
   timestamps, formatY, formatX, max, minMax, labels, formatTime,
@@ -466,7 +462,6 @@ function HostMetricCard({
           </div>
         ) : (
           <MetricChart
-            id={id}
             data={data}
             data2={data2}
             color={color}
@@ -652,43 +647,40 @@ function AptSection() {
     invalidate();
   };
 
+  // One Updates panel: VirtPilot's own row first, then the host's packages as a row of
+  // the same shape — a name, one line of state, its actions — with the list beneath.
   return (
     <>
       <Panel className="overflow-hidden">
-        <PanelHeader
-          title="System updates"
-          meta={
-            isLoading ? 'Checking for updates…'
-            : upToDate ? 'Up to date'
-            : `${count} ${count === 1 ? 'package' : 'packages'} available`
-          }
-          actions={
-            count > 0 ? (
-              <Button size="sm" onClick={() => setUpgrading(true)}>
-                <RefreshCw className="h-3.5 w-3.5" />
-                Upgrade all
-              </Button>
-            ) : undefined
-          }
-        />
+        <VirtPilotUpdateCard />
+
+        <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13.5px] font-semibold leading-5 text-foreground">Host packages</p>
+            <p className="mt-0.5 text-[13px] text-muted-foreground">
+              {isLoading ? 'Checking for updates…'
+                : upToDate ? 'Up to date'
+                : `${count} ${count === 1 ? 'update' : 'updates'} available`}
+            </p>
+          </div>
+          {count > 0 && (
+            <Button size="sm" variant="secondary" onClick={() => setUpgrading(true)} className="self-start sm:self-auto">
+              <RefreshCw className="h-3.5 w-3.5" />
+              Upgrade all
+            </Button>
+          )}
+        </div>
 
         {/* Package list */}
         {isLoading && (
-          <div className="space-y-2 p-4">
+          <div className="space-y-2 px-4 pb-4">
             {[0, 1, 2].map((i) => <Skeleton key={i} className="h-9 rounded-md" />)}
-          </div>
-        )}
-
-        {upToDate && (
-          <div className="flex items-center justify-center gap-2 py-9 text-[13px] text-muted-foreground">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            No updates available for this host
           </div>
         )}
 
         {!isLoading && count > 0 && (
           <>
-            <div className="table-head grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-5 py-2">
+            <div className="table-head grid grid-cols-[minmax(0,1fr)_auto] gap-4 border-t px-5 py-2">
               <span>Package</span>
               <span>New version</span>
             </div>
@@ -899,37 +891,35 @@ function VirtPilotUpdateCard() {
   const published = (iso?: string | null) =>
     iso ? new Date(iso).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : null;
 
-  // Every state is the same row — the mark, what is installed, what to do about it —
-  // so the section keeps its weight whether or not there is anything to do.
+  // Every state is the same row — what is installed, what to do about it — the first of
+  // the Updates panel's rows, so the section keeps its weight whether or not there is
+  // anything to do.
   const row = (headline: React.ReactNode, detail: React.ReactNode, actions: React.ReactNode, extra?: React.ReactNode) => (
-    <Panel className="px-5 py-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <div className="flex min-w-0 flex-1 items-center gap-4">
-          <div className="min-w-0">
-            <p className="flex flex-wrap items-baseline gap-x-2 text-[15px] font-semibold tracking-[-0.01em] text-foreground">
-              {headline}
-            </p>
-            <div className="mt-0.5 text-[13px] text-muted-foreground">{detail}</div>
-          </div>
+    <div className="border-b border-border px-5 py-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1">
+          <p className="flex flex-wrap items-baseline gap-x-2 text-[13.5px] font-semibold leading-5 text-foreground">
+            {headline}
+          </p>
+          <div className="mt-0.5 text-[13px] text-muted-foreground">{detail}</div>
         </div>
         <div className="flex flex-wrap items-center gap-1 sm:justify-end">{actions}</div>
       </div>
       {extra}
-    </Panel>
+    </div>
   );
 
   // ── Up to date ───────────────────────────────────────────────────────────
   if (!data.updateAvailable) {
     const broken = !data.repoOk;
     return row(
-      <>VirtPilot <span className="font-mono text-[13.5px] font-medium">v{data.current}</span></>,
+      <>VirtPilot <span className="font-mono text-[12.5px] font-medium">v{data.current}</span></>,
       broken ? (
         <span className="text-amber-800 dark:text-amber-300">
           In-app upgrades unavailable — {data.repoReason ?? 'repository check failed.'}
         </span>
       ) : (
-        <span className="inline-flex items-center gap-1.5">
-          <StatusGlyph status="running" size={7} />
+        <span>
           Up to date{published(data.publishedAt) ? ` — the latest release, published ${published(data.publishedAt)}` : ''}
         </span>
       ),
@@ -943,7 +933,7 @@ function VirtPilotUpdateCard() {
   // ── Update available, repo broken (manual upgrade required) ──────────────
   if (!data.repoOk) {
     return row(
-      <>VirtPilot <span className="font-mono text-[13.5px] font-medium">v{data.current}</span></>,
+      <>VirtPilot <span className="font-mono text-[12.5px] font-medium">v{data.current}</span></>,
       <span className="text-amber-800 dark:text-amber-300">
         v{targetVersion} is available, but in-app upgrade is unavailable — {data.repoReason ?? 'repository check failed.'}
       </span>,
@@ -961,7 +951,7 @@ function VirtPilotUpdateCard() {
       {row(
         <>
           <span>Update available</span>
-          <span className="flex items-baseline gap-1.5 font-mono text-[13.5px] font-medium">
+          <span className="flex items-baseline gap-1.5 font-mono text-[12.5px] font-medium">
             <span className="text-muted-foreground">v{data.current}</span>
             <ArrowRight className="h-3.5 w-3.5 self-center text-muted-foreground" aria-label="to" />
             <span className="text-primary">v{targetVersion}</span>
@@ -1102,13 +1092,13 @@ function HealthBand({ stale, lastSampleAt }: { stale: boolean; lastSampleAt: num
             'mt-1.5 flex items-center gap-2 text-[21px] font-semibold leading-7 tracking-[-0.022em]',
             stale ? 'text-muted-foreground' : healthy ? 'text-foreground' : 'text-amber-800 dark:text-amber-200',
           )}>
-            {stale ? <StatusGlyph status="unknown" size={9} />
-              : healthy ? <StatusGlyph status="running" size={9} />
-              : <WarnGlyph size={11} />}
+            {/* A word stands alone; only a warning carries a mark. */}
+            {!stale && !healthy && <WarnGlyph size={11} />}
             <span className="truncate">{headline}</span>
           </p>
+          {/* Two lines at most: a warning's sentence wraps instead of being cut mid-word. */}
           <p
-            className="mt-2 truncate text-[12.5px] leading-5 text-muted-foreground"
+            className="mt-2 line-clamp-2 text-[12.5px] leading-5 text-muted-foreground"
             title={!healthy && warnings.length > 1 ? warnings.map((w) => `${w.title}: ${w.detail}`).join('\n') : undefined}
           >
             {subLine}
@@ -1272,17 +1262,8 @@ export function DashboardPage() {
         {/* ── Health summary ── */}
         <HealthBand stale={stale} lastSampleAt={dataUpdatedAt} />
 
-        {/* ── Overview ── */}
-        <section className="space-y-3.5">
-          <SectionHeading label="Overview" />
-          <HostOverview />
-        </section>
-
-        {/* ── VirtPilot ── */}
-        <section id="virtpilot-section" className="animate-fade-up scroll-mt-6 space-y-3.5" style={{ animationDelay: '180ms' }}>
-          <SectionHeading label="VirtPilot" />
-          <VirtPilotUpdateCard />
-        </section>
+        {/* ── The host and its VMs: the two panels name themselves ── */}
+        <HostOverview />
 
         {/* ── Host Metrics ── */}
         <section className="space-y-3.5">
@@ -1310,11 +1291,7 @@ export function DashboardPage() {
                     type="button"
                     onClick={() => setRange(r)}
                     aria-pressed={range === r}
-                    className="flex items-center gap-1.5"
                   >
-                    {r === 'live' && (
-                      <StatusGlyph status={range !== 'live' ? 'stopped' : stale ? 'unknown' : 'running'} size={6} />
-                    )}
                     {r === 'live' ? 'Live' : r}
                   </button>
                 ))}
@@ -1325,7 +1302,6 @@ export function DashboardPage() {
           {!metricsCollapsed && (
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <HostMetricCard
-              id="host-cpu"
               formatTime={formatTime}
               label="CPU"
               primaryValue={current?.cpuPercent ?? 0}
@@ -1341,7 +1317,6 @@ export function DashboardPage() {
               delay={240}
             />
             <HostMetricCard
-              id="host-mem"
               formatTime={formatTime}
               label="Memory"
               primaryValue={current?.memUsedMb ?? 0}
@@ -1358,7 +1333,6 @@ export function DashboardPage() {
               delay={290}
             />
             <HostMetricCard
-              id="host-disk"
               labels={['Read', 'Write']}
               formatTime={formatTime}
               label="Disk I/O"
@@ -1384,7 +1358,6 @@ export function DashboardPage() {
               delay={340}
             />
             <HostMetricCard
-              id="host-net"
               labels={['RX', 'TX']}
               formatTime={formatTime}
               label="Network"
@@ -1413,9 +1386,10 @@ export function DashboardPage() {
           )}
         </section>
 
-        {/* ── System ── */}
-        <section className="animate-fade-up space-y-3.5" style={{ animationDelay: '450ms' }}>
-          <SectionHeading label="System" />
+        {/* ── Updates: VirtPilot itself, then the host's packages. The band's version
+            links here. ── */}
+        <section id="virtpilot-section" className="animate-fade-up scroll-mt-6 space-y-3.5" style={{ animationDelay: '450ms' }}>
+          <SectionHeading label="Updates" />
           <AptSection />
         </section>
 

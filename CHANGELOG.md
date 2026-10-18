@@ -3,6 +3,46 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.13.0] — 2026-10-18
+
+### Changed
+
+- **Phones get a real layout.** Below 768 px the sidebar becomes a drawer behind a menu button in a slim top bar, pages run edge to edge, wide tables scroll inside their own panel, and the VM list keeps each machine's name and state — tap a row for everything else. Fields no longer make an iPhone zoom in when you type.
+
+- **A VM's Overview reads the machine while it runs.** CPU, memory, disk and network as they are now, with what the VM was given underneath; a stopped VM still shows its allocation. The Metrics tab opens straight on its history. The VM's page also shows its operating system's mark beside its name, and the Configuration panel says when it was created and which image it was built from.
+
+- **One power control per VM in the list.** A running VM's Reboot, Power off, Hard reset and Force off are one menu, graceful above forceful, so names are no longer cut short on smaller screens and every row's icons line up. A paused or crashed VM can now be forced off from the list and from its page — before, it offered no power control at all. A VM can also be deleted from its own page (the bin after Clone).
+
+- **The dashboard tells one story:** the host and its VMs, the host's metrics, then one Updates section holding VirtPilot's own update and the host's packages. Hardware acceleration (KVM or TCG) is stated once, a long CPU name is no longer cut mid-word, and load above the core count reads amber, not red. A warning's sentence wraps instead of being cut off, and an idle VM's CPU sparkline sits in a quiet track instead of looking like an underline.
+
+- **Quieter lists.** Templates, ISOs, Networks and SSH keys carry their count (and total size) in the list's own foot instead of a strip of figures above a short list. Templates and ISOs show their distro's mark, read from the file name. Network types and storage defaults are plain words, not colours that read like a status.
+
+- **One main action per view.** On a VM's tabs, Add disk, Add NIC, Take snapshot and Add rule are ordinary buttons — the page header already has the main one. In Settings, each Save stays quiet until something in its section has changed, and every button beside a field is the field's height.
+
+- **Calmer charts with round axes.** A faint flat wash under a single line and none under a pair, instead of gradients; byte-rate axes tick at 512 KB/s, 1 MB/s, 1.5 MB/s rather than 976.6 KB/s, 1.4 MB/s.
+
+- **The new-VM wizard asks for the boot source first** — the one choice without a default — says what Continue is waiting for, and opens the new VM once it is created. Its template and ISO picker is the height of every other field and now works from the keyboard.
+
+### Added
+
+- **Settings shows the address you are connecting from**, says whether the IP allowlist includes it, and offers to add it with one click. A save the server refuses now says why, instead of "Failed to save IP whitelist".
+
+### Fixed
+
+- **The Disks tab showed "file" as every disk's bus.** It now reads the real bus (virtio, sata, scsi).
+
+- **A guest that doesn't report its memory read as 100% used, in amber** — that was its allocation. It now shows the memory the host has actually given it, labelled "resident on host". (Guests with the balloon driver are unchanged.)
+
+- **Delete snapshot, Remove NIC and Remove 2FA acted on a single click.** Each now asks first. Clearing the logs uses VirtPilot's own dialog instead of the browser's.
+
+- **Dialogs didn't take the keyboard.** Focus stayed on the page behind them, so Tab walked through every row underneath before reaching the dialog's buttons. Focus now moves into a dialog when it opens, stays there, and returns to the button that opened it.
+
+- **The upgrade terminals and some dialogs could be drawn inside their section of the page** rather than over the whole window, because an entrance animation left a transform behind.
+
+- **Sizes were printed raw** — "0.18 GB", "4.0 GB", "0.0 GB" — and in a monospaced face. Every size now goes through the shared formatter and sits right-aligned in its column.
+
+- Smaller things: an Alpine template showed a generic icon, and a VM installed from an ISO now keeps the ISO's mark; Add NIC was disabled without saying why; the template and ISO delete buttons had no tooltip; each Backups row had a History button that did what clicking the row already does; "Click to expand" spelt out what the arrow already said; and words that aren't a VM's state (Healthy, Up to date, Live, guest agent) no longer carry a status dot.
+
 ## [2.12.0] — 2026-10-09
 
 ### Changed

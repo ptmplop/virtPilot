@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { formatDuration } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
+import { Dialog } from '@/components/ui/Dialog';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
@@ -191,6 +192,7 @@ export function LogsPage() {
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'error'>('all');
+  const [clearOpen, setClearOpen] = useState(false);
 
   const filtered = (logs ?? []).filter((e) => {
     if (groupFilter && !e.type.startsWith(groupFilter)) return false;
@@ -207,10 +209,9 @@ export function LogsPage() {
     return true;
   });
 
-  async function handleClear() {
-    if (!confirm('Clear all logs? This cannot be undone.')) return;
+  function handleClear() {
     clearLogs.mutate(undefined, {
-      onSuccess: () => toast.success('Logs cleared'),
+      onSuccess: () => { toast.success('Logs cleared'); setClearOpen(false); },
       onError: () => toast.error('Failed to clear logs'),
     });
   }
@@ -219,20 +220,16 @@ export function LogsPage() {
     <div className="flex items-center gap-2">
       <Button
         variant="ghost"
-        size="sm"
         onClick={() => void refetch()}
         disabled={isFetching}
-        className="gap-1.5"
       >
         <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
         Refresh
       </Button>
       <Button
         variant="secondary"
-        size="sm"
-        onClick={handleClear}
+        onClick={() => setClearOpen(true)}
         disabled={clearLogs.isPending || !logs?.length}
-        className="gap-1.5"
       >
         <Trash2 className="h-3.5 w-3.5" />
         Clear logs
@@ -333,6 +330,28 @@ export function LogsPage() {
           </div>
         )}
       </div>
+
+      <Dialog
+        open={clearOpen}
+        onClose={() => setClearOpen(false)}
+        title="Clear all logs?"
+        description="Every entry is deleted, including failures you may still need. This cannot be undone."
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setClearOpen(false)} disabled={clearLogs.isPending}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="sm" onClick={handleClear} disabled={clearLogs.isPending}>
+              {clearLogs.isPending ? 'Clearing…' : 'Clear logs'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13.5px] text-foreground">
+          {logs?.length ?? 0} {logs?.length === 1 ? 'entry' : 'entries'} will be removed.
+        </p>
+      </Dialog>
     </Layout>
   );
 }

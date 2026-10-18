@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { HardDrive, Download, Trash2, Plus, Pencil, FolderOpen, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
-import { formatBytes } from '@/lib/format';
+import { formatBytes, formatDisk } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -18,32 +18,27 @@ import { Panel, Stat, StatStrip } from '@/components/ui/Panel';
 import { WarnGlyph } from '@/components/ui/Badge';
 import type { StorageDir, StorageDirPurpose, StorageDirWithUsage } from '@/types';
 
+// What a directory holds and what it is the default for are both plain lists, in the
+// page's own order (templates, ISOs, VM disks) — a default is a setting, not a state.
+const PURPOSE_ORDER: StorageDirPurpose[] = ['templates', 'isos', 'vmDisks'];
+const PURPOSE_LABEL: Record<StorageDirPurpose, string> = { templates: 'Templates', isos: 'ISOs', vmDisks: 'VM disks' };
+
+function purposeList(purposes: StorageDirPurpose[]): string {
+  return PURPOSE_ORDER.filter((p) => purposes.includes(p)).map((p) => PURPOSE_LABEL[p]).join(' · ');
+}
+
 function PurposeChips({ purposes }: { purposes: StorageDirPurpose[] }) {
-  const labels: Record<StorageDirPurpose, string> = {
-    templates: 'templates',
-    isos: 'ISOs',
-    vmDisks: 'VM disks',
-  };
-  return (
-    <span className="text-[12.5px] text-foreground">
-      {purposes.map((p) => labels[p]).join(' · ')}
-    </span>
-  );
+  return <span className="text-[12.5px] text-foreground">{purposeList(purposes)}</span>;
 }
 
 function DefaultChips({ dir }: { dir: StorageDir }) {
-  const flags: Array<[boolean, string]> = [
-    [dir.isDefaultTemplates, 'templates'],
-    [dir.isDefaultIsos, 'ISOs'],
-    [dir.isDefaultVmDisks, 'VM disks'],
+  const active: StorageDirPurpose[] = [
+    ...(dir.isDefaultTemplates ? ['templates' as const] : []),
+    ...(dir.isDefaultIsos ? ['isos' as const] : []),
+    ...(dir.isDefaultVmDisks ? ['vmDisks' as const] : []),
   ];
-  const active = flags.filter(([on]) => on).map(([, label]) => label);
   if (active.length === 0) return <span className="text-[12.5px] text-muted-foreground">—</span>;
-  return (
-    <span className="text-[12.5px] font-medium text-emerald-700 dark:text-emerald-300">
-      {active.join(' · ')}
-    </span>
-  );
+  return <span className="text-[12.5px] text-foreground">{purposeList(active)}</span>;
 }
 
 function UsageBar({ dir }: { dir: StorageDirWithUsage }) {
@@ -112,12 +107,12 @@ export function StoragePage() {
     <Layout title="Storage" subtitle="Where templates, ISOs and VM disks are stored, and the space they use.">
       {/* Summary */}
       <StatStrip className="mb-8">
-        <Stat label="Templates" value={templates?.length ?? 0} sub={`${totalTemplateGb.toFixed(1)} GB total`} />
-        <Stat label="ISOs" value={isos?.length ?? 0} sub={`${totalIsoGb.toFixed(1)} GB total`} />
+        <Stat label="Templates" value={templates?.length ?? 0} sub={`${formatDisk(totalTemplateGb)} total`} />
+        <Stat label="ISOs" value={isos?.length ?? 0} sub={`${formatDisk(totalIsoGb)} total`} />
         <Stat
           label="VM disks"
           value={vmDisksError ? '—' : (vmDisks?.length ?? 0)}
-          sub={vmDisksError ? 'libvirt unreachable' : `${totalDiskGb.toFixed(1)} GB on disk`}
+          sub={vmDisksError ? 'libvirt unreachable' : `${formatDisk(totalDiskGb)} on disk`}
         />
       </StatStrip>
 
@@ -218,7 +213,7 @@ export function StoragePage() {
                     <td className="px-5 py-3 text-sm font-medium text-foreground">{t.name}</td>
                     <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{t.filename}</td>
                     <td className="px-5 py-3 text-xs text-muted-foreground">{t.storageDirName}</td>
-                    <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{t.sizeGb} GB</td>
+                    <td className="px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(t.sizeGb)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -247,7 +242,7 @@ export function StoragePage() {
                     <td className="px-5 py-3 text-sm font-medium text-foreground">{iso.name}</td>
                     <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{iso.filename}</td>
                     <td className="px-5 py-3 text-xs text-muted-foreground">{iso.storageDirName}</td>
-                    <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{iso.sizeGb} GB</td>
+                    <td className="px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(iso.sizeGb)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -312,7 +307,7 @@ export function StoragePage() {
                     </td>
                     <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{d.filename}</td>
                     <td className="px-5 py-3 text-xs text-muted-foreground">{d.storageDirName}</td>
-                    <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{d.sizeGb} GB</td>
+                    <td className="px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(d.sizeGb)}</td>
                     <td className="px-5 py-3 text-right">
                       <div className="inline-flex items-center gap-1">
                         {(() => {

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { BookOpen, Globe, Network, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
-import { Stat, StatStrip } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
@@ -24,22 +23,17 @@ function IpPoolDetail({ networkId }: { networkId: string }) {
   );
 }
 
+// A network's type is a plain word: colour on this page means state (green running,
+// amber attention), and a type is not a state.
 function networkTypeLabel(n: NetworkType): string {
   if (n.type === 'nat') return 'NAT';
-  if (n.type === 'existing-bridge') return n.ipMode === 'dhcp' ? 'OS Bridge DHCP' : 'OS Bridge Static';
-  return n.ipMode === 'dhcp' ? 'Bridge DHCP' : 'Bridge Static';
-}
-
-function networkTypeColor(n: NetworkType): string {
-  if (n.type === 'nat') return 'text-blue-600 dark:text-blue-400';
-  if (n.ipMode === 'dhcp') return 'text-violet-600 dark:text-violet-400';
-  return 'text-emerald-600 dark:text-emerald-400';
+  if (n.type === 'existing-bridge') return n.ipMode === 'dhcp' ? 'OS bridge · DHCP' : 'OS bridge · static';
+  return n.ipMode === 'dhcp' ? 'Bridge · DHCP' : 'Bridge · static';
 }
 
 function NetworkIcon({ n, className }: { n: NetworkType; className?: string }) {
-  if (n.type === 'nat') return <Network className={cn('h-4 w-4 text-blue-600 dark:text-blue-400', className)} />;
-  if (n.ipMode === 'dhcp') return <Globe className={cn('h-4 w-4 text-violet-600 dark:text-violet-400', className)} />;
-  return <Globe className={cn('h-4 w-4 text-emerald-600 dark:text-emerald-400', className)} />;
+  const Icon = n.type === 'nat' ? Network : Globe;
+  return <Icon className={cn('h-4 w-4 text-muted-foreground', className)} />;
 }
 
 function NetworkRow({ network, onDelete }: { network: NetworkType; onDelete: () => void }) {
@@ -47,14 +41,12 @@ function NetworkRow({ network, onDelete }: { network: NetworkType; onDelete: () 
     <tr className="transition-colors hover:bg-surface/70">
       <td className="px-5 py-3">
         <div className="flex items-center gap-2.5">
-          <NetworkIcon n={network} className="h-4 w-4 text-muted-foreground dark:text-muted-foreground" />
+          <NetworkIcon n={network} />
           <span className="text-[13.5px] font-semibold text-foreground">{network.name}</span>
         </div>
       </td>
       <td className="px-5 py-3">
-        <span className={cn('text-[12.5px] font-medium', networkTypeColor(network))}>
-          {networkTypeLabel(network)}
-        </span>
+        <span className="whitespace-nowrap text-[12.5px] text-foreground">{networkTypeLabel(network)}</span>
       </td>
       <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{network.cidr}</td>
       <td className="px-5 py-3 font-mono text-xs text-muted-foreground">
@@ -244,13 +236,6 @@ export function NetworksPage() {
         </div>
       }
     >
-      {/* Stats */}
-      <StatStrip className="mb-6">
-        <Stat label="Networks" value={isLoading ? '—' : String(networks?.length ?? 0)} />
-        <Stat label="NAT" value={isLoading ? '—' : String(natCount)} />
-        <Stat label="Bridge" value={isLoading ? '—' : String(bridgeCount)} />
-      </StatStrip>
-
       <div className="panel overflow-hidden">
         {isLoading ? (
           <div className="space-y-px p-3">
@@ -289,6 +274,15 @@ export function NetworksPage() {
                 <NetworkRow key={n.id} network={n} onDelete={() => setDeleteTarget(n)} />
               ))}
             </tbody>
+            {/* The count in the list's own foot; the split by kind only when there is one. */}
+            <tfoot>
+              <tr className="border-t border-border bg-surface/60">
+                <td colSpan={7} className="px-5 py-2.5 text-[12px] tabular-nums text-muted-foreground">
+                  {networks.length} {networks.length === 1 ? 'network' : 'networks'}
+                  {natCount > 0 && bridgeCount > 0 && <> · {natCount} NAT · {bridgeCount} bridged</>}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         )}
       </div>

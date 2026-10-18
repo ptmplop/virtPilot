@@ -36,6 +36,33 @@ interface PrevCounters {
 const prevCounters = new Map<string, PrevCounters>();
 let tickCounter = 0;
 
+// What "memory used" means depends on what the guest reports. With the virtio balloon
+// driver's stats (available/unused), it is the guest's own view. Without them libvirt
+// only knows the allocation, and reporting that as "used" read every such guest as
+// 100% full. The QEMU process's resident size on the host (balloon.rss) is a measured
+// figure instead — what the guest has actually touched — capped at its allocation.
+export interface GuestMemory { usedMb: number; totalMb: number; source: 'guest' | 'host' }
+
+export function guestMemory(stats: Map<string, number>): GuestMemory {
+  const availableKiB = stats.get('balloon.available');
+  const unusedKiB = stats.get('balloon.unused');
+  if (availableKiB != null && unusedKiB != null) {
+    return {
+      totalMb: Math.round(availableKiB / 1024),
+      usedMb: Math.round((availableKiB - unusedKiB) / 1024),
+      source: 'guest',
+    };
+  }
+  const totalKiB = stats.get('balloon.maximum') ?? 0;
+  const currentKiB = stats.get('balloon.current') ?? totalKiB;
+  const rssKiB = stats.get('balloon.rss');
+  return {
+    totalMb: Math.round(totalKiB / 1024),
+    usedMb: Math.round(Math.min(rssKiB ?? currentKiB, currentKiB || rssKiB || 0) / 1024),
+    source: 'host',
+  };
+}
+
 function parseDomStats(out: string): Map<string, number> {
   const result = new Map<string, number>();
   for (const line of out.split('\n')) {
@@ -60,10 +87,7 @@ async function sampleVm(vmUuid: string): Promise<VmMetricsPoint | null> {
 
     const cpuTimeNs = get('cpu.time');
     const vcpuCount = get('vcpu.current') || get('vcpu.maximum') || 1;
-    const balloonMaxKiB = get('balloon.maximum');
-    const balloonCurrentKiB = get('balloon.current');
-    const balloonAvailableKiB = s.get('balloon.available');
-    const balloonUnusedKiB = s.get('balloon.unused');
+    const mem = guestMemory(s);
 
     const blockCount = get('block.count');
     let blockRdBytes = 0;
@@ -93,21 +117,11 @@ async function sampleVm(vmUuid: string): Promise<VmMetricsPoint | null> {
     const maxCpuNs = dt * vcpuCount * 1e9;
     const cpuPercent = Math.min(100, Math.max(0, ((cpuTimeNs - prev.cpuTimeNs) / maxCpuNs) * 100));
 
-    let memTotalMb: number;
-    let memUsedMb: number;
-    if (balloonAvailableKiB != null && balloonUnusedKiB != null) {
-      memTotalMb = Math.round(balloonAvailableKiB / 1024);
-      memUsedMb = Math.round((balloonAvailableKiB - balloonUnusedKiB) / 1024);
-    } else {
-      memTotalMb = Math.round(balloonMaxKiB / 1024);
-      memUsedMb = Math.round(balloonCurrentKiB / 1024);
-    }
-
     return {
       ts: now,
       cpuPercent: Math.round(cpuPercent * 10) / 10,
-      memUsedMb,
-      memTotalMb,
+      memUsedMb: mem.usedMb,
+      memTotalMb: mem.totalMb,
       diskReadBps: Math.max(0, (blockRdBytes - prev.blockRdBytes) / dt),
       diskWriteBps: Math.max(0, (blockWrBytes - prev.blockWrBytes) / dt),
       netRxBps: Math.max(0, (netRxBytes - prev.netRxBytes) / dt),

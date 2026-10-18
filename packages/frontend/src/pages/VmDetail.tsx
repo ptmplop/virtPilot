@@ -23,7 +23,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Spinner } from '@/components/ui/Spinner';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
-  useVm, useVmMeta, useVmCredentials, useVmAction, useAddDisk, useDetachDisk,
+  useVm, useVmMeta, useVmCredentials, useVmAction, useDeleteVm, useAddDisk, useDetachDisk,
   useAttachCdrom, useDetachCdrom, useAddNic, useDetachNic, useSetNicBandwidth,
   useSetBootOrder, useBootOnce,
   useSnapshots, useCreateSnapshot, useDeleteSnapshot, useRevertSnapshot, useSnapshotToTemplate,
@@ -42,8 +42,11 @@ import { formatMemory, formatDisk, formatBytes, formatDateTime, formatChartTime,
 import { cn } from '@/lib/cn';
 import { CHART } from '@/lib/chartColors';
 import { useSettings } from '@/hooks/useSettings';
-import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatus } from '@/types';
+import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatsSample, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
+import { VmLogo } from '@/components/ui/OsLogoPicker';
+import { DeleteVmDialog } from '@/components/DeleteVmDialog';
+import { osSlugFromImage } from '@/data/templateSets';
 import { useVmOpsStore } from '@/store/vmOpsStore';
 import { useUserPrefsStore } from '@/store/userPrefsStore';
 import { openVmConsole } from '@/lib/consoleOpener';
@@ -134,8 +137,12 @@ function TableHead({ columns, right = [], pad = 'px-5' }: { columns: string[]; r
   );
 }
 
-function EmptyState({ children }: { children: React.ReactNode }) {
-  return <div className="px-6 py-12 text-center text-[13px] text-muted-foreground">{children}</div>;
+// A tab's main list centres its empty state in the panel; a secondary panel on the same
+// tab (port forwards, rules, devices) says it in one line rather than reserving a block.
+function EmptyState({ children, compact }: { children: React.ReactNode; compact?: boolean }) {
+  return compact
+    ? <div className="px-5 py-3.5 text-[13px] text-muted-foreground">{children}</div>
+    : <div className="px-6 py-12 text-center text-[13px] text-muted-foreground">{children}</div>;
 }
 
 // Callouts: attention (amber, with the warning glyph) or information (the recess).
@@ -196,6 +203,9 @@ export function VmDetailPage() {
   const { data: vm, isLoading } = useVm(uuid!);
   const { data: metaData } = useVmMeta(uuid!);
   const vmMeta = metaData?.meta ?? null;
+  // The VM's mark, as on the list: one picked by hand, else the one its image implies.
+  const chosenLogo = useLogoStore((s) => (vm ? s.vms[vm.name] : undefined));
+  const logoSlug = chosenLogo ?? osSlugFromImage(vmMeta?.sourceTemplateFilename);
   const action = useVmAction(uuid!);
   const openConsoleInPopup = useUserPrefsStore((s) => s.openConsoleInPopup);
   const { data: hostSettings } = useSettings();
@@ -204,6 +214,19 @@ export function VmDetailPage() {
   const [renameValue, setRenameValue] = useState('');
   const [cloneOpen, setCloneOpen] = useState(false);
   const rename = useRenameVm(uuid!);
+  // Deleting is on the VM's own page too: a phone's list shows no row actions.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const deleteVm = useDeleteVm();
+  const handleDeleteVm = async (deleteStorage: boolean) => {
+    try {
+      await deleteVm.mutateAsync({ uuid: uuid!, deleteStorage });
+      toast.success(`${vm?.name ?? 'VM'} deleted`);
+      setDeleteOpen(false);
+      navigate('/vms');
+    } catch {
+      toast.error('Failed to delete VM');
+    }
+  };
 
   const handleRenameStart = () => {
     setRenameValue(vm?.name ?? '');
@@ -271,50 +294,55 @@ export function VmDetailPage() {
               Wraps rather than overflows: below ~1100px of content the action group drops
               under the name instead of pushing the page sideways. */}
           <div className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-            <div className="min-w-0">
-              {renaming ? (
-                <div className="flex items-center gap-2">
-                  <Input
-                    autoFocus
-                    aria-label="VM name"
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleRenameSubmit();
-                      if (e.key === 'Escape') handleRenameCancel();
-                    }}
-                    className="w-64 text-[14px] font-medium"
-                  />
-                  <Button onClick={handleRenameSubmit} disabled={rename.isPending}>
-                    {rename.isPending ? <Spinner className="h-3.5 w-3.5 text-current" /> : 'Save'}
-                  </Button>
-                  <Button variant="secondary" onClick={handleRenameCancel} disabled={rename.isPending}>
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <h1 className="truncate text-[26px] font-semibold leading-8 tracking-[-0.024em] text-foreground">{vm.name}</h1>
-                  {vm.status === 'stopped' && (
-                    <RowAction label="Rename VM" onClick={handleRenameStart}>
-                      <Pencil size={14} />
-                    </RowAction>
-                  )}
-                </div>
-              )}
-              <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13.5px]">
-                <span className={cn('inline-flex items-center gap-1.5 font-medium', statusTextColour[vm.status])}>
-                  <StatusGlyph status={vm.status} />
-                  {statusLabels[vm.status]}
-                </span>
-                <span aria-hidden className="text-muted-foreground">·</span>
-                <span className="whitespace-nowrap tabular-nums text-muted-foreground">
-                  {vm.cpus} {vm.cpus === 1 ? 'vCPU' : 'vCPUs'} · {formatMemory(vm.memoryMb)}
-                  {/* The host decides acceleration (xmlBuilder picks kvm vs qemu by /dev/kvm);
-                      this used to say KVM unconditionally, even on TCG-only hosts. */}
-                  {hostSettings && (hostSettings.kvmAvailable ? ' · KVM' : ' · TCG')}
-                </span>
-              </p>
+            <div className="flex min-w-0 items-center gap-3.5">
+              {/* Its distro's mark beside the name — the same muted mark the list row shows.
+                  Nothing at all when no image is known, rather than a generic glyph. */}
+              {logoSlug && !renaming && <VmLogo slug={logoSlug} size={40} />}
+              <div className="min-w-0">
+                {renaming ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      autoFocus
+                      aria-label="VM name"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRenameSubmit();
+                        if (e.key === 'Escape') handleRenameCancel();
+                      }}
+                      className="w-64 max-w-full text-[14px] font-medium"
+                    />
+                    <Button onClick={handleRenameSubmit} disabled={rename.isPending}>
+                      {rename.isPending ? <Spinner className="h-3.5 w-3.5 text-current" /> : 'Save'}
+                    </Button>
+                    <Button variant="secondary" onClick={handleRenameCancel} disabled={rename.isPending}>
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <h1 className="truncate text-[26px] font-semibold leading-8 tracking-[-0.024em] text-foreground">{vm.name}</h1>
+                    {vm.status === 'stopped' && (
+                      <RowAction label="Rename VM" onClick={handleRenameStart}>
+                        <Pencil size={14} />
+                      </RowAction>
+                    )}
+                  </div>
+                )}
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13.5px]">
+                  <span className={cn('inline-flex items-center gap-1.5 font-medium', statusTextColour[vm.status])}>
+                    <StatusGlyph status={vm.status} />
+                    {statusLabels[vm.status]}
+                  </span>
+                  <span aria-hidden className="text-muted-foreground">·</span>
+                  <span className="whitespace-nowrap tabular-nums text-muted-foreground">
+                    {vm.cpus} {vm.cpus === 1 ? 'vCPU' : 'vCPUs'} · {formatMemory(vm.memoryMb)}
+                    {/* The host decides acceleration (xmlBuilder picks kvm vs qemu by /dev/kvm);
+                        this used to say KVM unconditionally, even on TCG-only hosts. */}
+                    {hostSettings && (hostSettings.kvmAvailable ? ' · KVM' : ' · TCG')}
+                  </span>
+                </p>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -367,10 +395,24 @@ export function VmDetailPage() {
                   </Tooltip>
                 </>
               )}
+              {/* A paused or crashed VM can't shut down gracefully, but it can always be
+                  forced off — otherwise it would offer no power control at all. */}
+              {(vm.status === 'paused' || vm.status === 'crashed') && (
+                <Tooltip label="Force off (kill immediately)">
+                  <Button
+                    size="sm"
+                    variant="dangerOutline"
+                    onClick={() => handleAction('stop', true)}
+                    disabled={action.isPending}
+                  >
+                    <PowerOff size={14} /> Force off
+                  </Button>
+                </Tooltip>
+              )}
               {/* Power actions, then the tools: a hairline keeps the graceful, the forceful
                   and the everyday apart. Each state has one ink action — Power on when
                   stopped, Console when running. */}
-              {(vm.status === 'running' || vm.status === 'stopped') && (
+              {vm.status !== 'unknown' && (
                 <span aria-hidden className="mx-1 h-5 w-px bg-border" />
               )}
               <Tooltip label={openConsoleInPopup ? 'Open console (popup)' : 'Open console'}>
@@ -387,8 +429,20 @@ export function VmDetailPage() {
                   <CopyPlus size={14} /> Clone
                 </Button>
               </Tooltip>
+              <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+              <RowAction label="Delete VM" danger onClick={() => setDeleteOpen(true)}>
+                <Trash2 size={14} />
+              </RowAction>
             </div>
           </div>
+
+          <DeleteVmDialog
+            open={deleteOpen}
+            vmName={vm.name}
+            isPending={deleteVm.isPending}
+            onClose={() => setDeleteOpen(false)}
+            onConfirm={handleDeleteVm}
+          />
 
           {cloneOpen && (
             <CloneVmDialog
@@ -401,8 +455,15 @@ export function VmDetailPage() {
           )}
 
           {/* Tab bar: underline tabs on a full-width hairline. The underline hugs the
-              label, so the first tab lines up with the content edge. */}
-          <div role="tablist" aria-label="VM sections" className="mb-7 flex items-center gap-6 border-b border-border">
+              label, so the first tab lines up with the content edge. Only on a phone does
+              the bar scroll sideways — there the hairline is an inset shadow (a scroll box
+              would clip tabs hanging over a real border) and the focus ring is drawn inside
+              the tab. Wider screens keep the plain border and the usual outside ring. */}
+          <div
+            role="tablist"
+            aria-label="VM sections"
+            className="mb-6 flex items-center gap-6 overflow-x-auto shadow-[inset_0_-1px_0_hsl(var(--border))] [scrollbar-width:none] sm:mb-7 sm:overflow-visible sm:border-b sm:border-border sm:shadow-none [&::-webkit-scrollbar]:hidden"
+          >
             {TABS.map((t, i) => (
               <button
                 key={t}
@@ -416,7 +477,7 @@ export function VmDetailPage() {
                 onKeyDown={(e) => onTabKey(e, i)}
                 onClick={() => setTab(t)}
                 className={cn(
-                  '-mb-px shrink-0 border-b-2 pb-2.5 pt-1 text-[13.5px] font-medium capitalize transition-colors duration-150',
+                  'shrink-0 whitespace-nowrap border-b-2 pb-2.5 pt-1 text-[13.5px] font-medium capitalize transition-colors duration-150 focus-visible:outline-offset-[-2px] sm:-mb-px sm:focus-visible:outline-offset-2',
                   tab === t
                     ? 'border-primary text-foreground'
                     : 'border-transparent text-muted-foreground hover:border-input hover:text-foreground'
@@ -485,6 +546,10 @@ function OverviewTab({
   const [editResourcesOpen, setEditResourcesOpen] = useState(false);
   const [editCpus, setEditCpus] = useState(String(vm.cpus));
   const [editMemMb, setEditMemMb] = useState(String(vm.memoryMb));
+  // While it runs, the Overview reads the machine itself; the Metrics tab (always
+  // mounted) already polls these stats, so this shares that query rather than adding one.
+  const { data: stats } = useVmStats(vmUuid, vm.status === 'running');
+  const live = vm.status === 'running' ? stats?.current : undefined;
   const updateResources = useUpdateVmResources(vmUuid);
   const setAutostart = useSetAutostart(vmUuid);
 
@@ -539,12 +604,36 @@ function OverviewTab({
             </Button>
           )}
         </SectionHeading>
-        <StatStrip>
-          <Stat label="vCPUs" value={String(vm.cpus)} />
-          <Stat label="Memory" value={formatMemory(vm.memoryMb)} />
-          <Stat label="Disks" value={String(vm.disks.filter(isListedDisk).length)} />
-          <Stat label="NICs" value={String(vm.nics.length)} />
-        </StatStrip>
+        {live ? (
+          // Running: what it is doing now, with what it was given underneath.
+          <StatStrip>
+            <Stat
+              label="CPU"
+              value={`${Math.round(live.cpuPercent)}%`}
+              sub={`${vm.cpus} ${vm.cpus === 1 ? 'vCPU' : 'vCPUs'}`}
+              tone={live.cpuPercent > 80 ? 'warn' : undefined}
+            />
+            <MemoryStat sample={live} />
+            <Stat
+              label="Disk I/O"
+              value={formatRate(live.diskReadBps + live.diskWriteBps)}
+              sub={`Read ${formatRate(live.diskReadBps)} · Write ${formatRate(live.diskWriteBps)}`}
+            />
+            <Stat
+              label="Network"
+              value={formatRate(live.netRxBps + live.netTxBps)}
+              sub={`In ${formatRate(live.netRxBps)} · Out ${formatRate(live.netTxBps)}`}
+            />
+          </StatStrip>
+        ) : (
+          <StatStrip>
+            <Stat label="vCPUs" value={String(vm.cpus)} />
+            <Stat label="Memory" value={formatMemory(vm.memoryMb)} />
+            <Stat label="Disks" value={String(vm.disks.filter(isListedDisk).length)} />
+            <Stat label="NICs" value={String(vm.nics.length)} />
+          </StatStrip>
+        )}
+        {/* Why Edit is greyed, in words: a tooltip never reaches touch or keyboard users. */}
         {vm.status !== 'stopped' && (
           <p className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
             <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -666,6 +755,18 @@ function OverviewTab({
               <span className="truncate font-mono text-[12px] text-foreground">{vm.id}</span>
               <CopyButton text={vm.id} label="Copy UUID" />
             </ConfigRow>
+            {meta?.sourceTemplateFilename && (
+              <ConfigRow label="Source image">
+                <span className="truncate font-mono text-[12px] text-foreground" title={meta.sourceTemplateFilename}>
+                  {meta.sourceTemplateFilename}
+                </span>
+              </ConfigRow>
+            )}
+            {meta?.createdAt && (
+              <ConfigRow label="Created">
+                <span className="text-[12.5px] tabular-nums text-foreground">{formatDateTime(meta.createdAt)}</span>
+              </ConfigRow>
+            )}
             {/* Autostart toggle */}
             <ConfigRow label="Autostart on host boot" labelId="autostart-label">
               <button
@@ -690,33 +791,46 @@ function OverviewTab({
             </ConfigRow>
             {vm.status === 'running' && vm.guestAgent !== undefined && (
               <ConfigRow label="Guest agent">
+                {/* Plain words: the status glyphs are kept for a VM's own state. */}
                 {vm.guestAgent ? (
-                  <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-emerald-700 dark:text-emerald-300">
-                    <StatusGlyph status="running" size={7} />
-                    Connected
-                  </span>
+                  <span className="text-[12.5px] font-medium text-emerald-700 dark:text-emerald-300">Connected</span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
-                    <StatusGlyph status="stopped" size={7} />
-                    Not available
-                  </span>
+                  <span className="text-[12.5px] text-muted-foreground">Not available</span>
                 )}
               </ConfigRow>
             )}
-            {vm.vncPort != null && (
-              <ConfigRow label="VNC port">
-                <span className="font-mono text-[12px] tabular-nums text-foreground">{vm.vncPort}</span>
-              </ConfigRow>
-            )}
-            {vm.vncDisplay && (
-              <ConfigRow label="VNC display">
-                <span className="truncate font-mono text-[12px] text-foreground">{vm.vncDisplay}</span>
+            {/* One fact, one row: display :0 is port 5900. */}
+            {(vm.vncDisplay || vm.vncPort != null) && (
+              <ConfigRow label="VNC">
+                <span className="truncate font-mono text-[12px] tabular-nums text-foreground">
+                  {[vm.vncDisplay, vm.vncPort != null ? `port ${vm.vncPort}` : null].filter(Boolean).join(' · ')}
+                </span>
               </ConfigRow>
             )}
           </dl>
         </Panel>
       </section>
     </div>
+  );
+}
+
+// Memory in use, with what it is measured against. Without the balloon driver's stats a
+// guest can't say what it uses; the figure is then what the host has handed it so far,
+// and the line says so.
+function MemoryStat({ sample }: { sample: VmStatsSample }) {
+  const pct = sample.memTotalMb > 0 ? Math.round((sample.memUsedMb / sample.memTotalMb) * 100) : 0;
+  const amounts = `${formatMemory(sample.memUsedMb)} of ${formatMemory(sample.memTotalMb)}`;
+  return (
+    <Stat
+      label="Memory"
+      value={`${pct}%`}
+      sub={sample.memSource === 'host' ? (
+        <span title="This guest doesn't report its own memory use (no balloon driver), so this is the memory the host has given it so far.">
+          {amounts} · resident on host
+        </span>
+      ) : amounts}
+      tone={pct > 90 ? 'warn' : undefined}
+    />
   );
 }
 
@@ -756,7 +870,8 @@ function InfoField({ label, children }: { label: string; children: React.ReactNo
 // the dashboard's Host panel uses.
 function ConfigRow({ label, labelId, children }: { label: string; labelId?: string; children: React.ReactNode }) {
   return (
-    <div className="grid min-h-[46px] grid-cols-[minmax(0,11rem)_minmax(0,1fr)] items-center gap-x-4 px-5 py-2 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
+    // A phone stacks the label over its value, so a UUID or path keeps the full width.
+    <div className="grid min-h-[46px] grid-cols-1 items-center gap-x-4 gap-y-1 px-5 py-2.5 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:gap-y-0 sm:py-2">
       <dt id={labelId} className="text-[12.5px] text-muted-foreground">{label}</dt>
       <dd className="flex min-w-0 items-center gap-1.5">{children}</dd>
     </div>
@@ -890,7 +1005,7 @@ function DisksTab({
               <Button size="sm" variant="secondary" onClick={() => setCdromOpen(true)}>
                 <Disc size={14} /> Attach ISO
               </Button>
-              <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
                 <Plus size={14} /> Add disk
               </Button>
             </>
@@ -928,7 +1043,7 @@ function DisksTab({
                         <span className="sr-only">{d.type === 'cdrom' ? 'CD-ROM' : 'Disk'}</span>
                       </Tooltip>
                     </td>
-                    <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{d.bus}</td>
+                    <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{d.bus || '—'}</td>
                     <td className="whitespace-nowrap px-5 py-2.5 text-[12.5px] tabular-nums text-foreground">
                       {d.sizeGb != null && d.sizeGb > 0 ? formatDisk(d.sizeGb) : <span className="text-muted-foreground">—</span>}
                     </td>
@@ -938,7 +1053,7 @@ function DisksTab({
                       <div className={cn('truncate font-mono text-[12px]', d.fileMissing ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
                         {d.source || '—'}
                         {d.storageDirName && (
-                          <span className="ml-2 font-sans text-[11.5px] text-muted-foreground">[{d.storageDirName}]</span>
+                          <span className="ml-2 font-sans text-[12px] text-muted-foreground">· {d.storageDirName}</span>
                         )}
                       </div>
                     </td>
@@ -1055,8 +1170,8 @@ function DisksTab({
         </div>
       </Dialog>
 
-      {/* Boot Order */}
-      {bootableDisks.length > 0 && (
+      {/* Boot order — only when there is an order to choose */}
+      {bootableDisks.length > 1 && (
         <Panel className="overflow-hidden">
           <PanelHeader
             title="Boot order"
@@ -1261,6 +1376,7 @@ function snapshotStateLabel(vmState: string): string {
 function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [revertTarget, setRevertTarget] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [toTemplateTarget, setToTemplateTarget] = useState<string | null>(null);
   const [snapshotName, setSnapshotName] = useState('');
   const [templateName, setTemplateName] = useState('');
@@ -1305,10 +1421,12 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
     }
   };
 
-  const handleDelete = async (name: string) => {
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteSnapshot.mutateAsync(name);
+      await deleteSnapshot.mutateAsync(deleteTarget);
       toast.success('Snapshot deleted');
+      setDeleteTarget(null);
     } catch {
       toast.error('Failed to delete snapshot');
     }
@@ -1362,7 +1480,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
         <PanelHeader
           title="Snapshots"
           actions={
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Button size="sm" variant="secondary" onClick={() => setCreateOpen(true)}>
               <Camera size={14} /> Take snapshot
             </Button>
           }
@@ -1429,7 +1547,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
                             <RowAction
                               label="Delete snapshot"
                               danger
-                              onClick={() => handleDelete(snap.name)}
+                              onClick={() => setDeleteTarget(snap.name)}
                               disabled={deleteSnapshot.isPending}
                             >
                               <Trash2 size={14} />
@@ -1481,6 +1599,30 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
             The VM is running — the snapshot will include both disk and memory state.
           </Callout>
         )}
+      </Dialog>
+
+      {/* Delete confirmation: a snapshot can't be brought back */}
+      <Dialog
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete snapshot"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setDeleteTarget(null)} disabled={deleteSnapshot.isPending}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="danger" onClick={handleDelete} disabled={deleteSnapshot.isPending}>
+              {deleteSnapshot.isPending ? 'Deleting…' : 'Delete'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13.5px] leading-6 text-muted-foreground">
+          Delete{' '}
+          <span className="font-mono text-[13px] font-medium text-foreground">{deleteTarget}</span>?{' '}
+          The VM can no longer be restored to this point. This cannot be undone.
+        </p>
       </Dialog>
 
       {/* Revert confirmation dialog */}
@@ -1624,7 +1766,7 @@ function PortForwardsSection({
       />
 
       {forwards.length === 0 ? (
-        <EmptyState>No port forwards. Add a rule to expose a service to the internet.</EmptyState>
+        <EmptyState compact>No port forwards. Add a rule to expose a service to the internet.</EmptyState>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -1762,7 +1904,7 @@ function IpCell({
   if (!displayIp) {
     return (
       <span className="text-[12.5px] text-muted-foreground">
-        {networkType === 'nat' || networkType === 'bridge' || networkType === 'existing-bridge' ? 'DHCP · unresolved' : '—'}
+        {networkType === 'nat' || networkType === 'bridge' || networkType === 'existing-bridge' ? 'DHCP · not resolved yet' : '—'}
       </span>
     );
   }
@@ -1846,9 +1988,22 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
   const addNic = useAddNic(vmUuid);
   const detachNic = useDetachNic(vmUuid);
   const setBandwidth = useSetNicBandwidth(vmUuid);
+  // Removing a NIC cuts a running VM off that network, so it asks first.
+  const [removeNic, setRemoveNic] = useState<VmNic | null>(null);
+  const handleRemoveNic = async () => {
+    if (!removeNic) return;
+    try {
+      await detachNic.mutateAsync(removeNic.mac);
+      toast.success('NIC removed');
+      setRemoveNic(null);
+    } catch {
+      toast.error('Failed to remove NIC');
+    }
+  };
 
   const attachedBridges = new Set(nics.map((n) => n.source));
   const availableNetworks = (networks ?? []).filter((n) => !attachedBridges.has(n.bridge));
+  const allAttached = availableNetworks.length === 0 && (networks ?? []).length > 0;
   const selectedNetwork = availableNetworks.find((n) => n.id === selectedNetworkId);
   const isStaticNetwork = selectedNetwork &&
     (selectedNetwork.type === 'bridge' || selectedNetwork.type === 'existing-bridge') &&
@@ -1932,10 +2087,13 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
     <div className="space-y-6">
       <div className="space-y-4">
         <Panel className="overflow-hidden">
+          {/* On a host with one or two networks every one is usually attached already:
+              the title bar says so in words, beside the disabled button. */}
           <PanelHeader
             title="Network interfaces"
+            meta={allAttached ? 'Every network on this host is attached' : undefined}
             actions={
-              <Button size="sm" onClick={handleOpen} disabled={availableNetworks.length === 0 && (networks ?? []).length > 0}>
+              <Button size="sm" variant="secondary" onClick={handleOpen} disabled={allAttached}>
                 <Plus size={14} /> Add NIC
               </Button>
             }
@@ -2001,18 +2159,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                             <RowAction label="Edit rate limit" onClick={() => openBandwidth(nic)}>
                               <Gauge size={14} />
                             </RowAction>
-                            <RowAction
-                              label="Remove NIC"
-                              danger
-                              onClick={async () => {
-                                try {
-                                  await detachNic.mutateAsync(nic.mac);
-                                  toast.success('NIC removed');
-                                } catch {
-                                  toast.error('Failed to remove NIC');
-                                }
-                              }}
-                            >
+                            <RowAction label="Remove NIC" danger onClick={() => setRemoveNic(nic)}>
                               <Trash2 size={14} />
                             </RowAction>
                           </div>
@@ -2025,6 +2172,31 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
             </div>
           )}
         </Panel>
+
+        <Dialog
+          open={removeNic !== null}
+          onClose={() => setRemoveNic(null)}
+          title="Remove network interface"
+          size="sm"
+          footer={
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setRemoveNic(null)} disabled={detachNic.isPending}>
+                Cancel
+              </Button>
+              <Button size="sm" variant="danger" onClick={handleRemoveNic} disabled={detachNic.isPending}>
+                {detachNic.isPending ? 'Removing…' : 'Remove'}
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[13.5px] leading-6 text-muted-foreground">
+            Remove <span className="font-mono text-[13px] font-medium text-foreground">{removeNic?.mac}</span>
+            {removeNic?.source && (
+              <> from <span className="font-medium text-foreground">{networks?.find((n) => n.bridge === removeNic.source)?.name ?? removeNic.source}</span></>
+            )}?{' '}
+            A running VM loses this connection at once.
+          </p>
+        </Dialog>
 
         {/* Port forward sections — one per NAT NIC */}
         {nics.map((nic) => {
@@ -2274,7 +2446,7 @@ function FirewallRulesTable({
   emptyLabel: string;
 }) {
   if (rules.length === 0) {
-    return <EmptyState>{emptyLabel}</EmptyState>;
+    return <EmptyState compact>{emptyLabel}</EmptyState>;
   }
   return (
     <div className="overflow-x-auto">
@@ -2609,7 +2781,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
           title="Inbound rules"
           meta={<span className="tabular-nums">{inboundRules.length}</span>}
           actions={
-            <Button size="sm" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('inbound'); }}>
+            <Button size="sm" variant="secondary" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('inbound'); }}>
               <Plus size={14} /> Add rule
             </Button>
           }
@@ -2635,7 +2807,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
           title="Outbound rules"
           meta={<span className="tabular-nums">{outboundRules.length}</span>}
           actions={
-            <Button size="sm" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('outbound'); }}>
+            <Button size="sm" variant="secondary" onClick={() => { setForm(defaultRuleForm); setEditingRuleId(null); setAddDirection('outbound'); }}>
               <Plus size={14} /> Add rule
             </Button>
           }
@@ -2868,7 +3040,7 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
           <Panel className="overflow-hidden">
             <PanelHeader title="Attached to this VM" />
             {attached.length === 0 ? (
-              <EmptyState>No devices attached to this VM.</EmptyState>
+              <EmptyState compact>No devices attached to this VM.</EmptyState>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -2906,7 +3078,7 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
               group must all be passed through together or left entirely on the host.
             </p>
             {available.length === 0 ? (
-              <EmptyState>No devices available — all host devices are either in use or filtered out.</EmptyState>
+              <EmptyState compact>No devices available — all host devices are either in use or filtered out.</EmptyState>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -3024,37 +3196,8 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
     return <MetricsNotice title="Metrics unavailable" detail="Waiting for first sample…" />;
   }
 
-  const memPct = current && current.memTotalMb > 0
-    ? Math.round((current.memUsedMb / current.memTotalMb) * 100)
-    : 0;
-
   return (
     <div className="space-y-7">
-      {/* Readouts — one strip */}
-      <StatStrip>
-        <Stat
-          label="CPU"
-          value={current ? `${Math.round(current.cpuPercent)}%` : '—'}
-          sub={current ? `${current.vcpuCount} vCPU${current.vcpuCount !== 1 ? 's' : ''}` : ''}
-          tone={current && current.cpuPercent > 80 ? 'warn' : undefined}
-        />
-        <Stat
-          label="Memory"
-          value={current ? `${memPct}%` : '—'}
-          sub={current ? `${formatMemory(current.memUsedMb)} / ${formatMemory(current.memTotalMb)}` : ''}
-          tone={memPct > 90 ? 'warn' : undefined}
-        />
-        <Stat
-          label="Disk I/O"
-          value={current ? fmtBps(current.diskReadBps + current.diskWriteBps) : '—'}
-          sub={current ? `↑ ${fmtBps(current.diskWriteBps)}  ↓ ${fmtBps(current.diskReadBps)}` : ''}
-        />
-        <Stat
-          label="Network"
-          value={current ? fmtBps(current.netRxBps + current.netTxBps) : '—'}
-          sub={current ? `↑ ${fmtBps(current.netTxBps)}  ↓ ${fmtBps(current.netRxBps)}` : ''}
-        />
-      </StatStrip>
 
       <section className="space-y-3.5">
         {/* Range selector */}
@@ -3066,11 +3209,7 @@ function MetricsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }
                 type="button"
                 onClick={() => setRange(r)}
                 aria-pressed={range === r}
-                className="flex items-center gap-1.5"
               >
-                {r === 'live' && (
-                  <StatusGlyph status={range === 'live' ? 'running' : 'stopped'} size={6} />
-                )}
                 {r === 'live' ? 'Live' : r}
               </button>
             ))}
@@ -3211,7 +3350,6 @@ function ChartCard({
       />
       <div className="px-4 pb-3 pt-4">
         <MetricChart
-          id={`vm-${title.replace(/\s/g, '-')}`}
           data={data}
           data2={data2}
           timestamps={timestamps}

@@ -13,6 +13,28 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.13.0',
+    date: '2026-10-18',
+    changes: [
+      { type: 'changed', text: 'Phones get a real layout: below 768 px the sidebar is a drawer behind a menu button, pages run edge to edge, wide tables scroll inside their panel, and the VM list keeps each machine’s name and state (tap a row for the rest). Fields no longer make an iPhone zoom in.' },
+      { type: 'changed', text: 'A running VM’s Overview shows CPU, memory, disk and network as they are now, with its allocation underneath; the Metrics tab opens on its history. The VM’s page shows its OS mark beside its name, and when it was created and from which image.' },
+      { type: 'changed', text: 'One power control per VM in the list: a running VM’s four power actions are one menu, graceful above forceful, so names stop being cut short. Paused or crashed VMs can now be forced off, and a VM can be deleted from its own page.' },
+      { type: 'changed', text: 'The dashboard reads host, metrics, then one Updates section (VirtPilot and the host’s packages). Acceleration is stated once, CPU names aren’t cut mid-word, high load is amber not red, warnings wrap, and idle sparklines sit in a quiet track.' },
+      { type: 'changed', text: 'Templates, ISOs, Networks and SSH keys carry their count and total in the list’s foot instead of a strip above it; templates and ISOs show their distro’s mark; network types and storage defaults are plain words, not status colours.' },
+      { type: 'changed', text: 'One main action per view: tab actions (Add disk, Add NIC, Take snapshot, Add rule) are ordinary buttons, and Settings’ Saves stay quiet until something changes.' },
+      { type: 'changed', text: 'Charts lose their gradients (a faint flat wash under a single line) and byte-rate axes tick at round values: 512 KB/s, 1 MB/s, 1.5 MB/s.' },
+      { type: 'changed', text: 'The new-VM wizard asks for the boot source first, says what Continue is waiting for, and opens the new VM when it is created; its image picker is field height and keyboard-friendly.' },
+      { type: 'added', text: 'Settings shows the address you are connecting from, whether the IP allowlist includes it, and offers to add it; a refused save says why.' },
+      { type: 'fixed', text: 'The Disks tab showed "file" as every disk’s bus; it now reads virtio, sata or scsi.' },
+      { type: 'fixed', text: 'A guest that doesn’t report its memory read as 100% used (its allocation); it now shows the memory the host has given it, labelled "resident on host".' },
+      { type: 'fixed', text: 'Delete snapshot, Remove NIC and Remove 2FA acted on one click; each now asks first. Clearing logs uses VirtPilot’s own dialog.' },
+      { type: 'fixed', text: 'Dialogs now take the keyboard: focus moves in when one opens, stays there, and returns to the button that opened it.' },
+      { type: 'fixed', text: 'Upgrade terminals and some dialogs could be drawn inside their section of the page instead of over the window.' },
+      { type: 'fixed', text: 'Sizes were printed raw ("0.18 GB", "4.0 GB") in a monospaced face; every size now uses the shared formatter, right-aligned.' },
+      { type: 'fixed', text: 'Smaller things: Alpine templates had a generic icon, Add NIC was disabled without a reason, two delete buttons lacked tooltips, Backups rows had a redundant History button, and words that aren’t VM states lost their status dots.' },
+    ],
+  },
+  {
     version: '2.12.0',
     date: '2026-10-09',
     changes: [

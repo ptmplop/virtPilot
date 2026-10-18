@@ -77,7 +77,9 @@ export function Tooltip({ label, side = 'top', children, shortcut, disabled, cla
       className={cn('relative inline-flex [&>:disabled]:pointer-events-none', className)}
       onMouseEnter={() => !disabled && setVisible(true)}
       onMouseLeave={() => setVisible(false)}
-      onFocusCapture={() => !disabled && setVisible(true)}
+      // Keyboard focus shows the hint; focus a script hands back after a click (a menu
+      // closing onto its button) does not, or the hint would stick with nothing to clear it.
+      onFocusCapture={(e) => !disabled && (e.target as Element).matches?.(':focus-visible') && setVisible(true)}
       onBlurCapture={() => setVisible(false)}
     >
       {Children.count(children) === 1 && !disabled ? withName(children, label) : children}

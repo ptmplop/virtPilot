@@ -6,11 +6,14 @@ import { getUserSettings, saveUserSettings, type BackupSettings } from '../servi
 
 export const settingsRouter = Router();
 
-settingsRouter.get('/', async (_req, res) => {
+settingsRouter.get('/', async (req, res) => {
   try {
     const user = await getUserSettings();
     res.json({
       settings: {
+        // The address this request came from, as the IP allowlist sees it — so the page
+        // can say "you are connecting from …" before anyone edits the list.
+        clientIp: req.ip?.replace(/^::ffff:/, ''),
         storageRoot: config.storageRoot,
         templatesDir: config.templatesDir,
         isosDir: config.isosDir,

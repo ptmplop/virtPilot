@@ -3,10 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArchiveRestore,
   ArrowLeft,
-  ArrowRight,
   CalendarClock,
   ChevronDown,
-  History as HistoryIcon,
   Layers,
   Link2,
   Play,
@@ -190,13 +188,13 @@ export function BackupsPage() {
 
 // ─── Main list ────────────────────────────────────────────────────────────────
 
-// The actions column is sized to what it holds (Set schedule · Back up · History);
-// at 186px the buttons spilled left over the Schedule column. Where the full set
-// does not fit, the narrow set takes over with icon-only actions; below even that,
-// the panel scrolls sideways rather than letting columns collide.
-const LIST_COLS = 'minmax(0,1fr) 64px 84px 108px 124px 292px';
-const LIST_COLS_NARROW = 'minmax(0,1fr) 56px 76px 96px 112px 112px';
-const LIST_FULL_MIN = 960;
+// The actions column is sized to what it holds (Set schedule · Back up); the row itself
+// opens the VM's history, so it needs no button of its own. Where the full set does not
+// fit, the narrow set takes over with icon-only actions; below even that, the panel
+// scrolls sideways rather than letting columns collide.
+const LIST_COLS = 'minmax(0,1fr) 64px 84px 108px 124px 224px';
+const LIST_COLS_NARROW = 'minmax(0,1fr) 56px 76px 96px 112px 76px';
+const LIST_FULL_MIN = 892;
 
 function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
   const { data: summaries, isLoading: summariesLoading } = useBackupSummaries();
@@ -260,7 +258,7 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
         {/* Table */}
         <Panel className="overflow-hidden">
           <div ref={tableRef} className="overflow-x-auto">
-            <div className={narrow ? 'min-w-[660px]' : undefined}>
+            <div className={narrow ? 'min-w-[624px]' : undefined}>
               <div
                 className={cn('table-head grid items-center px-5 py-2.5', narrow ? 'gap-3' : 'gap-4')}
                 style={{ gridTemplateColumns: narrow ? LIST_COLS_NARROW : LIST_COLS }}
@@ -334,9 +332,6 @@ function BackupInfoPanel() {
           )}
         />
         <span className="flex-1 text-[13px] font-medium text-foreground">Understanding backup states</span>
-        <span className={cn('text-[12px] text-muted-foreground transition-opacity', open ? 'opacity-0' : 'opacity-100')}>
-          Click to expand
-        </span>
       </button>
 
       {open && (
@@ -464,6 +459,7 @@ function SummaryRow({
               title={summary.vmName}
             >
               {summary.vmName}
+              <span className="sr-only">: backup history</span>
             </span>
             {orphaned && (
               <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-amber-700 dark:text-amber-300">
@@ -551,17 +547,6 @@ function SummaryRow({
                 ? <Spinner className="h-3.5 w-3.5 text-current" />
                 : <Play size={narrow ? 14 : 13} />}
               {!narrow && 'Back up'}
-            </Button>
-          )}
-          {withTip('History', narrow,
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onSelect(summary.vmUuid)}
-              className={narrow ? 'w-8 px-0' : 'px-2.5'}
-              aria-label={`History for ${summary.vmName}`}
-            >
-              {narrow ? <HistoryIcon size={14} /> : <>History<ArrowRight size={13} /></>}
             </Button>
           )}
         </div>

@@ -18,18 +18,26 @@ Newness comes from structure and type; colour stays quiet.
   while the pointer is over the sidebar, always on touch screens and when collapsed; `[` toggles it.
   One set of markup serves both widths — labels fade and the wordmark is clipped into the mark, but
   icons never move. The logo is the link home.
+- **Phones (below 768px)**: a 56px top bar on the canvas — the logo home on the left, a menu button on
+  the right — stands in for the sidebar, which opens as a modal drawer (focus held inside; Escape, the
+  backdrop or following a link closes it and returns focus to the button). The sheet runs edge to edge
+  under a hairline, and the page column's gutter is 16px. A table wider than the screen scrolls inside
+  its panel; a grid list drops columns instead (the VM list keeps name and status — the row opens the
+  VM, and every action is on its page). Segmented options keep to one line and the track scrolls.
+  Fields read at 16px on touch screens so iOS never zooms the page on focus.
 
 ## Primitives — use these, don't restyle per page
 
 | Need | Use |
 |---|---|
 | A boxed group with a title | `<Panel>` + `<PanelHeader title meta actions />` (title bar = 48px, label left, readouts/actions right) |
-| A row of numbers (counts, totals) | `<StatStrip>` + `<Stat label value sub tone />` — ONE ruled strip, never a grid of identical cards |
+| A row of numbers (counts, totals) | `<StatStrip>` + `<Stat label value sub tone />` — ONE ruled strip, never a grid of identical cards. Only for figures the rows below don't already show (VMs, Backups, Storage); a short list carries its count and total in its own foot (`<tfoot>` / a `bg-surface/60` foot row, the total under its column) |
 | A section of the page | `<SectionHeading label="…" />` (label + steel tick + hairline) |
 | VM state | `<StatusBadge status />` / `<StatusGlyph status />` — the glyph *shape* encodes state (disc running, ring stopped, bars paused, diamond crashed) |
 | A warning that isn't a VM state | `<WarnGlyph />` |
 | A proportion of a whole | `<RingGauge value tone>` (the logo ring) — dashboard; or a 5px bar on `bg-gauge-track` |
-| Buttons | `<Button variant="primary\|secondary\|ghost\|danger\|dangerOutline" size="sm\|md">` — primary is **ink** (`bg-action`), not steel, and marks the one main action of a view; actions repeated down a table are `secondary` |
+| Buttons | `<Button variant="primary\|secondary\|ghost\|danger\|dangerOutline" size="sm\|md">` — primary is **ink** (`bg-action`), not steel, and marks the one main action of a view; actions repeated down a table are `secondary`. Page-header actions are `md` (36px) everywhere; dialog footers use `sm` |
+| Several related commands behind one button (a row's power actions) | `<Menu label tooltip icon items>` — portalled, keyboard-complete; graceful commands above forceful ones (`separated`), destructive ones `danger`. Pass `tooltip` to the Menu, never wrap it in `<Tooltip>` (React counts the portal as inside the wrapper) |
 | Tabs/filters with 2–6 options | `.segmented` container, `aria-pressed` on the chosen `<button>` |
 | Table | panel → `.table-head` row (12px medium muted on `bg-surface`) → rows with `divide-y divide-border`, `.table-row` hover |
 | Fields | `<Input>` / `<Select>`, or `h-9 rounded-md border border-input bg-field px-3 text-[13.5px]` + `focus:border-ring focus:ring-[3px] focus:ring-ring/20` |
@@ -43,12 +51,28 @@ Newness comes from structure and type; colour stays quiet.
   text-[12.5px] text-amber-800 dark:text-amber-200` with a `<WarnGlyph />`; info = same shape on
   `bg-surface border-border text-muted-foreground`; error = the destructive equivalent.
 - **Empty states**: centred text in the panel body (`py-12`), one line of muted copy and, if there is
-  one, a single action. No icon tile above it — a plain 20px muted icon at most.
+  one, a single action. No icon tile above it — a plain 20px muted icon at most. A secondary panel on
+  a tab (port forwards, firewall rules, devices) says it in one left-aligned line (`px-5 py-3.5`)
+  instead of reserving a block; a panel with nothing to act on (Boot order with one device) is not drawn.
 - **Tabs** (VM detail): underline tabs — 13.5px medium, muted at rest, ink when active with a 2px
   steel underline (`border-primary`); the bar sits on a full-width hairline.
 - **Row actions**: ghost icon buttons (`h-8 w-8 rounded-md text-muted-foreground hover:bg-muted
   hover:text-foreground`), destructive ones `hover:text-destructive hover:bg-destructive/10`;
-  every icon-only button has `aria-label` and a `<Tooltip>`.
+  every icon-only button has `aria-label` and a `<Tooltip>`. A VM row has one power control — Power on
+  when stopped, the power `<Menu>` when running — so every state's icons share the same columns.
+- **One ink action per view** includes tab panels: on a VM's tabs the header's Console / Power on is
+  the ink action, so a panel's own Add / Take snapshot is `secondary`. Dialog confirm buttons stay ink.
+- **Saving a section** (Settings, a VM's boot order): Save is `secondary` and disabled until the fields
+  differ from what is saved, and turns ink while there are unsaved changes. Destructive confirmations
+  use `<Dialog>` with a `danger` button — never the browser's `confirm()`.
+- **Dialogs hold the keyboard**: `<Dialog>` is portalled to `<body>`; focus moves in when it opens (to its
+  first text field, or else to the panel itself — never straight onto a destructive button), Tab stays
+  inside, Escape closes the top one, and focus returns to whatever opened it.
+- **A disabled control says why in words** a touch or keyboard user can see — the panel's meta or a muted
+  line beside it — not only in a tooltip. Tooltips show on hover and on keyboard focus (`:focus-visible`),
+  never on focus a script hands back after a click.
+- **Every VM action is on the VM's page**, Delete included (the trash button after Clone), because a
+  phone's list shows no row actions.
 - **Keys and values**: label column `text-[12.5px] text-muted-foreground`, value `font-mono text-[12px]
   text-foreground`, rows ruled with `divide-y divide-border`.
 - **Clickable rows**: when a row opens something, the name's link is stretched over the row
@@ -59,11 +83,20 @@ Newness comes from structure and type; colour stays quiet.
 - **One ink action per view**: e.g. the VM header's Power on (stopped) or Console (running). Groups of
   related actions are separated by a 1px rule, not by colour.
 - **OS logos** are one-colour marks in `text-muted-foreground`, never tiles; brand colour appears only in
-  the logo picker, where recognising a distro is the point.
+  the logo picker, where recognising a distro is the point. A VM, template or ISO shows the mark its
+  image's filename implies (`osSlugFromImage`) until someone picks one.
 - **Live data says when it stopped**: if samples stop arriving the page states "No data since …", the
   verdict becomes "Status unknown" and gauges go muted. Nothing ticks while data is fresh.
 - **Charts**: hover (or tap) shows a hairline, a dot per series and the exact values at that moment.
-  Byte-rate axes have a 1 KB/s floor (`minMax`), so idle charts never repeat their labels.
+  Byte-rate axes have a 1 KB/s floor (`minMax`) and climb a binary ladder (512 KB/s, 1 MB/s…), so
+  ticks are round in the units the formatter prints. A single series has a flat 6% wash under its
+  line; a pair has none (one line is dashed). No gradients.
+- **The dashboard reads in one order**: the status band; the Host and Virtual machines panels (their
+  feet share rules); Host metrics; then one Updates panel — VirtPilot's own row, then the host's
+  packages. A fact the band states (acceleration, the version's state) is not repeated beside it.
+- **A VM's page is its instrument**: its OS mark beside the name, live readings on the Overview while it
+  runs (the allocation as sub-lines; the allocation itself once stopped), and every power state has a
+  control (Force off for paused or crashed).
 
 ## Numbers and words
 
@@ -71,6 +104,9 @@ Newness comes from structure and type; colour stays quiet.
   `formatDate`, `formatDateTime`, `formatChartTime`/`formatChartMoment`, `formatUptime`. At most one decimal,
   no trailing `.0`, a space before every unit ("1 GB", "1.5 GB", "237 ms"); dates `8 Oct 2026, 16:33`.
 - Quantities are Inter with `tabular-nums`, right-aligned in tables; JetBrains Mono is for identifiers.
+  Sizes always go through `formatDisk` / `formatBytes` / `formatMemory`, never `{x} GB` by hand.
+- A figure the source can't give is labelled for what it is: a guest without balloon stats shows the
+  memory the host has given it, "resident on host", never its allocation as "100% used".
 - Say a fact once: a number shown in a gauge is not repeated in the verdict beside it.
 - Subtitles say what the page holds, in one sentence with a full stop — never "Manage …". The browser
   tab reads "Page · host · VirtPilot" (`docTitle` for pages that draw their own header).
@@ -84,6 +120,8 @@ Newness comes from structure and type; colour stays quiet.
   focus, selection, links, the active nav item's icon, data series. It is NOT the primary button.
 - Status: green = running/healthy, amber = attention, red = failed/destructive. Solid red only on the
   button that confirms a destructive act.
+- A type is not a state: network types, storage purposes, defaults and other categories are plain
+  text, never coloured (a green "Bridge · static" reads as healthy).
 - Charts: `lib/chartColors.ts` (CPU steel, memory heather, inbound steel / outbound ochre dashed).
 
 ## Type
@@ -96,6 +134,18 @@ navigation and page titles included. British English. Dates read `8 Oct 2026` (`
 ## Never
 
 Pill or chip badges (`rounded-full` tinted labels), icon tiles (an icon in a tinted rounded square),
-pulsing "live" dots, gradient washes, glows, blurred orbs, coloured top stripes, macOS traffic-light
-dots, sparkle icons, uniform grids of identical stat cards, tiny spaced capitals. Type, rules and
-alignment do that work.
+pulsing "live" dots, status dots before words that aren't a VM's state (Healthy, Up to date, Live,
+Connected), gradient washes (charts included), glows, blurred orbs, coloured top stripes, macOS
+traffic-light dots, sparkle icons, uniform grids of identical stat cards, tiny spaced capitals. Type,
+rules and alignment do that work.
+
+## Traps
+
+- `.animate-fade-up` fills `backwards`, never `both`: a transform kept after the animation makes the
+  section the containing block of every `position:fixed` child (dialogs, terminals).
+- Tailwind emits `.h-dvh` before `.h-screen`, so the pair resolves to 100vh. The window height is
+  `.app-frame` (`100vh` then `100dvh` in one rule).
+- A portalled popover inside a `<Tooltip>` keeps the tooltip showing (React counts the portal as
+  inside the wrapper): give the popover's trigger its own tooltip, as `<Menu tooltip>` does.
+- A scrolling tab bar clips a tab's `-mb-px` underline over a real border: draw the bar's hairline as
+  an inset shadow.

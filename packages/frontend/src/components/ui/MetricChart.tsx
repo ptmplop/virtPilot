@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface MetricChartProps {
-  id: string;
   data: number[];
   color: string;
   data2?: number[];
@@ -38,19 +37,18 @@ function buildPath(pts: { x: number; y: number }[]): string {
   return d;
 }
 
+// The auto-scaled axes are all byte rates (percent charts pass max=100), and the byte
+// formatter divides by 1024 — so the axis top climbs a binary ladder too. A decimal 1/2/5
+// ladder printed ticks like "976.6 KB/s, 1.4 MB/s"; this one prints 512 KB/s, 1 MB/s…
 function niceMax(value: number): number {
   if (value <= 0) return 1;
-  const exp = Math.pow(10, Math.floor(Math.log10(value)));
-  const norm = value / exp;
-  let mult = 1;
-  if (norm > 5) mult = 10;
-  else if (norm > 2) mult = 5;
-  else if (norm > 1) mult = 2;
-  return mult * exp;
+  const unit = 1024 ** Math.max(0, Math.floor(Math.log(value) / Math.log(1024)));
+  const step = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024].find((s) => s * unit >= value) ?? 1024;
+  return step * unit;
 }
 
 export function MetricChart({
-  id, data, color, data2, color2, timestamps, formatY, formatX, max, minMax, height = 200, labels, formatTime,
+  data, color, data2, color2, timestamps, formatY, formatX, max, minMax, height = 200, labels, formatTime,
 }: MetricChartProps) {
   // Hover (or tap) readout: a hairline at the nearest sample, a dot on each line and a
   // small panel with the moment and the exact values. The plot SVG is stretched
@@ -86,7 +84,7 @@ export function MetricChart({
     return Math.max(niceMax(peak), minMax ?? 0);
   }, [data, data2, max, minMax]);
 
-  const { line1, fill1, line2, fill2 } = useMemo(() => {
+  const { line1, fill1, line2 } = useMemo(() => {
     const safeMax = yMax > 0 ? yMax : 1;
     const toPoints = (arr: number[]) =>
       arr.map((v, i) => ({
@@ -98,8 +96,7 @@ export function MetricChart({
     const l1 = buildPath(pts1);
     const f1 = l1 ? `${l1} L ${W},${H} L 0,${H} Z` : '';
     const l2 = buildPath(pts2);
-    const f2 = l2 ? `${l2} L ${W},${H} L 0,${H} Z` : '';
-    return { line1: l1, fill1: f1, line2: l2, fill2: f2 };
+    return { line1: l1, fill1: f1, line2: l2 };
   }, [data, data2, yMax]);
 
   // Latest sample of each series, as a top-offset % within the plot area — used
@@ -168,19 +165,6 @@ export function MetricChart({
           className="absolute inset-0 h-full w-full"
           aria-hidden
         >
-          <defs>
-            <linearGradient id={`mg-${id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.14" />
-              <stop offset="100%" stopColor={color} stopOpacity="0" />
-            </linearGradient>
-            {color2 && (
-              <linearGradient id={`mg2-${id}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color2} stopOpacity="0.1" />
-                <stop offset="100%" stopColor={color2} stopOpacity="0" />
-              </linearGradient>
-            )}
-          </defs>
-
           {yTicks.map((_, i) => {
             const y = (i / (Y_TICK_COUNT - 1)) * H;
             const isBaseline = i === Y_TICK_COUNT - 1;
@@ -200,7 +184,9 @@ export function MetricChart({
             );
           })}
 
-          {fill1 && <path d={fill1} fill={`url(#mg-${id})`} />}
+          {/* A flat, faint wash under a single series; none under a pair, whose
+              lines (one dashed) already tell them apart. No gradients. */}
+          {fill1 && !line2 && <path d={fill1} fill={color} fillOpacity={0.06} />}
           {line1 && (
             <path
               d={line1}
@@ -212,7 +198,6 @@ export function MetricChart({
               vectorEffect="non-scaling-stroke"
             />
           )}
-          {fill2 && color2 && <path d={fill2} fill={`url(#mg2-${id})`} />}
           {line2 && color2 && (
             <path
               d={line2}

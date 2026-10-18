@@ -4,7 +4,7 @@ import path from 'path';
 import * as storageDirService from './storageDirService.js';
 import { listVmMetas } from './vmMetaService.js';
 import { listNetworks } from './networkService.js';
-import { getRecentVmCpu } from './vmMetricsService.js';
+import { getRecentVmCpu, guestMemory } from './vmMetricsService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
 import { run, virsh as safeVirsh, qemuImg } from './safeExec.js';
@@ -140,11 +140,13 @@ export async function getVmInfo(nameOrId: string): Promise<Vm> {
   try {
     const xml = await getVmXml(name);
     const bootMap = parseBootOrderFromXml(xml);
+    const busMap = parseDiskBusesFromXml(xml);
     for (const disk of disks) {
       disk.bootOrder = bootMap.get(disk.target);
+      disk.bus = busMap.get(disk.target) ?? disk.bus;
     }
   } catch {
-    // non-fatal — boot order display degrades gracefully
+    // non-fatal — boot order and bus display degrade gracefully
   }
 
   let vncDisplay: string | undefined;
@@ -173,11 +175,13 @@ export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
     for (const line of lines) {
       const parts = line.trim().split(/\s+/);
       if (parts.length < 4) continue;
-      const bus = parts[0];
+      // Columns are Type Device Target Source: "Type" is the source kind (file,
+      // block, network), not the bus. getVmInfo fills the bus in from the domain
+      // XML; other callers never read it.
       const type = parts[1] as 'disk' | 'cdrom';
       const target = parts[2];
       const source = parts[3] === '-' ? '' : parts[3];
-      disks.push({ target, source, type, bus });
+      disks.push({ target, source, type, bus: '' });
     }
 
     await Promise.all(
@@ -640,6 +644,22 @@ export function parseBootOrderFromXml(xml: string): Map<string, number> {
     }
   }
   return bootMap;
+}
+
+// Each disk's bus (virtio, sata, scsi…) by target dev, from a domain's XML. Attribute
+// order inside <target> varies between libvirt versions, so each is matched alone.
+export function parseDiskBusesFromXml(xml: string): Map<string, string> {
+  const buses = new Map<string, string>();
+  const diskRegex = /<disk\b[^>]*>([\s\S]*?)<\/disk>/g;
+  let match;
+  while ((match = diskRegex.exec(xml)) !== null) {
+    const target = match[1].match(/<target\b[^>]*>/)?.[0];
+    if (!target) continue;
+    const dev = target.match(/\bdev=['"]([^'"]+)['"]/)?.[1];
+    const bus = target.match(/\bbus=['"]([^'"]+)['"]/)?.[1];
+    if (dev && bus) buses.set(dev, bus);
+  }
+  return buses;
 }
 
 function escapeRegex(s: string): string {
@@ -1359,10 +1379,7 @@ export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | nu
     const get = (k: string) => s.get(k) ?? 0;
     const cpuTimeNs = get('cpu.time');
     const vcpuCount = get('vcpu.current') || get('vcpu.maximum') || 1;
-    const balloonCurrentKiB = get('balloon.current');
-    const balloonMaxKiB = get('balloon.maximum');
-    const balloonAvailableKiB = s.get('balloon.available');
-    const balloonUnusedKiB = s.get('balloon.unused');
+    const mem = guestMemory(s);
 
     const blockCount = get('block.count');
     let blockRdBytes = 0;
@@ -1402,21 +1419,12 @@ export async function getVmStats(nameOrId: string): Promise<VmStatsResponse | nu
       }
     }
 
-    let memUsedMb: number;
-    let memTotalMb: number;
-    if (balloonAvailableKiB != null && balloonUnusedKiB != null) {
-      memTotalMb = Math.round(balloonAvailableKiB / 1024);
-      memUsedMb = Math.round((balloonAvailableKiB - balloonUnusedKiB) / 1024);
-    } else {
-      memTotalMb = Math.round(balloonMaxKiB / 1024);
-      memUsedMb = Math.round(balloonCurrentKiB / 1024);
-    }
-
     const sample: VmStatsSample = {
       timestamp: now,
       cpuPercent: Math.round(cpuPercent * 10) / 10,
-      memUsedMb,
-      memTotalMb,
+      memUsedMb: mem.usedMb,
+      memTotalMb: mem.totalMb,
+      memSource: mem.source,
       diskReadBps,
       diskWriteBps,
       netRxBps,

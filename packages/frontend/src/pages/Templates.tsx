@@ -3,8 +3,7 @@ import { Download, HardDrive, PackageOpen, Pencil, Trash2, Upload, X, FolderInpu
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
-import { formatDate, formatBytes } from '@/lib/format';
-import { Stat, StatStrip } from '@/components/ui/Panel';
+import { formatDate, formatBytes, formatDisk } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
@@ -22,7 +21,7 @@ import { useSettings, useDismissTemplateSet } from '@/hooks/useSettings';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
 import { useUploadProgressStore, type TemplateBulkState } from '@/store/uploadProgressStore';
-import { TEMPLATE_SET } from '@/data/templateSets';
+import { TEMPLATE_SET, osSlugFromImage } from '@/data/templateSets';
 import { startTemplateSetDownload, cancelTemplateSetDownload } from '@/lib/templateSetDownloader';
 
 function ProgressBar({ pct, indeterminate = false }: { pct?: number; indeterminate?: boolean }) {
@@ -415,12 +414,6 @@ export function TemplatesPage() {
         </>
       }
     >
-      {/* Stats */}
-      <StatStrip className="mb-6">
-        <Stat label="Templates" value={isLoading ? '—' : String(templates?.length ?? 0)} />
-        <Stat label="Total size" value={isLoading ? '—' : `${totalTemplateGb.toFixed(1)} GB`} />
-      </StatStrip>
-
       {/* Starter template-set card (new installs only — auto-hides once any template exists or is dismissed) */}
       {showTemplateSet && (
         <TemplateSetCard
@@ -504,7 +497,7 @@ export function TemplatesPage() {
                 {['Name', 'File', 'Location', 'Size', 'Added', ''].map((h) => (
                   <th
                     key={h}
-                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' ? 'text-right' : 'text-left'} ${h === 'File' ? 'hidden xl:table-cell' : ''}`}
+                    className={`px-5 py-2.5 text-[12px] font-medium text-muted-foreground ${h === '' || h === 'Size' ? 'text-right' : 'text-left'} ${h === 'File' ? 'hidden xl:table-cell' : ''}`}
                   >
                     {h}
                   </th>
@@ -522,7 +515,7 @@ export function TemplatesPage() {
                         onClick={() => setLogoTarget(t.filename)}
                         className="group relative shrink-0 rounded-md"
                       >
-                        <VmLogo slug={templateLogos[t.filename]} size={24} />
+                        <VmLogo slug={templateLogos[t.filename] ?? osSlugFromImage(t.filename)} size={24} />
                         <div className="absolute inset-0 flex items-center justify-center rounded-md bg-black/0 transition-colors group-hover:bg-black/40">
                           <Pencil size={9} className="text-white opacity-0 transition-opacity group-hover:opacity-100" />
                         </div>
@@ -532,7 +525,7 @@ export function TemplatesPage() {
                   </td>
                   <td className="hidden px-5 py-3 font-mono text-xs text-muted-foreground xl:table-cell">{t.filename}</td>
                   <td className="whitespace-nowrap px-5 py-3 text-[12.5px] text-muted-foreground">{t.storageDirName}</td>
-                  <td className="whitespace-nowrap px-5 py-3 font-mono text-xs tabular-nums text-muted-foreground">{t.sizeGb} GB</td>
+                  <td className="whitespace-nowrap px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(t.sizeGb)}</td>
                   <td className="whitespace-nowrap px-5 py-3 text-[12.5px] text-muted-foreground">
                     {formatDate(t.createdAt)}
                   </td>
@@ -548,19 +541,32 @@ export function TemplatesPage() {
                           <FolderInput size={13} />
                         </button>
                       </Tooltip>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(t.filename)}
-                        aria-label={`Delete ${t.name}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      <Tooltip label="Delete">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(t.filename)}
+                          aria-label={`Delete ${t.name}`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </Tooltip>
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
+            {/* The count and the total, set under their own columns — a short list
+                needs no strip of figures above it. */}
+            <tfoot>
+              <tr className="border-t border-border bg-surface/60 text-[12px] text-muted-foreground">
+                <td className="px-5 py-2.5 tabular-nums">{templates.length} {templates.length === 1 ? 'template' : 'templates'}</td>
+                <td className="hidden xl:table-cell" />
+                <td />
+                <td className="whitespace-nowrap px-5 py-2.5 text-right font-medium tabular-nums text-foreground">{formatDisk(totalTemplateGb)}</td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
           </table>
         )}
       </div>

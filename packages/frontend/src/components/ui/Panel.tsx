@@ -72,7 +72,8 @@ export function Stat({
     <div className={cn('min-w-0 px-5 py-4 [&:nth-child(n+3)]:border-t sm:[&:nth-child(n+3)]:border-t-0', className)}>
       <p className="readout-label truncate">{label}</p>
       <p className={cn('readout-value mt-1.5 truncate', toneClass)}>{value}</p>
-      {sub && <p className="mt-0.5 truncate text-[12px] text-muted-foreground">{sub}</p>}
+      {/* A phone's half-width cell would cut the sub-line's qualifier off; there it wraps. */}
+      {sub && <p className="mt-0.5 text-[12px] text-muted-foreground sm:truncate">{sub}</p>}
     </div>
   );
 }

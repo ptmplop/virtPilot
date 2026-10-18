@@ -3,7 +3,6 @@ import { Check, KeyRound, Plus, Trash2, X } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
-import { Stat, StatStrip } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
@@ -152,30 +151,18 @@ export function SshKeysPage() {
   const { data: keys, isLoading } = useSshKeys();
   const [showForm, setShowForm] = useState(false);
 
-  const lastAdded = keys?.length
-    ? new Date(Math.max(...keys.map((k) => new Date(k.createdAt).getTime()))).toLocaleDateString('en-GB', {
-        day: 'numeric', month: 'short', year: 'numeric',
-      })
-    : '—';
-
   return (
     <Layout
       title="SSH keys"
       subtitle="Public keys you can add to new VMs."
       actions={
         !showForm && (
-          <Button size="sm" onClick={() => setShowForm(true)}>
-            <Plus size={13} /> Add key
+          <Button onClick={() => setShowForm(true)}>
+            <Plus size={14} /> Add key
           </Button>
         )
       }
     >
-      {/* Stats */}
-      <StatStrip className="mb-6">
-        <Stat label="Saved keys" value={isLoading ? '—' : String(keys?.length ?? 0)} />
-        <Stat label="Last added" value={isLoading ? '—' : lastAdded} />
-      </StatStrip>
-
       <div className="space-y-4">
         {showForm && <AddKeyForm onDone={() => setShowForm(false)} />}
 
@@ -193,11 +180,16 @@ export function SshKeysPage() {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-border/60">
-              {keys.map((key) => (
-                <KeyRow key={key.id} {...key} />
-              ))}
-            </div>
+            <>
+              <div className="divide-y divide-border">
+                {keys.map((key) => (
+                  <KeyRow key={key.id} {...key} />
+                ))}
+              </div>
+              <p className="border-t border-border bg-surface/60 px-5 py-2.5 text-[12px] tabular-nums text-muted-foreground">
+                {keys.length} {keys.length === 1 ? 'key' : 'keys'}
+              </p>
+            </>
           )}
         </div>
       </div>
