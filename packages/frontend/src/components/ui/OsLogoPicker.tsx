@@ -53,14 +53,20 @@ function LogoTile({ logo, size }: { logo: OsLogo; size: number }) {
 interface OsLogoPickerProps {
   value: string | null;
   onChange: (slug: string | null) => void;
+  /** The mark the file name implies, shown when nothing is picked — so the picker names
+      what the list will actually show ("Automatic · Alpine Linux"), not "None". */
+  automatic?: string;
 }
 
-export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
+export function OsLogoPicker({ value, onChange, automatic }: OsLogoPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const selected = value ? findLogo(value) : null;
+  const implied = automatic ? findLogo(automatic) : undefined;
+  const noneLabel = implied ? `Automatic · ${implied.name}` : 'None';
 
   useEffect(() => {
     if (!open) return;
@@ -107,22 +113,31 @@ export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
 
   return (
     <div ref={ref} className="relative">
-      <p className="mb-1.5 text-[12.5px] font-medium text-foreground">OS logo <span className="font-normal text-muted-foreground">(optional)</span></p>
+      {/* The same label and 36px field as every other form control. */}
+      <p className="mb-1.5 text-[13px] font-semibold text-foreground">OS logo <span className="font-normal text-muted-foreground">(optional)</span></p>
 
       {/* Trigger button */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
         className={cn(
-          'flex w-full items-center gap-2.5 rounded-lg border bg-card px-3 py-2 text-sm transition-all',
-          'hover:border-border/80 focus:outline-none focus:ring-2 focus:ring-ring',
-          open ? 'border-primary ring-2 ring-primary/20' : 'border-border'
+          'flex h-9 w-full items-center gap-2.5 rounded-md border bg-field px-3 text-[13.5px] transition-[border-color,box-shadow] duration-150',
+          'focus:outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/20',
+          open ? 'border-ring ring-[3px] ring-ring/20' : 'border-input hover:border-muted-foreground/40'
         )}
       >
         {selected ? (
           <>
-            <LogoTile logo={selected} size={20} />
+            <LogoTile logo={selected} size={18} />
             <span className="text-foreground">{selected.name}</span>
+          </>
+        ) : implied ? (
+          <>
+            <LogoTile logo={implied} size={18} />
+            <span className="text-muted-foreground">Automatic · <span className="text-foreground">{implied.name}</span></span>
           </>
         ) : (
           <>
@@ -138,7 +153,20 @@ export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1.5 w-full overflow-hidden rounded-lg border border-border bg-card shadow-pop">
+        // Escape closes this popup and returns to its field — it must not reach the
+        // dialog the picker sits in, which would close and clear the whole form.
+        <div
+          role="dialog"
+          aria-label="Choose an OS logo"
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(false);
+            triggerRef.current?.focus();
+          }}
+          className="absolute left-0 top-full z-50 mt-1.5 w-full overflow-hidden rounded-lg border border-border bg-card shadow-pop"
+        >
           {/* Search */}
           <div className="border-b border-border p-2">
             <div className="relative">
@@ -179,8 +207,8 @@ export function OsLogoPicker({ value, onChange }: OsLogoPickerProps) {
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               )}
             >
-              <Server size={15} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
-              None
+              {implied ? <LogoTile logo={implied} size={18} /> : <Server size={15} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />}
+              {noneLabel}
             </button>
 
             <div className="mb-1 h-px bg-border" />

@@ -13,6 +13,18 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.13.1',
+    date: '2026-10-18',
+    changes: [
+      { type: 'changed', text: 'Dialogs and forms read as one family: one Cancel, quiet label asides ("(optional)", units), one note box, checkboxes drawn to match the fields, no stray number spinners, and a greyed-out confirm says why beside it.' },
+      { type: 'changed', text: 'The new-VM wizard’s Review is ruled sections from the same rows as the summary; the primary network is a radio.' },
+      { type: 'changed', text: 'Backups: the VM’s mark on its history, quiet notes, states without dots, the legend under its table, a Restore that says what it replaces (and that a running VM must be powered off first), one schedule time field, and retention that shows its default.' },
+      { type: 'changed', text: 'The console uses the VM page’s power words, gives the terminal a margin, and drops the dot before "Connected".' },
+      { type: 'changed', text: 'Network types read the same everywhere, the setup guide loses its status colours, Logs keeps successes quiet, the Storage tables for templates and ISOs share columns, the logo picker names the automatic logo, and unmeasured snapshot sizes show "—".' },
+      { type: 'fixed', text: 'A table wider than its panel scrolls inside it at every width instead of hiding its row buttons; a storage directory lists what it holds one per line with "(default)" marks, so Edit and Delete fit at 1024 px, and paths wrap after a slash.' },
+    ],
+  },
+  {
     version: '2.13.0',
     date: '2026-10-18',
     changes: [

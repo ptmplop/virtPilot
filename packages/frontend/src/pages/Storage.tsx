@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { HardDrive, Download, Trash2, Plus, Pencil, FolderOpen, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
@@ -18,27 +18,67 @@ import { Panel, Stat, StatStrip } from '@/components/ui/Panel';
 import { WarnGlyph } from '@/components/ui/Badge';
 import type { StorageDir, StorageDirPurpose, StorageDirWithUsage } from '@/types';
 
-// What a directory holds and what it is the default for are both plain lists, in the
-// page's own order (templates, ISOs, VM disks) — a default is a setting, not a state.
+// What a directory holds, one purpose per line in the page's own order (templates, ISOs,
+// VM disks), each marked when the directory is that purpose's default. A default is a
+// setting, not a state: a muted "(default)", like a field label's parenthetical. One
+// column, not a "Default for" beside it that mostly repeated this one and pushed the row
+// actions out of the panel at 1024.
 const PURPOSE_ORDER: StorageDirPurpose[] = ['templates', 'isos', 'vmDisks'];
 const PURPOSE_LABEL: Record<StorageDirPurpose, string> = { templates: 'Templates', isos: 'ISOs', vmDisks: 'VM disks' };
 
-function purposeList(purposes: StorageDirPurpose[]): string {
-  return PURPOSE_ORDER.filter((p) => purposes.includes(p)).map((p) => PURPOSE_LABEL[p]).join(' · ');
+// A path wraps after a slash, never inside a folder name: left to the browser,
+// /var/lib/vp-rig broke at its hyphen. Copying it still gives the plain path.
+function PathText({ path }: { path: string }) {
+  return (
+    <>
+      {path.split('/').map((segment, i) => (
+        <Fragment key={i}>
+          {i > 0 && <>/<wbr /></>}
+          <span className="whitespace-nowrap">{segment}</span>
+        </Fragment>
+      ))}
+    </>
+  );
 }
 
-function PurposeChips({ purposes }: { purposes: StorageDirPurpose[] }) {
-  return <span className="text-[12.5px] text-foreground">{purposeList(purposes)}</span>;
+function HoldsList({ dir }: { dir: StorageDir }) {
+  const isDefault: Record<StorageDirPurpose, boolean> = {
+    templates: dir.isDefaultTemplates,
+    isos: dir.isDefaultIsos,
+    vmDisks: dir.isDefaultVmDisks,
+  };
+  const held = PURPOSE_ORDER.filter((p) => dir.purposes.includes(p));
+  if (held.length === 0) return <span className="text-[12.5px] text-muted-foreground">—</span>;
+  return (
+    <ul className="space-y-0.5 text-[12.5px] leading-5 text-foreground">
+      {held.map((p) => (
+        <li key={p} className="whitespace-nowrap">
+          {PURPOSE_LABEL[p]}
+          {isDefault[p] && <span className="text-muted-foreground"> (default)</span>}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
-function DefaultChips({ dir }: { dir: StorageDir }) {
-  const active: StorageDirPurpose[] = [
-    ...(dir.isDefaultTemplates ? ['templates' as const] : []),
-    ...(dir.isDefaultIsos ? ['isos' as const] : []),
-    ...(dir.isDefaultVmDisks ? ['vmDisks' as const] : []),
-  ];
-  if (active.length === 0) return <span className="text-[12.5px] text-muted-foreground">—</span>;
-  return <span className="text-[12.5px] text-foreground">{purposeList(active)}</span>;
+// The three file tables (templates, ISOs, VM disks) are stacked, so they share one
+// column grid instead of each sizing itself to its own contents: the name keeps the same
+// share in all three, and templates and ISOs line up column for column (VM disks gives
+// its row actions the last column). The file name is the column that gives (it
+// truncates, with the full name in its title); at 1024 with the sidebar open it still
+// fits a VM's disk.qcow2. Below its minimum width the table scrolls inside its panel
+// rather than squeezing or clipping.
+const FILE_TABLE = 'w-full min-w-[640px] table-fixed text-sm';
+function FileCols({ actions = false }: { actions?: boolean }) {
+  return (
+    <colgroup>
+      <col className="w-[30%]" />
+      <col />
+      <col className="w-28" />
+      <col className="w-[7.5rem]" />
+      <col className={actions ? 'w-[136px]' : 'w-5'} />
+    </colgroup>
+  );
 }
 
 function UsageBar({ dir }: { dir: StorageDirWithUsage }) {
@@ -125,14 +165,13 @@ export function StoragePage() {
             </Button>
           </SectionHeading>
         </div>
-        <Panel className="overflow-hidden">
+        <Panel className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="table-head">
                 <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Name</th>
                 <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Path</th>
                 <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Holds</th>
-                <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Default for</th>
                 <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Usage</th>
                 <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground" />
               </tr>
@@ -153,11 +192,10 @@ export function StoragePage() {
                       )}
                     </div>
                   </td>
-                  <td className="px-5 py-3 align-top font-mono text-xs text-muted-foreground">{dir.path}</td>
-                  <td className="px-5 py-3 align-top"><PurposeChips purposes={dir.purposes} /></td>
-                  <td className="px-5 py-3 align-top"><DefaultChips dir={dir} /></td>
+                  <td className="px-5 py-3 align-top font-mono text-xs text-muted-foreground"><PathText path={dir.path} /></td>
+                  <td className="px-5 py-3 align-top"><HoldsList dir={dir} /></td>
                   <td className="px-5 py-3 align-top"><UsageBar dir={dir} /></td>
-                  <td className="px-5 py-3 align-top text-right">
+                  <td className="py-3 pl-2 pr-5 align-top text-right">
                     <div className="inline-flex items-center gap-1">
                       <Tooltip label="Edit">
                         <button
@@ -183,7 +221,7 @@ export function StoragePage() {
               ))}
               {(storageDirs?.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-[13px] text-muted-foreground">
+                  <td colSpan={5} className="px-5 py-8 text-center text-[13px] text-muted-foreground">
                     No storage directories yet. Add one to start uploading templates and ISOs.
                   </td>
                 </tr>
@@ -197,23 +235,26 @@ export function StoragePage() {
       {!!templates?.length && (
         <section className="mb-5">
           <div className="mb-3.5"><SectionHeading label="Templates" /></div>
-          <div className="panel overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="panel overflow-x-auto">
+            <table className={FILE_TABLE}>
+              <FileCols />
               <thead>
                 <tr className="table-head">
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Name</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">File</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Location</th>
                   <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground">Size</th>
+                  <th aria-hidden />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {templates.map((t) => (
                   <tr key={t.filename} className="transition-colors hover:bg-surface/70">
-                    <td className="px-5 py-3 text-sm font-medium text-foreground">{t.name}</td>
-                    <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{t.filename}</td>
-                    <td className="px-5 py-3 text-xs text-muted-foreground">{t.storageDirName}</td>
-                    <td className="px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(t.sizeGb)}</td>
+                    <td className="truncate px-5 py-3 text-sm font-medium text-foreground" title={t.name}>{t.name}</td>
+                    <td className="truncate px-5 py-3 font-mono text-xs text-muted-foreground" title={t.filename}>{t.filename}</td>
+                    <td className="truncate px-5 py-3 text-xs text-muted-foreground" title={t.storageDirName}>{t.storageDirName}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(t.sizeGb)}</td>
+                    <td />
                   </tr>
                 ))}
               </tbody>
@@ -226,23 +267,26 @@ export function StoragePage() {
       {!!isos?.length && (
         <section className="mb-5">
           <div className="mb-3.5"><SectionHeading label="ISOs" /></div>
-          <div className="panel overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="panel overflow-x-auto">
+            <table className={FILE_TABLE}>
+              <FileCols />
               <thead>
                 <tr className="table-head">
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Name</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">File</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Location</th>
                   <th className="px-5 py-2.5 text-right text-[12px] font-medium text-muted-foreground">Size</th>
+                  <th aria-hidden />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {isos.map((iso) => (
                   <tr key={iso.filename} className="transition-colors hover:bg-surface/70">
-                    <td className="px-5 py-3 text-sm font-medium text-foreground">{iso.name}</td>
-                    <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{iso.filename}</td>
-                    <td className="px-5 py-3 text-xs text-muted-foreground">{iso.storageDirName}</td>
-                    <td className="px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(iso.sizeGb)}</td>
+                    <td className="truncate px-5 py-3 text-sm font-medium text-foreground" title={iso.name}>{iso.name}</td>
+                    <td className="truncate px-5 py-3 font-mono text-xs text-muted-foreground" title={iso.filename}>{iso.filename}</td>
+                    <td className="truncate px-5 py-3 text-xs text-muted-foreground" title={iso.storageDirName}>{iso.storageDirName}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(iso.sizeGb)}</td>
+                    <td />
                   </tr>
                 ))}
               </tbody>
@@ -278,8 +322,9 @@ export function StoragePage() {
       {!vmDisksError && !!vmDisks?.length && (
         <section>
           <div className="mb-3.5"><SectionHeading label="VM disks" /></div>
-          <div className="panel overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="panel overflow-x-auto">
+            <table className={FILE_TABLE}>
+              <FileCols actions />
               <thead>
                 <tr className="table-head">
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">Virtual machine</th>
@@ -294,21 +339,21 @@ export function StoragePage() {
                   <tr key={`${d.vmUuid}/${d.filename}`} className="transition-colors hover:bg-surface/70">
                     <td className="px-5 py-3">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">{d.vmName}</span>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 truncate text-sm font-medium text-foreground" title={d.vmName}>{d.vmName}</span>
                           {!d.vmExists && (
-                            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-amber-700 dark:text-amber-300">
-                              orphaned
+                            <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+                              <WarnGlyph size={9} /> Orphaned
                             </span>
                           )}
                         </div>
                         <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{d.vmUuid}</p>
                       </div>
                     </td>
-                    <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{d.filename}</td>
-                    <td className="px-5 py-3 text-xs text-muted-foreground">{d.storageDirName}</td>
-                    <td className="px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(d.sizeGb)}</td>
-                    <td className="px-5 py-3 text-right">
+                    <td className="truncate px-5 py-3 font-mono text-xs text-muted-foreground" title={d.filename}>{d.filename}</td>
+                    <td className="truncate px-5 py-3 text-xs text-muted-foreground" title={d.storageDirName}>{d.storageDirName}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-right text-[12.5px] tabular-nums text-muted-foreground">{formatDisk(d.sizeGb)}</td>
+                    <td className="py-3 pl-2 pr-5 text-right">
                       <div className="inline-flex items-center gap-1">
                         {(() => {
                           // Same gate as download: VM must be stopped (or undefined). Moving

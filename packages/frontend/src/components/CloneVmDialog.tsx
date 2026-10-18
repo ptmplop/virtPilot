@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CopyPlus, Info } from 'lucide-react';
+import { CopyPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/Button';
+import { Callout } from '@/components/ui/Callout';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { StorageDirSelect } from '@/components/StorageDirSelect';
@@ -63,12 +64,13 @@ export function CloneVmDialog({ open, vmUuid, vmName, vmStatus, onClose }: Props
       onClose={onClose}
       title="Clone virtual machine"
       description={`A complete, independent copy of ${vmName}`}
-      size="sm"
+      size="md"
+      note={!name.trim() ? 'Name the clone.' : undefined}
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" onClick={handleClone} disabled={clone.isPending || !name.trim()}>
-            <CopyPlus size={13} className="mr-1.5" />
+            <CopyPlus size={13} />
             Clone
           </Button>
         </>
@@ -83,15 +85,11 @@ export function CloneVmDialog({ open, vmUuid, vmName, vmStatus, onClose }: Props
             there is no need to shut the source down first — worth saying, since
             every other tool in this space requires it. */}
         {running && (
-          <div className="flex gap-2.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-            <Info size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
-            <p className="text-[11px] leading-snug text-muted-foreground">
-              <span className="font-medium text-foreground">{vmName} is running.</span> Its disks are copied from a
-              point-in-time snapshot, so the guest keeps running throughout and is never paused for more than a
-              moment. With the guest agent installed the copy is application-consistent; without it, treat the clone
-              like a machine that lost power.
-            </p>
-          </div>
+          <Callout lead={`${vmName} is running.`}>
+            Its disks are copied from a point-in-time snapshot, so the guest keeps running throughout and is
+            never paused for more than a moment. With the guest agent installed the copy is application-consistent;
+            without it, treat the clone like a machine that lost power.
+          </Callout>
         )}
 
         <label className="flex items-start gap-2 text-[13px] text-foreground">
@@ -103,7 +101,7 @@ export function CloneVmDialog({ open, vmUuid, vmName, vmStatus, onClose }: Props
           />
           <span>
             Give the clone its own identity
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">
+            <span className="mt-0.5 block text-[12.5px] leading-5 text-muted-foreground">
               Rebuilds cloud-init so the guest boots with the new name as its hostname and its own IP address.
               Turn this off to keep an exact copy — but a duplicated static IP will take both machines off the
               network.

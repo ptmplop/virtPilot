@@ -1,6 +1,15 @@
 import { forwardRef, type InputHTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
 
+// A label's trailing aside — "(optional)", "(MB)", "(leave blank for any)" — is quieter
+// than the label itself, as the wizard's hints are: "Memory" in the label's weight, "(MB)"
+// muted. Text without one renders as it was.
+export function LabelText({ text }: { text: string }) {
+  const m = text.match(/^(.*\S)\s+(\([^()]*\))$/);
+  if (!m) return <>{text}</>;
+  return <>{m[1]} <span className="font-normal text-muted-foreground">{m[2]}</span></>;
+}
+
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
@@ -13,7 +22,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       <div className="space-y-1.5">
         {label && (
           <label htmlFor={inputId} className="block text-[13px] font-semibold text-foreground">
-            {label}
+            <LabelText text={label} />
           </label>
         )}
         <input

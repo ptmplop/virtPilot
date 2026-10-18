@@ -1,5 +1,6 @@
 import { forwardRef, type SelectHTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
+import { LabelText } from '@/components/ui/Input';
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
@@ -13,7 +14,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
       <div className="space-y-1.5">
         {label && (
           <label htmlFor={inputId} className="block text-[13px] font-semibold text-foreground">
-            {label}
+            <LabelText text={label} />
           </label>
         )}
         <select

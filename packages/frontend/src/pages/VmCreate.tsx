@@ -26,7 +26,8 @@ import { cn } from '@/lib/cn';
 import { useLogoStore } from '@/store/logoStore';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
 import { osSlugFromImage } from '@/data/templateSets';
-import { formatDisk } from '@/lib/format';
+import { formatDisk, networkTypeLabel } from '@/lib/format';
+import { CALLOUT_ATTENTION as CALLOUT_ATTENTION_BASE, CALLOUT_INFO } from '@/components/ui/Callout';
 
 // ─── Types & constants ────────────────────────────────────────────────────────
 
@@ -136,10 +137,8 @@ const OPTION_CHOSEN = 'border-primary bg-accent ring-1 ring-primary/30';
 // A long step reads as ruled sections: a hairline between each, none at the ends.
 const SECTIONS = 'divide-y divide-border [&>*]:py-6 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0';
 
-const CALLOUT_ATTENTION =
-  'flex items-start gap-2.5 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-800 dark:text-amber-200';
-const CALLOUT_INFO =
-  'rounded-md border border-border bg-surface px-3.5 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground';
+// The shared callout recipe; the attention note here leads with its glyph.
+const CALLOUT_ATTENTION = `flex items-start gap-2.5 ${CALLOUT_ATTENTION_BASE}`;
 
 const LINK = 'font-medium text-primary underline-offset-4 hover:underline';
 
@@ -277,6 +276,43 @@ function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
   );
 }
 
+// ─── What the VM will be ──────────────────────────────────────────────────────
+//
+// The summary sidebar and the Review step describe the same machine, so both read it
+// from here: one set of labels, one way of writing each value. Identifiers (names,
+// images, networks) are mono; quantities and words are Inter's tabular figures.
+
+type RowKind = 'id' | 'qty';
+type SummaryRow = [label: string, value: string, kind: RowKind];
+
+function computeRows(form: FormData, sourceName?: string): SummaryRow[] {
+  const isIso = form.sourceType === 'iso';
+  const disk = Number(form.diskGb);
+  return [
+    ['Name', form.name || '—', 'id'],
+    [isIso ? 'Install ISO' : 'Template', sourceName || (isIso ? form.isoFilename : form.templateFilename) || '—', 'id'],
+    ['vCPUs', form.cpus, 'qty'],
+    ['Memory', mbToDisplay(form.memoryMb), 'qty'],
+    // Only an ISO install starts from a blank disk; a template's disk is the image.
+    ['Disk', `${Number.isFinite(disk) && disk > 0 ? formatDisk(disk) : `${form.diskGb} GB`}${isIso ? ', blank' : ''}`, 'qty'],
+  ];
+}
+
+function SummaryValue({ value, kind }: { value: string; kind: RowKind }) {
+  return (
+    <dd
+      className={cn(
+        'min-w-0 truncate text-right tabular-nums',
+        kind === 'id' && value !== '—' ? 'font-mono text-[12px]' : 'text-[13px]',
+        value === '—' ? 'text-muted-foreground' : 'text-foreground'
+      )}
+      title={value !== '—' ? value : undefined}
+    >
+      {value}
+    </dd>
+  );
+}
+
 // ─── Summary sidebar ──────────────────────────────────────────────────────────
 
 function SummarySidebar({
@@ -288,20 +324,14 @@ function SummarySidebar({
   sourceName?: string;
   networkSummary?: string;
 }) {
-  const sourceLabel = form.sourceType === 'iso' ? 'Install ISO' : 'Template';
-  // Identifiers (names, images, networks) are mono; quantities are Inter's tabular figures.
-  const rows: [string, string, 'id' | 'qty'][] = [
-    ['Name',      form.name || '—', 'id'],
-    [sourceLabel, sourceName || '—', 'id'],
-    ['vCPU',      form.cpus, 'qty'],
-    ['RAM',       mbToDisplay(form.memoryMb), 'qty'],
-    ['Disk',      `${form.diskGb} GB`, 'qty'],
-    ['Networks',  networkSummary || '—', 'id'],
+  const rows: SummaryRow[] = [
+    ...computeRows(form, sourceName),
+    ['Networks', networkSummary || '—', 'id'],
     ...(form.sourceType === 'template'
       ? ([
           ['Hostname', form.hostname || form.name || '—', 'id'],
           ['Username', form.username, 'id'],
-        ] as [string, string, 'id' | 'qty'][])
+        ] as SummaryRow[])
       : []),
   ];
 
@@ -312,16 +342,7 @@ function SummarySidebar({
         {rows.map(([label, value, kind]) => (
           <div key={label} className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-center gap-x-3 py-[9px]">
             <dt className="text-[12.5px] text-muted-foreground">{label}</dt>
-            <dd
-              className={cn(
-                'min-w-0 truncate text-right tabular-nums',
-                kind === 'id' && value !== '—' ? 'font-mono text-[12px]' : 'text-[13px]',
-                value === '—' ? 'text-muted-foreground' : 'text-foreground'
-              )}
-              title={value !== '—' ? value : undefined}
-            >
-              {value}
-            </dd>
+            <SummaryValue value={value} kind={kind} />
           </div>
         ))}
       </dl>
@@ -538,7 +559,7 @@ function ResourcesStep({
   return (
     <div className={SECTIONS}>
       {/* VM Name */}
-      <div className="space-y-2.5">
+      <div className="space-y-1.5">
         <FieldLabel htmlFor="vm-name">VM name</FieldLabel>
         <input
           id="vm-name"
@@ -671,7 +692,7 @@ function ResourcesStep({
                 value={form.cpus}
                 onChange={(e) => setForm((f) => ({ ...f, cpus: e.target.value }))}
                 required
-                className="font-mono tabular-nums"
+                className="tabular-nums"
               />
               <Input
                 label="Memory (MB)"
@@ -681,7 +702,7 @@ function ResourcesStep({
                 value={form.memoryMb}
                 onChange={(e) => setForm((f) => ({ ...f, memoryMb: e.target.value }))}
                 required
-                className="font-mono tabular-nums"
+                className="tabular-nums"
               />
             </div>
             <button
@@ -736,7 +757,7 @@ function ResourcesStep({
               value={form.diskGb}
               onChange={(e) => setForm((f) => ({ ...f, diskGb: e.target.value }))}
               required
-              className="font-mono tabular-nums"
+              className="tabular-nums"
             />
           </div>
         )}
@@ -867,8 +888,7 @@ function NetworkCard({
   // used to get neither an IP picker nor this line.
   const isBridge = network.type === 'bridge' || network.type === 'existing-bridge';
 
-  const prefix = network.type === 'existing-bridge' ? 'OS Bridge' : 'Bridge';
-  const typeLabel = network.type === 'nat' ? 'NAT' : network.ipMode === 'dhcp' ? `${prefix} DHCP` : `${prefix} Static`;
+  const typeLabel = networkTypeLabel(network.type, network.ipMode);
 
   return (
     <div className={cn(
@@ -908,20 +928,18 @@ function NetworkCard({
 
       {checked && (
         <div className="space-y-3 border-t border-primary/20 px-4 pb-4 pt-3">
-          <button
-            type="button"
-            onClick={onSetPrimary}
-            aria-pressed={selection.isPrimary}
-            className={cn(
-              'inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-3 text-[12.5px] font-medium transition-colors',
-              selection.isPrimary
-                ? 'border-primary/40 text-primary'
-                : 'border-input text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground'
-            )}
-          >
-            {selection.isPrimary && <Check className="h-3.5 w-3.5" strokeWidth={2.5} />}
-            {selection.isPrimary ? 'Primary interface (default gateway)' : 'Set as primary interface'}
-          </button>
+          {/* Exactly one network is primary: a radio, not a chip-like toggle. The shared
+              name makes the cards one group, so arrow keys move the choice between them. */}
+          <label className="flex w-fit cursor-pointer items-center gap-2 text-[13px] text-foreground">
+            <input
+              type="radio"
+              name="vm-primary-network"
+              checked={selection.isPrimary}
+              onChange={onSetPrimary}
+            />
+            Primary interface<span className="sr-only">: {network.name}</span>
+            <span className="text-muted-foreground">· carries the default gateway</span>
+          </label>
 
           {needsIp && (
             availableIps.length === 0 ? (
@@ -1290,7 +1308,7 @@ function AuthStep({
 
   return (
     <div className={SECTIONS}>
-      <div className="space-y-2.5">
+      <div className="space-y-1.5">
         <FieldLabel htmlFor="vm-hostname">Hostname</FieldLabel>
         <Input
           id="vm-hostname"
@@ -1301,8 +1319,7 @@ function AuthStep({
         <p className="text-[12.5px] text-muted-foreground">Defaults to the VM name if left blank.</p>
       </div>
 
-      <div className="space-y-3">
-        <FieldLabel>Login account</FieldLabel>
+      <div>
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Username"
@@ -1365,6 +1382,8 @@ function AuthStep({
 
 // ─── Review step ──────────────────────────────────────────────────────────────
 
+// A section of the review is a quiet heading over ruled rows — the step's own panel is
+// the only box.
 function ReviewSection({
   title,
   children,
@@ -1373,20 +1392,18 @@ function ReviewSection({
   children: React.ReactNode;
 }) {
   return (
-    <Panel className="overflow-hidden">
-      <PanelHeader title={title} />
-      <dl className="divide-y divide-border">{children}</dl>
-    </Panel>
+    <section>
+      <h3 className="pb-2 text-[13px] font-semibold text-foreground">{title}</h3>
+      <dl className="divide-y divide-border border-y border-border">{children}</dl>
+    </section>
   );
 }
 
-function ReviewRow({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+function ReviewRow({ label, value, kind = 'qty' }: { label: string; value: string; kind?: RowKind }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-2.5">
+    <div className="flex items-center justify-between gap-4 py-2.5">
       <dt className="shrink-0 text-[13px] text-muted-foreground">{label}</dt>
-      <dd className={cn('min-w-0 truncate text-right text-foreground', mono ? 'font-mono text-[12.5px] tabular-nums' : 'text-[13px]')}>
-        {value}
-      </dd>
+      <SummaryValue value={value} kind={kind} />
     </div>
   );
 }
@@ -1407,16 +1424,13 @@ function ReviewStep({
   const sshKeyCount = form.selectedSshKeyIds.length;
   const isIso = form.sourceType === 'iso';
   return (
-    <div className="space-y-4">
+    <div className="space-y-7">
       <ReviewSection title="Compute">
-        <ReviewRow label="VM name"  value={form.name} />
-        <ReviewRow label={isIso ? 'Install ISO' : 'Template'} value={sourceName ?? (isIso ? form.isoFilename : form.templateFilename)} />
-        <ReviewRow label="vCPU"     value={`${form.cpus} vCPU${parseInt(form.cpus) !== 1 ? 's' : ''}`} />
-        <ReviewRow label="Memory"   value={mbToDisplay(form.memoryMb)} />
-        {/* Only an ISO install starts from a blank disk; a template's disk is the image. */}
-        <ReviewRow label="Disk"     value={`${form.diskGb} GB${isIso ? ' (blank)' : ''}`} />
-        <ReviewRow label="Firmware" value={form.firmware === 'uefi' ? (form.secureBoot ? 'UEFI + Secure Boot' : 'UEFI') : 'SeaBIOS'} mono={false} />
-        {form.vtpm && <ReviewRow label="Virtual TPM" value="TPM 2.0 (emulated)" mono={false} />}
+        {computeRows(form, sourceName).map(([label, value, kind]) => (
+          <ReviewRow key={label} label={label} value={value} kind={kind} />
+        ))}
+        <ReviewRow label="Firmware" value={form.firmware === 'uefi' ? (form.secureBoot ? 'UEFI + Secure Boot' : 'UEFI') : 'SeaBIOS'} />
+        {form.vtpm && <ReviewRow label="Virtual TPM" value="TPM 2.0 (emulated)" />}
       </ReviewSection>
 
       <ReviewSection title="Network">
@@ -1426,8 +1440,9 @@ function ReviewStep({
           networkRows.map((r) => (
             <ReviewRow
               key={r.name}
-              label={r.primary ? `${r.name} (primary)` : r.name}
+              label={r.primary ? `${r.name}, primary` : r.name}
               value={r.ip}
+              kind={r.ip === 'DHCP' ? 'qty' : 'id'}
             />
           ))
         )}
@@ -1435,13 +1450,12 @@ function ReviewStep({
 
       {!isIso && (
         <ReviewSection title="Authentication">
-          <ReviewRow label="Hostname" value={form.hostname || form.name} />
-          <ReviewRow label="Username" value={form.username} />
-          <ReviewRow label="Password" value="••••••••" mono={false} />
+          <ReviewRow label="Hostname" value={form.hostname || form.name} kind="id" />
+          <ReviewRow label="Username" value={form.username} kind="id" />
+          <ReviewRow label="Password" value="••••••••" />
           <ReviewRow
             label="SSH keys"
             value={sshKeyCount > 0 ? `${sshKeyCount} key${sshKeyCount !== 1 ? 's' : ''}` : 'None'}
-            mono={false}
           />
         </ReviewSection>
       )}
@@ -1456,13 +1470,11 @@ function ReviewStep({
         </p>
       )}
 
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-5 py-4">
-        <div className="flex items-center gap-3">
-          <Power className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <div>
-            <p className="text-[13.5px] font-semibold text-foreground">Start after provisioning</p>
-            <p className="mt-0.5 text-[12.5px] text-muted-foreground">Automatically start the VM once it has been created.</p>
-          </div>
+      {/* A choice, not a section: one ruled row with its switch. */}
+      <div className="flex items-center justify-between gap-4 border-t border-border pt-5">
+        <div>
+          <p className="text-[13.5px] font-semibold text-foreground">Start after provisioning</p>
+          <p className="mt-0.5 text-[12.5px] text-muted-foreground">Power the VM on as soon as it has been created.</p>
         </div>
         <Switch checked={startAfterCreate} onClick={onToggleStart} label="Start after provisioning" />
       </div>

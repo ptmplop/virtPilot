@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
+import { Callout } from '@/components/ui/Callout';
 import { Button } from '@/components/ui/Button';
 import { StorageDirSelect } from '@/components/StorageDirSelect';
 import type { StorageDirPurpose } from '@/types';
@@ -59,8 +60,8 @@ export function MoveDialog({ open, onClose, itemLabel, purpose, currentStorageDi
         </>
       }
     >
-      <div className="space-y-3">
-        {notes && <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">{notes}</div>}
+      <div className="space-y-4">
+        {notes && <Callout>{notes}</Callout>}
         <StorageDirSelect
           purpose={purpose}
           value={targetId}

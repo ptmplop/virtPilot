@@ -41,6 +41,8 @@ import {
 import { Spinner } from '@/components/ui/Spinner';
 import { StorageDirSelect } from '@/components/StorageDirSelect';
 import { useVms } from '@/hooks/useVms';
+import { useSettings } from '@/hooks/useSettings';
+import { CALLOUT_ATTENTION, CALLOUT_INFO } from '@/components/ui/Callout';
 import { useLogoStore } from '@/store/logoStore';
 import { osSlugFromImage } from '@/data/templateSets';
 import { cn } from '@/lib/cn';
@@ -58,12 +60,7 @@ import type {
 
 // ─── Shared chrome ────────────────────────────────────────────────────────────
 
-// Callouts (DESIGN.md): attention is amber with the warning glyph, info is the quiet
-// surface well. One shape for both, so a note never looks like a different component.
-const CALLOUT_ATTENTION =
-  'rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-800 dark:text-amber-200';
-const CALLOUT_INFO =
-  'rounded-md border border-border bg-surface px-3.5 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground';
+// Callouts (DESIGN.md): one recipe, shared with every other page.
 
 // Row actions: ghost icon buttons; the destructive one only turns red on approach.
 const ROW_ACTION =
@@ -252,9 +249,6 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
 
         <BackupAlertsBanner />
 
-        {/* Info panel */}
-        <BackupInfoPanel />
-
         {/* Table */}
         <Panel className="overflow-hidden">
           <div ref={tableRef} className="overflow-x-auto">
@@ -331,18 +325,18 @@ function BackupInfoPanel() {
             !open && '-rotate-90',
           )}
         />
-        <span className="flex-1 text-[13px] font-medium text-foreground">Understanding backup states</span>
+        <span className="flex-1 text-[13px] font-medium text-foreground">What the states mean</span>
       </button>
 
       {open && (
         <div className="grid divide-y divide-border border-t border-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
           <InfoStateCard
-            glyph={<StatusGlyph status="running" size={8} />}
+            glyph={null}
             title="App-consistent"
             body="Filesystems were frozen via the QEMU guest agent before copying. All writes were flushed — safe to restore any application or database without extra checks."
           />
           <InfoStateCard
-            glyph={<StatusGlyph status="stopped" size={8} />}
+            glyph={null}
             title="VM offline"
             body="The VM was powered off when the backup ran. The disk was idle with no writes in flight — always safe to restore, no guest agent needed."
           />
@@ -592,6 +586,10 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
   const { data: summaries } = useBackupSummaries();
   const summary = summaries?.find((s) => s.vmUuid === vmUuid);
   const vmName = summary?.vmName ?? vmUuid;
+  // The VM's mark beside its name, as on its own page and in the list above.
+  const { data: vms } = useVms();
+  const chosenLogo = useLogoStore((s) => s.vms[vmName]);
+  const logoSlug = chosenLogo ?? osSlugFromImage(vms?.find((v) => v.id === vmUuid)?.sourceTemplateFilename);
   const createBackup = useCreateBackup(vmUuid, vmName);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [confirmFullOpen, setConfirmFullOpen] = useState(false);
@@ -666,11 +664,13 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
 
         {/* Title + actions */}
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-[26px] font-semibold leading-8 tracking-[-0.024em] text-foreground">{vmName}</h1>
-            <p className="mt-1 text-[13.5px] text-muted-foreground">
-              {isLoading ? 'Loading…' : `${backups.length} backup${backups.length !== 1 ? 's' : ''}${totalSize > 0 ? ` · ${formatBytes(totalSize)} total` : ''}`}
-            </p>
+          {/* The count and size are the strip's: the subtitle says what the page holds. */}
+          <div className="flex min-w-0 items-center gap-3.5">
+            {logoSlug && <VmLogo slug={logoSlug} size={40} />}
+            <div className="min-w-0">
+              <h1 className="truncate text-[26px] font-semibold leading-8 tracking-[-0.024em] text-foreground">{vmName}</h1>
+              <p className="mt-1 text-[13.5px] text-muted-foreground">Every backup of this VM, newest first.</p>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" onClick={() => setScheduleOpen(true)} disabled={isLoading}>
@@ -795,10 +795,13 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
             <div className="px-6 py-12 text-center">
               <p className="text-[13.5px] font-medium text-foreground">No backups yet</p>
               {/* Named the button that exists: there has never been a "Back Up Now" on this page. */}
-              <p className="mt-1 text-[12.5px] text-muted-foreground">Click “Full backup” to create the first backup.</p>
+              <p className="mt-1 text-[12.5px] text-muted-foreground">A full backup starts the history.</p>
             </div>
           )}
         </Panel>
+
+        {/* The legend lives under the table whose State column it explains. */}
+        {!emptyTable && <BackupInfoPanel />}
       </div>
 
       {scheduleOpen && (
@@ -821,12 +824,12 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
       <Dialog
         open={confirmFullOpen}
         onClose={() => setConfirmFullOpen(false)}
-        title="Take a full backup?"
+        title="Take a full backup"
         description="This VM is scheduled for incremental backups."
         size="sm"
         footer={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmFullOpen(false)}>Cancel</Button>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmFullOpen(false)}>Cancel</Button>
             <Button
               size="sm"
               onClick={() => { setConfirmFullOpen(false); handleBackupNow('full'); }}
@@ -849,7 +852,13 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
         <DeleteBackupDialog backup={deleteTarget} vmUuid={vmUuid} onClose={() => setDeleteTarget(null)} />
       )}
       {restoreTarget && (
-        <RestoreDialog backup={restoreTarget} vmUuid={vmUuid} vmName={vmName} onClose={() => setRestoreTarget(null)} />
+        <RestoreDialog
+          backup={restoreTarget}
+          vmUuid={vmUuid}
+          vmName={vmName}
+          vmStatus={vms ? (vms.find((v) => v.id === vmUuid)?.status ?? 'deleted') : 'loading'}
+          onClose={() => setRestoreTarget(null)}
+        />
       )}
     </Layout>
   );
@@ -924,7 +933,7 @@ function ScheduleBanner({
         size="sm"
         footer={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmOpen(false)}>Cancel</Button>
             <Button variant="danger" size="sm" onClick={handleConfirmDelete} disabled={deleteSchedule.isPending}>
               Remove schedule
             </Button>
@@ -978,21 +987,21 @@ function BackupInProgressRow({ triggerType, narrow }: { triggerType: 'manual' | 
 
 // ─── Backup row ───────────────────────────────────────────────────────────────
 
-// Each state wears the app's status-glyph language: a solid disc for a copy taken
-// from a running guest with its filesystems frozen, an open ring for a VM that was
-// off, the warning triangle where nothing was frozen.
+// A backup's state is a word; only the state that needs a check before a restore
+// carries a mark (the warning triangle where nothing was frozen). The disc and ring
+// are a VM's own state glyphs, not a backup's.
 const consistencyConfig: Record<BackupConsistency, {
   glyph: React.ReactNode;
   label: string;
   tone: string;
 }> = {
   'app-consistent': {
-    glyph: <StatusGlyph status="running" size={8} />,
+    glyph: null,
     label: 'App-consistent',
-    tone: 'text-emerald-700 dark:text-emerald-300',
+    tone: 'text-foreground',
   },
   'offline': {
-    glyph: <StatusGlyph status="stopped" size={8} />,
+    glyph: null,
     label: 'VM offline',
     tone: 'text-muted-foreground',
   },
@@ -1084,22 +1093,23 @@ function BackupRow({
           </p>
         )}
         {!backup.chainBroken && backup.notes?.length ? (
-          <p className="mt-1 text-[12px] leading-snug text-amber-700 dark:text-amber-300">{backup.notes.join(' ')}</p>
+          // An explanation, not an alarm: the State cell carries the one warning that matters.
+          <p className="mt-1 text-[12px] leading-snug text-muted-foreground">{backup.notes.join(' ')}</p>
         ) : null}
       </div>
 
       {/* Size — for an incremental, its own delta plus what the full chain costs */}
-      <span className="font-mono text-[12.5px] tabular-nums text-foreground">
+      <span className="text-[12.5px] tabular-nums text-foreground">
         {formatBytes(backup.sizeBytes)}
         {backup.kind === 'incremental' && backup.chainSizeBytes > backup.sizeBytes && (
-          <span className="block font-sans text-[11.5px] text-muted-foreground">
+          <span className="block text-[12px] text-muted-foreground">
             {formatBytes(backup.chainSizeBytes)} chain
           </span>
         )}
       </span>
 
       {/* Disks */}
-      <span className="font-mono text-[12.5px] tabular-nums text-muted-foreground">
+      <span className="text-[12.5px] tabular-nums text-muted-foreground">
         {backup.disks.length}
       </span>
 
@@ -1136,12 +1146,12 @@ function BackupRow({
         </Tooltip>
         {withTip('Restore', narrow,
           <Button
-            variant="ghost"
+            variant="secondary"
             size="sm"
             onClick={onRestore}
             disabled={backup.chainBroken}
             aria-label={narrow ? 'Restore' : undefined}
-            className={narrow ? 'w-8 px-0' : 'px-2.5'}
+            className={narrow ? 'w-8 px-0' : undefined}
           >
             <ArchiveRestore size={narrow ? 14 : 13} />
             {!narrow && 'Restore'}
@@ -1174,9 +1184,15 @@ function ScheduleDialog({
   onClose: () => void;
 }) {
   const saveSchedule = useSaveSchedule(vmUuid);
+  const globalRetention = useSettings().data?.backup.retentionDays;
   const [frequency, setFrequency] = useState<BackupFrequency>(existing?.frequency ?? 'daily');
   const [hour, setHour] = useState(String(existing?.hour ?? 2));
   const [minute, setMinute] = useState(String(existing?.minute ?? 0).padStart(2, '0'));
+  // True while a segment of the time field is blank (the native value is then ''). The
+  // field must be given '' back: handed the last full time instead, React writes it
+  // straight into the field and Backspace can never clear a segment.
+  const [timeBlank, setTimeBlank] = useState(false);
+  const needsTime = frequency !== 'hourly' && timeBlank;
   const [dayOfWeek, setDayOfWeek] = useState(String(existing?.dayOfWeek ?? 1));
   const [dayOfMonth, setDayOfMonth] = useState(String(existing?.dayOfMonth ?? 1));
   const [retentionDays, setRetentionDays] = useState(
@@ -1189,8 +1205,8 @@ function ScheduleDialog({
     toast.promise(
       saveSchedule.mutateAsync({
         frequency,
-        hour: parseInt(hour),
-        minute: parseInt(minute),
+        hour: Number.isFinite(parseInt(hour, 10)) ? parseInt(hour, 10) : 0,
+        minute: Number.isFinite(parseInt(minute, 10)) ? parseInt(minute, 10) : 0,
         dayOfWeek: parseInt(dayOfWeek),
         dayOfMonth: parseInt(dayOfMonth),
         retentionDays: retentionDays === '' ? null : parseInt(retentionDays),
@@ -1216,10 +1232,11 @@ function ScheduleDialog({
       title={existing ? 'Edit backup schedule' : 'Set backup schedule'}
       description={`Automated backups for ${vmName}`}
       size="sm"
+      note={needsTime ? 'Choose a time.' : undefined}
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={handleSave} disabled={saveSchedule.isPending}>Save schedule</Button>
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={handleSave} disabled={saveSchedule.isPending || needsTime}>Save schedule</Button>
         </>
       }
     >
@@ -1228,7 +1245,7 @@ function ScheduleDialog({
           id="schedule-frequency"
           label="Frequency"
           value={frequency}
-          onChange={(e) => setFrequency(e.target.value as BackupFrequency)}
+          onChange={(e) => { setFrequency(e.target.value as BackupFrequency); setTimeBlank(false); }}
         >
           <option value="hourly">Hourly</option>
           <option value="daily">Daily</option>
@@ -1236,29 +1253,24 @@ function ScheduleDialog({
           <option value="monthly">Monthly</option>
         </Select>
 
+        {/* One time field, not an hour and a minute side by side. The scheduler runs on
+            the host's clock (setHours in backupService), so the label says whose. */}
         {frequency !== 'hourly' && (
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              id="schedule-hour"
-              label="Hour (0–23)"
-              type="number"
-              min={0}
-              max={23}
-              value={hour}
-              onChange={(e) => setHour(e.target.value)}
-              className="font-mono tabular-nums"
-            />
-            <Input
-              id="schedule-minute"
-              label="Minute"
-              type="number"
-              min={0}
-              max={59}
-              value={minute}
-              onChange={(e) => setMinute(e.target.value)}
-              className="font-mono tabular-nums"
-            />
-          </div>
+          <Input
+            id="schedule-time"
+            label="Time (host's clock)"
+            type="time"
+            step={60}
+            value={timeBlank ? '' : `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`}
+            onChange={(e) => {
+              const [h, m] = e.target.value.split(':');
+              setTimeBlank(h === undefined || m === undefined);
+              if (h === undefined || m === undefined) return;
+              setHour(String(Number(h)));
+              setMinute(m);
+            }}
+            className="tabular-nums"
+          />
         )}
 
         {frequency === 'hourly' && (
@@ -1270,7 +1282,7 @@ function ScheduleDialog({
             max={59}
             value={minute}
             onChange={(e) => setMinute(e.target.value)}
-            className="font-mono tabular-nums"
+            className="tabular-nums"
           />
         )}
 
@@ -1294,24 +1306,25 @@ function ScheduleDialog({
             max={28}
             value={dayOfMonth}
             onChange={(e) => setDayOfMonth(e.target.value)}
-            className="font-mono tabular-nums"
+            className="tabular-nums"
           />
         )}
 
-        <div className="space-y-1.5">
-          <label htmlFor="schedule-retention" className="block text-[13px] font-semibold text-foreground">
-            Retention (days) <span className="font-normal text-muted-foreground">— leave blank to use global default</span>
-          </label>
-          <Input
-            id="schedule-retention"
-            type="number"
-            min={0}
-            placeholder="Use global default"
-            value={retentionDays}
-            onChange={(e) => setRetentionDays(e.target.value)}
-            className="font-mono tabular-nums"
-          />
-        </div>
+        {/* Blank means "the global default", so the field says what that default is. */}
+        <Input
+          id="schedule-retention"
+          label="Retention (days)"
+          type="number"
+          min={0}
+          placeholder={
+            globalRetention == null ? 'Global default'
+            : globalRetention === 0 ? 'Global default: keep forever'
+            : `Global default: ${globalRetention} day${globalRetention === 1 ? '' : 's'}`
+          }
+          value={retentionDays}
+          onChange={(e) => setRetentionDays(e.target.value)}
+          className="tabular-nums"
+        />
 
         <div className="space-y-3 border-t border-border pt-4">
           <Select
@@ -1333,7 +1346,7 @@ function ScheduleDialog({
                 max={60}
                 value={fullEvery}
                 onChange={(e) => setFullEvery(e.target.value)}
-                className="font-mono tabular-nums"
+                className="tabular-nums"
               />
               <p className="text-[12px] leading-relaxed text-muted-foreground">
                 Counted in backups, not days. Capping the chain keeps restores quick and limits how much a single
@@ -1406,7 +1419,7 @@ function DeleteBackupDialog({
       size="sm"
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
           <Button
             variant="danger"
             size="sm"
@@ -1421,7 +1434,7 @@ function DeleteBackupDialog({
       <div className="space-y-3">
         <p className="text-[13.5px] leading-relaxed text-muted-foreground">
           Delete backup from <span className="font-medium text-foreground">{formatDate(backup.createdAt)}</span>?{' '}
-          <span className="font-mono text-[12.5px]">({formatBytes(backup.sizeBytes)})</span>
+          <span className="tabular-nums">({formatBytes(backup.sizeBytes)})</span>
         </p>
 
         {/* Deleting a link mid-chain silently corrupts every incremental above
@@ -1440,7 +1453,7 @@ function DeleteBackupDialog({
                 type="checkbox"
                 checked={cascade}
                 onChange={(e) => setCascade(e.target.checked)}
-                className="mt-[2px] h-3.5 w-3.5 shrink-0 accent-primary"
+                className="mt-[2px]"
               />
               <span>Also delete every backup built on this one</span>
             </label>
@@ -1459,16 +1472,23 @@ function RestoreDialog({
   backup,
   vmUuid,
   vmName,
+  vmStatus,
   onClose,
 }: {
   backup: BackupEntry;
   vmUuid: string;
   vmName: string;
+  /** From the VM list the page polls; 'loading' until it arrives, 'deleted' for an orphan. */
+  vmStatus: string;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
   const restoreBackup = useRestoreBackup(vmUuid);
   const restoreAsNew = useRestoreBackupAsNewVm(vmUuid);
+  // A running VM's disks can't be replaced: the dialog says so before the click, rather
+  // than the server refusing after it with the VM's UUID.
+  const running = vmStatus === 'running';
+  const diskCount = backup.disks.length;
   const [mode, setMode] = useState<RestoreMode>('overwrite');
   const [newName, setNewName] = useState(`${vmName}-restored`);
   const [storageDirId, setStorageDirId] = useState('');
@@ -1520,12 +1540,12 @@ function RestoreDialog({
       size="sm"
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
           <Button
             variant={mode === 'overwrite' ? 'danger' : 'primary'}
             size="sm"
             onClick={handleRestore}
-            disabled={pending || (mode === 'new' && !newName.trim())}
+            disabled={pending || (mode === 'new' && !newName.trim()) || (mode === 'overwrite' && (running || vmStatus === 'loading'))}
           >
             <ArchiveRestore size={13} />
             {mode === 'overwrite' ? 'Overwrite' : 'Create VM'}
@@ -1552,10 +1572,18 @@ function RestoreDialog({
         </div>
 
         {mode === 'overwrite' ? (
-          <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-            Restoring will overwrite <strong className="font-semibold text-foreground">{vmName}</strong>'s current disk(s).
-            The VM must be <strong className="font-semibold text-foreground">stopped</strong> before restoring.
-          </p>
+          running ? (
+            <p className="text-[13.5px] leading-relaxed text-muted-foreground">
+              <strong className="font-semibold text-foreground">{vmName}</strong> is running. Power it off first: its
+              disks can't be replaced while it runs.
+            </p>
+          ) : (
+            <p className="text-[13.5px] leading-relaxed text-muted-foreground">
+              Replaces <strong className="font-semibold text-foreground">{vmName}</strong>'s{' '}
+              {diskCount === 1 ? 'disk' : `${diskCount} disks`} with this backup's. Anything written since{' '}
+              {formatDateTime(backup.createdAt)} is lost.
+            </p>
+          )
         ) : (
           <div className="space-y-3.5">
             <p className="text-[13.5px] leading-relaxed text-muted-foreground">
@@ -1575,7 +1603,7 @@ function RestoreDialog({
                 type="checkbox"
                 checked={startAfter}
                 onChange={(e) => setStartAfter(e.target.checked)}
-                className="h-3.5 w-3.5 shrink-0 accent-primary"
+                className="shrink-0"
               />
               <span>Start the VM once it is created</span>
             </label>
@@ -1610,7 +1638,7 @@ function ModeCard({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'rounded-lg border px-3 py-2.5 text-left transition-[border-color,background-color] duration-150',
+        'flex flex-col rounded-lg border px-3 py-2.5 text-left transition-[border-color,background-color] duration-150',
         active
           ? 'border-primary bg-accent ring-1 ring-primary/30'
           : 'border-border bg-card hover:border-muted-foreground/40',

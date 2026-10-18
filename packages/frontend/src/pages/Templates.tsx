@@ -196,7 +196,7 @@ function TemplateSetCard({
                 </div>
                 <ProgressBar pct={pct} indeterminate={pct === undefined} />
                 {(bulk.succeeded > 0 || bulk.failed > 0) && (
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[12px] text-muted-foreground">
                     {bulk.succeeded > 0 && <span className="text-emerald-600 dark:text-emerald-400">{bulk.succeeded} done</span>}
                     {bulk.succeeded > 0 && bulk.failed > 0 && ' · '}
                     {bulk.failed > 0 && <span className="text-amber-700 dark:text-amber-300">{bulk.failed} failed</span>}
@@ -599,7 +599,7 @@ export function TemplatesPage() {
           <p className="text-xs text-muted-foreground">
             File: <span className="font-mono">{pendingFile?.name}</span>
           </p>
-          <OsLogoPicker value={uploadLogoSlug} onChange={setUploadLogoSlug} />
+          <OsLogoPicker value={uploadLogoSlug} onChange={setUploadLogoSlug} automatic={osSlugFromImage(pendingFile?.name)} />
         </div>
       </Dialog>
 
@@ -649,7 +649,11 @@ export function TemplatesPage() {
             placeholder="ubuntu-24.04.qcow2"
           />
           <StorageDirSelect purpose="templates" value={downloadStorageDirId} onChange={setDownloadStorageDirId} />
-          <OsLogoPicker value={downloadLogoSlug} onChange={setDownloadLogoSlug} />
+          <OsLogoPicker
+            value={downloadLogoSlug}
+            onChange={setDownloadLogoSlug}
+            automatic={osSlugFromImage(downloadFilename || downloadUrl.split(/[?#]/)[0].split('/').pop())}
+          />
         </div>
       </Dialog>
 
@@ -664,6 +668,7 @@ export function TemplatesPage() {
         }
       >
         <OsLogoPicker
+          automatic={osSlugFromImage(logoTarget ?? undefined)}
           value={logoTarget ? (templateLogos[logoTarget] ?? null) : null}
           onChange={(slug) => {
             if (logoTarget) setTemplateLogo(logoTarget, slug);

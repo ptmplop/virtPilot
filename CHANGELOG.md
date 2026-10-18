@@ -3,6 +3,24 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.13.1] — 2026-10-18
+
+### Changed
+
+- **Dialogs and forms read as one family.** Every Cancel is the same button; a label's aside — "(optional)", a unit, "(leave blank for any)" — is quiet instead of bold; notes between fields are one kind of box at one size; checkboxes are drawn to match the fields, in both themes; and the browser's number spinners no longer appear on some fields and not others. A dialog whose confirm button is greyed out now says why beside it, as the new-VM wizard does ("Name the network.").
+
+- **The new-VM wizard's Review step** is one panel of ruled sections rather than boxes inside a box, reads from the same rows as the summary beside it, and writes sizes like the rest of the app. Choosing the primary network is a plain radio, and the Authentication step loses a heading that labelled nothing.
+
+- **Backups read calmer and say more.** A VM's backup history shows the VM's mark by its name; the notes under a backup are explanations, not amber alarms; backup states are words without dots, with the legend now under the table it explains; Restore says exactly which disks it replaces — and, if the VM is running, that it must be powered off first, before you click. The schedule has one time field (on the host's clock) instead of an hour and a minute, and retention shows the default it falls back to.
+
+- **The console** uses the VM page's words — Power on, Power off, Force off — gives the terminal text a margin, and drops the coloured dot before "Connected".
+
+- **Smaller consistency fixes:** a network's type reads the same on every page ("Bridge · static"); the setup guide's difficulty labels lose their status colours and its option names stop looking like code; the Logs list keeps successes quiet so failures stand out; the templates and ISOs tables on Storage line up column for column; templates and ISOs with no logo picked say which one is shown automatically; an internal snapshot whose size can't be measured shows "—" instead of "0 B".
+
+### Fixed
+
+- **Tables no longer cut off their last column.** A table wider than its panel now scrolls inside it at every width, not just on phones — on a tablet the network list and a VM's network interfaces hid their row buttons behind the panel's edge. A storage directory lists what it holds one item per line, with "(default)" beside each default instead of a second column repeating the list, so its Edit and Delete buttons fit on a 1024-pixel screen; its path wraps after a slash rather than inside a folder name, and a VM's `disk.qcow2` is no longer cut short.
+
 ## [2.13.0] — 2026-10-18
 
 ### Changed

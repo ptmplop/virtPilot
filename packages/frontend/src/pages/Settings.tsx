@@ -324,7 +324,6 @@ export function SettingsPage() {
                   type="checkbox"
                   checked={backupCompression}
                   onChange={(e) => setBackupCompression(e.target.checked)}
-                  className="accent-primary"
                 />
                 <span className="text-foreground">Compress backups</span>
                 <span className="text-[12.5px] text-muted-foreground">smaller files, slower to make</span>
@@ -531,7 +530,7 @@ export function SettingsPage() {
       <Dialog
         open={removeTotpOpen}
         onClose={() => setRemoveTotpOpen(false)}
-        title="Remove two-factor authentication?"
+        title="Remove two-factor authentication"
         size="sm"
         footer={
           <>

@@ -73,3 +73,11 @@ export function formatUptime(seconds: number): string {
   if (h >= 1) return `${h} h${m % 60 ? ` ${m % 60} min` : ''}`;
   return `${Math.max(m, 1)} min`;
 }
+
+// A network's type in words, the same on every page: "NAT", "Bridge · DHCP",
+// "OS bridge · static". A type is a plain word, never a status colour.
+export function networkTypeLabel(type: string, ipMode?: string): string {
+  if (type === 'nat') return 'NAT';
+  const kind = type === 'existing-bridge' ? 'OS bridge' : 'Bridge';
+  return `${kind} · ${ipMode === 'dhcp' ? 'DHCP' : 'static'}`;
+}

@@ -38,7 +38,7 @@ import { useDownloadVmDisk } from '@/hooks/useVmDisks';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
-import { formatMemory, formatDisk, formatBytes, formatDateTime, formatChartTime, formatChartMoment, formatRate } from '@/lib/format';
+import { formatMemory, formatDisk, formatBytes, formatDateTime, formatChartTime, formatChartMoment, formatRate, networkTypeLabel } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { CHART } from '@/lib/chartColors';
 import { useSettings } from '@/hooks/useSettings';
@@ -46,6 +46,7 @@ import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network
 import { useLogoStore } from '@/store/logoStore';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
 import { DeleteVmDialog } from '@/components/DeleteVmDialog';
+import { Callout } from '@/components/ui/Callout';
 import { osSlugFromImage } from '@/data/templateSets';
 import { useVmOpsStore } from '@/store/vmOpsStore';
 import { useUserPrefsStore } from '@/store/userPrefsStore';
@@ -145,23 +146,6 @@ function EmptyState({ children, compact }: { children: React.ReactNode; compact?
     : <div className="px-6 py-12 text-center text-[13px] text-muted-foreground">{children}</div>;
 }
 
-// Callouts: attention (amber, with the warning glyph) or information (the recess).
-function Callout({ tone = 'info', children, className }: { tone?: 'info' | 'warn'; children: React.ReactNode; className?: string }) {
-  return (
-    <div
-      className={cn(
-        'flex items-start gap-2 rounded-md border px-3.5 py-2.5 text-[12.5px] leading-5',
-        tone === 'warn'
-          ? 'border-amber-500/30 bg-amber-500/[0.06] text-amber-800 dark:text-amber-200'
-          : 'border-border bg-surface text-muted-foreground',
-        className,
-      )}
-    >
-      {tone === 'warn' && <WarnGlyph className="mt-[5px]" />}
-      <p className="min-w-0">{children}</p>
-    </div>
-  );
-}
 
 // An operation in flight: a short steel sweep on the gauge track.
 function WorkingBar() {
@@ -1304,7 +1288,7 @@ function DisksTab({
           </>
         }
       >
-        <div className="space-y-3">
+        <div className="space-y-4">
           <Input
             label="Size (GB)"
             type="number"
@@ -1530,7 +1514,9 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
                         {isBusy ? '' : snapshotStateLabel(snap.vmState)}
                       </td>
                       <td className="whitespace-nowrap px-5 py-2.5 text-[12.5px] tabular-nums text-foreground">
-                        {isBusy ? '' : (snap.sizeBytes !== undefined ? formatBytes(snap.sizeBytes) : <span className="text-muted-foreground">—</span>)}
+                        {/* 0 is "not measured", never an empty snapshot: an internal snapshot's figure is its
+                            saved memory (none when taken offline), and a failed read also reports 0. */}
+                        {isBusy ? '' : (snap.sizeBytes ? formatBytes(snap.sizeBytes) : <span className="text-muted-foreground">—</span>)}
                       </td>
                       <td className="px-5 py-1.5 text-right">
                         {!isBusy && (
@@ -1684,11 +1670,6 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
 
 // ─── Network ──────────────────────────────────────────────────────────────────
 
-function networkTypeLabel(type: string, ipMode?: string): string {
-  if (type === 'nat') return 'NAT';
-  const prefix = type === 'existing-bridge' ? 'OS Bridge' : 'Bridge';
-  return ipMode === 'dhcp' ? `${prefix} DHCP` : `${prefix} Static`;
-}
 
 interface AddPortForwardForm {
   protocol: 'tcp' | 'udp';
@@ -2145,7 +2126,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                         <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{nic.model}</td>
                         <td className="px-5 py-2.5 text-[12.5px] text-muted-foreground">
                           {nic.inboundKbps || nic.outboundKbps ? (
-                            <span className="whitespace-nowrap font-mono text-[12px] tabular-nums text-foreground">
+                            <span className="whitespace-nowrap text-[12.5px] tabular-nums text-foreground">
                               ↓ {nic.inboundKbps ? `${mbpsFromKbps(nic.inboundKbps)} MB/s` : 'unlimited'}
                               <span className="text-muted-foreground">{' · '}</span>
                               ↑ {nic.outboundKbps ? `${mbpsFromKbps(nic.outboundKbps)} MB/s` : 'unlimited'}
@@ -2763,7 +2744,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
                         checked={dir === 'inbound' ? (current.allowEstablishedInbound ?? false) : (current.allowEstablishedOutbound ?? false)}
                         onChange={(e) => handleSetEstablished(dir, e.target.checked)}
                         disabled={isDisabled}
-                        className="h-3.5 w-3.5 accent-primary disabled:cursor-not-allowed"
+                        className="shrink-0"
                       />
                       Allow established & related ({dir})
                     </label>
@@ -2847,7 +2828,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
           </>
         }
       >
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Select label="Action" id="fw-rule-action" value={form.action} onChange={setField('action')}>
               {FW_ACTIONS.map((a) => (
@@ -2878,6 +2859,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
               value={form.portRange}
               onChange={setField('portRange')}
               disabled={form.protocol === 'all'}
+              error={!portRangeValid ? 'A port or range, e.g. 22, 80,443 or 8000-9000' : undefined}
             />
           )}
           {addDirection !== null && (
@@ -2896,9 +2878,6 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
             value={form.description}
             onChange={setField('description')}
           />
-          {!portRangeValid && (
-            <p className="text-[12.5px] text-destructive">Port must be a number or range, e.g. 22, 80,443, or 8000-9000.</p>
-          )}
         </div>
       </Dialog>
     </div>

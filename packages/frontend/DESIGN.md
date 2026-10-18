@@ -39,6 +39,7 @@ Newness comes from structure and type; colour stays quiet.
 | Buttons | `<Button variant="primary\|secondary\|ghost\|danger\|dangerOutline" size="sm\|md">` — primary is **ink** (`bg-action`), not steel, and marks the one main action of a view; actions repeated down a table are `secondary`. Page-header actions are `md` (36px) everywhere; dialog footers use `sm` |
 | Several related commands behind one button (a row's power actions) | `<Menu label tooltip icon items>` — portalled, keyboard-complete; graceful commands above forceful ones (`separated`), destructive ones `danger`. Pass `tooltip` to the Menu, never wrap it in `<Tooltip>` (React counts the portal as inside the wrapper) |
 | Tabs/filters with 2–6 options | `.segmented` container, `aria-pressed` on the chosen `<button>` |
+| A note between fields or above a table | `<Callout tone="info\|warn" lead>` (`components/ui/Callout.tsx`); class strings `CALLOUT_INFO` / `CALLOUT_ATTENTION` for the same recipe. Never a one-off tinted box |
 | Table | panel → `.table-head` row (12px medium muted on `bg-surface`) → rows with `divide-y divide-border`, `.table-row` hover |
 | Fields | `<Input>` / `<Select>`, or `h-9 rounded-md border border-input bg-field px-3 text-[13.5px]` + `focus:border-ring focus:ring-[3px] focus:ring-ring/20` |
 
@@ -72,14 +73,35 @@ Newness comes from structure and type; colour stays quiet.
   line beside it — not only in a tooltip. Tooltips show on hover and on keyboard focus (`:focus-visible`),
   never on focus a script hands back after a click.
 - **Every VM action is on the VM's page**, Delete included (the trash button after Clone), because a
-  phone's list shows no row actions.
+  phone's list shows no row actions. The console's toolbar uses the same words (Power on, Reboot, Power
+  off, Force off), and any page about one VM (its own, its backup history) shows its mark by its name.
+- **Lists of outcomes are quiet when things went right**: a succeeded log row's icon is muted, so a
+  failure is the only colour. A review step is ruled sections inside the step's panel — no boxes in the
+  box — and reads from the same rows as the summary beside it.
 - **Keys and values**: label column `text-[12.5px] text-muted-foreground`, value `font-mono text-[12px]
   text-foreground`, rows ruled with `divide-y divide-border`.
+- **Tables fit at 1024 with the sidebar open** (a 702px column; measure `scrollWidth`, since shots hide
+  scrollbars and clipping). Narrower, a table scrolls inside its panel (`.panel:has(table)` in
+  `index.css`, at every width); it never clips the row actions. A path wraps only after a slash
+  (`PathText`); a setting such as a directory's default is a muted "(default)" beside the item, not a
+  column of its own.
 - **Clickable rows**: when a row opens something, the name's link is stretched over the row
   (`after:absolute after:inset-0`, row `relative`) and the actions cell sits above it (`relative z-10`).
   One tab stop per row. A row's hover must never promise a click that does nothing.
-- **Fields**: one label style (13px semibold), 36px controls everywhere (fields, buttons, `.segmented`),
-  `<SearchInput>` for every search, and every `<select>` gets the drawn chevron from `index.css`.
+- **Fields**: one label style (13px semibold), 36px controls everywhere (fields, buttons, `.segmented`,
+  the OS-logo picker), `<SearchInput>` for every search, and every `<select>` gets the drawn chevron from
+  `index.css`. A label's aside — "(optional)", a unit, "(leave blank for any)" — is muted, never bold:
+  `<Input>`/`<Select>` do it from the label text (`LabelText`). Numbers are typed: no native spinners.
+  A time of day is one `type="time"` field whose label says whose clock; it clears like any native
+  field (give it `''` back while a segment is blank, or React writes the old time straight in) and Save
+  waits with the note "Choose a time." A one-of-many choice is a radio, not a toggle button. Help text
+  is 12px or more; callouts 12.5px.
+- **Dialog footers**: Cancel is always `secondary`; the confirm is ink, or `danger` for a destructive act.
+  A confirm disabled for a reason the user can fix says why in the footer (`<Dialog note>`), as the
+  wizard's Continue does. Confirmation titles are verb + noun ("Delete virtual machine"), never a question,
+  with the object named in the description or body.
+- **Checkboxes are drawn once** in `index.css` (16px, the field's material, steel with a tick when chosen);
+  never size them per call site. A radio, range or progress keeps the steel `accent-color`.
 - **One ink action per view**: e.g. the VM header's Power on (stopped) or Console (running). Groups of
   related actions are separated by a 1px rule, not by colour.
 - **OS logos** are one-colour marks in `text-muted-foreground`, never tiles; brand colour appears only in
@@ -106,7 +128,8 @@ Newness comes from structure and type; colour stays quiet.
 - Quantities are Inter with `tabular-nums`, right-aligned in tables; JetBrains Mono is for identifiers.
   Sizes always go through `formatDisk` / `formatBytes` / `formatMemory`, never `{x} GB` by hand.
 - A figure the source can't give is labelled for what it is: a guest without balloon stats shows the
-  memory the host has given it, "resident on host", never its allocation as "100% used".
+  memory the host has given it, "resident on host", never its allocation as "100% used"; a size nobody
+  measured (an internal snapshot taken offline) is "—", never "0 B".
 - Say a fact once: a number shown in a gauge is not repeated in the verdict beside it.
 - Subtitles say what the page holds, in one sentence with a full stop — never "Manage …". The browser
   tab reads "Page · host · VirtPilot" (`docTitle` for pages that draw their own header).
@@ -120,8 +143,12 @@ Newness comes from structure and type; colour stays quiet.
   focus, selection, links, the active nav item's icon, data series. It is NOT the primary button.
 - Status: green = running/healthy, amber = attention, red = failed/destructive. Solid red only on the
   button that confirms a destructive act.
-- A type is not a state: network types, storage purposes, defaults and other categories are plain
-  text, never coloured (a green "Bridge · static" reads as healthy).
+- A type is not a state: network types (`networkTypeLabel` in `lib/format.ts`, the same words on every
+  page), storage purposes, defaults, a guide's difficulty and other categories are plain text, never
+  coloured (a green "Bridge · static" reads as healthy). A backup's consistency is a word too; only
+  "No guest agent" carries the warning mark, and the notes under a backup are muted explanations.
+- Mono chips in prose are for what someone types (addresses, interfaces, commands); a button or option
+  named in instructions is a bold word.
 - Charts: `lib/chartColors.ts` (CPU steel, memory heather, inbound steel / outbound ochre dashed).
 
 ## Type

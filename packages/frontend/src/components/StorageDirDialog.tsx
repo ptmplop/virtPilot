@@ -17,7 +17,7 @@ interface Props {
 const ALL_PURPOSES: { id: StorageDirPurpose; label: string; hint: string }[] = [
   { id: 'templates', label: 'Templates', hint: 'qcow2/img cloud images used as VM backing files' },
   { id: 'isos',      label: 'ISOs',      hint: 'installer ISOs attached to VMs at install time' },
-  { id: 'vmDisks',   label: 'VM Disks',  hint: 'qcow2 files for VM primary and extra disks' },
+  { id: 'vmDisks',   label: 'VM disks',  hint: 'qcow2 files for VM primary and extra disks' },
 ];
 
 export function StorageDirDialog({ open, onClose, editing }: Props) {
@@ -142,7 +142,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
             <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
               {editing.path}
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[12px] leading-5 text-muted-foreground">
               Path is fixed once registered — delete and re-add to point at a different folder.
             </p>
           </div>
@@ -161,7 +161,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
                 />
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-foreground">{p.label}</p>
-                  <p className="text-[11px] text-muted-foreground">{p.hint}</p>
+                  <p className="text-[12px] leading-5 text-muted-foreground">{p.hint}</p>
                 </div>
               </label>
             ))}
@@ -203,7 +203,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
               );
             })}
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[12px] leading-5 text-muted-foreground">
             The default for a purpose is pre-selected when uploading or creating a VM. Tick to make this directory the default; it'll replace whatever currently holds that flag. A directory that already holds a default can't give it up directly — assign it to another directory instead.
           </p>
         </div>

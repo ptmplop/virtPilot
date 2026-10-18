@@ -20,6 +20,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { OsLogoPicker, VmLogo } from '@/components/ui/OsLogoPicker';
 import { useLogoStore } from '@/store/logoStore';
 import { osSlugFromImage } from '@/data/templateSets';
+import { Callout } from '@/components/ui/Callout';
 import { useUploadProgressStore } from '@/store/uploadProgressStore';
 
 // Mirrors the server's deriveIsoFilename (backend routes/isos.ts): compressed
@@ -436,11 +437,9 @@ export function IsosPage() {
             File: <span className="font-mono">{pendingFile?.name}</span>
           </p>
           {pendingFile && /\.(gz|tgz)$/i.test(pendingFile.name) && (
-            <p className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              This file will be decompressed on the server before being saved as a .iso.
-            </p>
+            <Callout>This file will be decompressed on the server before being saved as a .iso.</Callout>
           )}
-          <OsLogoPicker value={uploadLogoSlug} onChange={setUploadLogoSlug} />
+          <OsLogoPicker value={uploadLogoSlug} onChange={setUploadLogoSlug} automatic={osSlugFromImage(pendingFile?.name)} />
         </div>
       </Dialog>
 
@@ -490,7 +489,11 @@ export function IsosPage() {
             placeholder="Leave blank to use filename from URL"
           />
           <StorageDirSelect purpose="isos" value={downloadStorageDirId} onChange={setDownloadStorageDirId} />
-          <OsLogoPicker value={downloadLogoSlug} onChange={setDownloadLogoSlug} />
+          <OsLogoPicker
+            value={downloadLogoSlug}
+            onChange={setDownloadLogoSlug}
+            automatic={osSlugFromImage(downloadFilename || downloadUrl.split(/[?#]/)[0].split('/').pop())}
+          />
         </div>
       </Dialog>
 

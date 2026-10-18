@@ -1,9 +1,10 @@
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { Callout as SharedCallout } from '@/components/ui/Callout';
 
 function Code({ children }: { children: string }) {
   return (
-    <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+    <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground [box-decoration-break:clone]">
       {children}
     </code>
   );
@@ -20,7 +21,7 @@ function CodeBlock({ code }: { code: string }) {
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <li className="flex gap-3">
-      <span className="mt-px w-4 shrink-0 text-right font-mono text-[12.5px] font-semibold tabular-nums text-primary">
+      <span className="mt-px w-4 shrink-0 text-right text-[13px] font-medium tabular-nums text-muted-foreground">
         {n}.
       </span>
       <div className="flex-1 text-[13.5px] leading-relaxed text-foreground">{children}</div>
@@ -33,24 +34,17 @@ function Steps({ children }: { children: React.ReactNode }) {
 }
 
 // Difficulty is a word in the option's own colour — not a tinted chip.
-function SectionBadge({ label, color }: { label: string; color: string }) {
-  return (
-    <span className={cn('text-[12.5px] font-medium', color.split(' ').filter((c) => c.startsWith('text-') || c.startsWith('dark:text-')).join(' '))}>
-      {label}
-    </span>
-  );
+// How hard an option is, said in words: green, amber and blue here read as statuses.
+function SectionBadge({ label }: { label: string }) {
+  return <span className="text-[12.5px] font-medium text-muted-foreground">{label}</span>;
 }
 
+// The app's callout recipe — the guide used to have its own, and the only blue tint.
 function Callout({ variant, children }: { variant: 'warning' | 'tip'; children: React.ReactNode }) {
   return (
-    <div className={cn(
-      'mt-4 rounded-lg border px-4 py-3 text-sm',
-      variant === 'warning'
-        ? 'border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-300'
-        : 'border-border bg-blue-500/5 text-blue-700 dark:text-blue-300'
-    )}>
+    <SharedCallout tone={variant === 'warning' ? 'warn' : 'info'} className="mt-4">
       {children}
-    </div>
+    </SharedCallout>
   );
 }
 
@@ -78,7 +72,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
           <div>
             <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">Network setup guide</h2>
             <p className="mt-0.5 text-[13px] text-muted-foreground">
-              Step-by-step instructions for every network configuration
+              Step-by-step instructions for every network configuration.
             </p>
           </div>
           <button
@@ -101,21 +95,21 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
               <div className="space-y-2 text-muted-foreground">
                 <p>
                   <span className="font-medium text-foreground">VMs just need internet access</span>
-                  {' '}— use <Code>Option 1: NAT</Code>. Easiest, nothing to configure on the host OS.
+                  {' '}— use <span className="font-medium text-foreground">Option 1: NAT</span>. Easiest, nothing to configure on the host OS.
                 </p>
                 <p>
                   <span className="font-medium text-foreground">VMs need IPs on your physical/public network</span>
                   {' '}and you have a <span className="font-medium text-foreground">spare NIC with no IP on it</span>
-                  {' '}— use <Code>Option 2: Bridge with a dedicated NIC</Code>.
+                  {' '}— use <span className="font-medium text-foreground">Option 2: Bridge with a dedicated NIC</span>.
                 </p>
                 <p>
                   <span className="font-medium text-foreground">VMs need IPs on your physical/public network</span>
                   {' '}and <span className="font-medium text-foreground">your only NIC is your SSH/management interface</span>
-                  {' '}(most cloud servers) — use <Code>Option 3</Code> to configure a bridge at the OS level first.
+                  {' '}(most cloud servers) — use <span className="font-medium text-foreground">Option 3</span> to configure a bridge at the OS level first.
                 </p>
                 <p>
                   <span className="font-medium text-foreground">You already have a Linux bridge set up at the OS level</span>
-                  {' '}— use <Code>Option 4: Existing OS bridge</Code> to attach VirtPilot to it.
+                  {' '}— use <span className="font-medium text-foreground">Option 4: Existing OS bridge</span> to attach VirtPilot to it.
                 </p>
               </div>
             </div>
@@ -124,8 +118,8 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
 
             {/* Option 1 — NAT */}
             <section className="space-y-3">
-              <SectionBadge label="Easiest" color="text-emerald-700 dark:text-emerald-300" />
-              <h3 className="text-sm font-semibold text-foreground">Option 1 — NAT Network</h3>
+              <SectionBadge label="Easiest" />
+              <h3 className="text-sm font-semibold text-foreground">Option 1 — NAT network</h3>
               <p className="text-sm text-muted-foreground">
                 VirtPilot creates an isolated network using libvirt's built-in NAT. VMs receive private IPs via DHCP
                 and can reach the internet through the host. External systems cannot initiate connections to VMs
@@ -137,7 +131,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
               </p>
               <Steps>
                 <Step n={1}>Click <strong>New network</strong>.</Step>
-                <Step n={2}>Set <strong>Type</strong> to <Code>NAT</Code>.</Step>
+                <Step n={2}>Set <strong>Type</strong> to <strong>NAT</strong>.</Step>
                 <Step n={3}>
                   Leave the CIDR as suggested (e.g. <Code>10.0.1.0/24</Code>), or enter any
                   private range that doesn't conflict with your existing networks.
@@ -154,7 +148,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
 
             {/* Option 2 — Bridge with dedicated NIC */}
             <section className="space-y-3">
-              <SectionBadge label="Medium" color="text-amber-700 dark:text-amber-300" />
+              <SectionBadge label="Medium" />
               <h3 className="text-sm font-semibold text-foreground">Option 2 — Bridge with a dedicated NIC</h3>
               <p className="text-sm text-muted-foreground">
                 VirtPilot creates a Linux bridge and enslaves a physical NIC to it. VMs plugged into this bridge
@@ -174,12 +168,12 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
 
               <Steps>
                 <Step n={1}>Click <strong>New network</strong>.</Step>
-                <Step n={2}>Set <strong>Type</strong> to <Code>Bridge</Code>.</Step>
+                <Step n={2}>Set <strong>Type</strong> to <strong>Bridge</strong>.</Step>
                 <Step n={3}>
-                  Set <strong>IP Mode</strong>:
+                  Set <strong>IP mode</strong>:
                   <ul className="mt-2 space-y-1 text-sm text-muted-foreground list-disc list-inside">
-                    <li><Code>DHCP</Code> — your upstream router assigns IPs to VMs. No further IP configuration needed in VirtPilot.</li>
-                    <li><Code>Static</Code> — you own a block of IPs and VirtPilot assigns them from a pool via cloud-init. Enter the CIDR and gateway of that block.</li>
+                    <li><strong>DHCP</strong> — your upstream router assigns IPs to VMs. No further IP configuration needed in VirtPilot.</li>
+                    <li><strong>Static</strong> — you own a block of IPs and VirtPilot assigns them from a pool via cloud-init. Enter the CIDR and gateway of that block.</li>
                   </ul>
                 </Step>
                 <Step n={4}>
@@ -193,7 +187,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
 
             {/* Option 3 — Single NIC cloud server */}
             <section className="space-y-3">
-              <SectionBadge label="Advanced" color="text-blue-700 dark:text-blue-300" />
+              <SectionBadge label="Advanced" />
               <h3 className="text-sm font-semibold text-foreground">
                 Option 3 — Bridge on a single-NIC server (most cloud servers)
               </h3>
@@ -345,7 +339,7 @@ brctl show br0" />
 
             {/* Option 4 — Existing OS bridge */}
             <section className="space-y-3">
-              <SectionBadge label="Any server" color="text-violet-700 dark:text-violet-300" />
+              <SectionBadge label="Any server" />
               <h3 className="text-sm font-semibold text-foreground">Option 4 — Existing OS bridge</h3>
               <p className="text-sm text-muted-foreground">
                 If you already have a Linux bridge configured at the OS level (via Option 3 above, or any
@@ -358,12 +352,12 @@ brctl show br0" />
                   <CodeBlock code="ip link show type bridge" />
                 </Step>
                 <Step n={2}>Click <strong>New network</strong>.</Step>
-                <Step n={3}>Set <strong>Type</strong> to <Code>Existing OS bridge</Code>.</Step>
+                <Step n={3}>Set <strong>Type</strong> to <strong>Existing OS bridge</strong>.</Step>
                 <Step n={4}>
-                  Set <strong>IP Mode</strong>:
+                  Set <strong>IP mode</strong>:
                   <ul className="mt-2 space-y-1 text-sm text-muted-foreground list-disc list-inside">
-                    <li><Code>DHCP</Code> — your upstream network assigns IPs to VMs.</li>
-                    <li><Code>Static</Code> — VirtPilot assigns IPs from a pool you define. Enter the CIDR and gateway of the IP range you want VirtPilot to manage.</li>
+                    <li><strong>DHCP</strong> — your upstream network assigns IPs to VMs.</li>
+                    <li><strong>Static</strong> — VirtPilot assigns IPs from a pool you define. Enter the CIDR and gateway of the IP range you want VirtPilot to manage.</li>
                   </ul>
                 </Step>
                 <Step n={5}>
@@ -374,9 +368,9 @@ brctl show br0" />
               </Steps>
             </section>
 
-            {/* IP Mode explainer */}
+            {/* IP mode explainer */}
             <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-foreground">IP Mode: DHCP vs Static</h3>
+              <h3 className="text-sm font-semibold text-foreground">IP mode: DHCP or static</h3>
               <p className="text-sm text-muted-foreground">
                 This setting controls how VMs get their IP addresses when connected to a bridge network.
               </p>

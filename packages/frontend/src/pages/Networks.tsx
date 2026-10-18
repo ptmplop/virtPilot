@@ -9,6 +9,8 @@ import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useNetworks, useCreateNetwork, useDeleteNetwork, useNetwork, useSystemNics } from '@/hooks/useNetworks';
 import { cn } from '@/lib/cn';
+import { networkTypeLabel } from '@/lib/format';
+import { Callout } from '@/components/ui/Callout';
 import { NetworkGuide } from './NetworkGuide';
 import type { Network as NetworkType } from '@/types';
 
@@ -23,13 +25,6 @@ function IpPoolDetail({ networkId }: { networkId: string }) {
   );
 }
 
-// A network's type is a plain word: colour on this page means state (green running,
-// amber attention), and a type is not a state.
-function networkTypeLabel(n: NetworkType): string {
-  if (n.type === 'nat') return 'NAT';
-  if (n.type === 'existing-bridge') return n.ipMode === 'dhcp' ? 'OS bridge · DHCP' : 'OS bridge · static';
-  return n.ipMode === 'dhcp' ? 'Bridge · DHCP' : 'Bridge · static';
-}
 
 function NetworkIcon({ n, className }: { n: NetworkType; className?: string }) {
   const Icon = n.type === 'nat' ? Network : Globe;
@@ -46,7 +41,7 @@ function NetworkRow({ network, onDelete }: { network: NetworkType; onDelete: () 
         </div>
       </td>
       <td className="px-5 py-3">
-        <span className="whitespace-nowrap text-[12.5px] text-foreground">{networkTypeLabel(network)}</span>
+        <span className="whitespace-nowrap text-[12.5px] text-foreground">{networkTypeLabel(network.type, network.ipMode)}</span>
       </td>
       <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{network.cidr}</td>
       <td className="px-5 py-3 font-mono text-xs text-muted-foreground">
@@ -220,6 +215,13 @@ export function NetworksPage() {
     createNetwork.isPending ||
     ((form.type === 'bridge' || form.type === 'existing-bridge') && !form.gateway) ||
     (form.type === 'existing-bridge' && !form.existingBridge);
+  // What Create is waiting for, in words beside it. A CIDR clash is said under its field.
+  const createWaitingFor =
+    !form.name ? 'Name the network.'
+    : !form.cidr ? 'Give it a CIDR range.'
+    : form.type === 'existing-bridge' && !form.existingBridge ? 'Choose the OS bridge.'
+    : (form.type === 'bridge' || form.type === 'existing-bridge') && !form.gateway ? 'A bridge needs a gateway.'
+    : undefined;
 
   return (
     <Layout
@@ -292,6 +294,7 @@ export function NetworksPage() {
         open={createOpen}
         onClose={() => { setCreateOpen(false); setForm(defaultForm); }}
         title="New network"
+        note={createNetwork.isPending ? undefined : createWaitingFor}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => { setCreateOpen(false); setForm(defaultForm); }}>
@@ -304,7 +307,7 @@ export function NetworksPage() {
         }
       >
         <div className="space-y-4">
-          <Input label="Name" value={form.name} onChange={set('name')} required placeholder="My Network" />
+          <Input label="Name" value={form.name} onChange={set('name')} required placeholder="e.g. lab-net" />
 
           <Select label="Type" value={form.type} onChange={set('type')}>
             <option value="nat">NAT — libvirt managed, isolated DHCP</option>
@@ -313,7 +316,7 @@ export function NetworksPage() {
           </Select>
 
           {(form.type === 'bridge' || form.type === 'existing-bridge') && (
-            <Select label="IP Mode" value={form.ipMode} onChange={set('ipMode')}>
+            <Select label="IP mode" value={form.ipMode} onChange={set('ipMode')}>
               <option value="static">Static — VirtPilot assigns IPs from pool</option>
               <option value="dhcp">DHCP — upstream network assigns IPs</option>
             </Select>
@@ -390,9 +393,7 @@ export function NetworksPage() {
             </div>
           )}
 
-          <p className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
-            {TYPE_DESCRIPTIONS[descKey]}
-          </p>
+          <Callout>{TYPE_DESCRIPTIONS[descKey]}</Callout>
         </div>
       </Dialog>
 
@@ -402,7 +403,8 @@ export function NetworksPage() {
       <Dialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        title={`Delete "${deleteTarget?.name}"?`}
+        title="Delete network"
+        description={deleteTarget ? [deleteTarget.name, deleteTarget.cidr].filter(Boolean).join(' · ') : undefined}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setDeleteTarget(null)}>
@@ -414,7 +416,7 @@ export function NetworksPage() {
               onClick={() => deleteTarget && handleDelete(deleteTarget)}
               disabled={deleteNetwork.isPending}
             >
-              {deleteNetwork.isPending ? 'Deleting…' : 'Delete Network'}
+              {deleteNetwork.isPending ? 'Deleting…' : 'Delete network'}
             </Button>
           </>
         }

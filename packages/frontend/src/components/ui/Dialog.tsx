@@ -10,6 +10,8 @@ interface DialogProps {
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
+  /** Why the footer's confirm is disabled, said beside it (as the wizard's Continue does). */
+  note?: ReactNode;
   size?: 'sm' | 'md' | 'lg';
 }
 
@@ -21,7 +23,7 @@ const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:
 // scrolls again only when the last one closes.
 const openStack: string[] = [];
 
-export function Dialog({ open, onClose, title, description, children, footer, size = 'md' }: DialogProps) {
+export function Dialog({ open, onClose, title, description, children, footer, note, size = 'md' }: DialogProps) {
   // Unique per instance: a fixed id made nested/stacked dialogs label each other.
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -124,6 +126,9 @@ export function Dialog({ open, onClose, title, description, children, footer, si
         {/* Footer */}
         {footer && (
           <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-[10px] border-t border-border bg-surface px-6 py-3.5">
+            {note && (
+              <p className="mr-auto min-w-0 basis-full truncate text-[12.5px] text-muted-foreground sm:basis-auto">{note}</p>
+            )}
             {footer}
           </div>
         )}

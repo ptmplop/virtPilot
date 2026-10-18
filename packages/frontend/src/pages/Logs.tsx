@@ -127,7 +127,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
         onClick={() => hasOutput && setExpanded((v) => !v)}
         aria-expanded={hasOutput ? expanded : undefined}
         className={cn(
-          'flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors',
+          'flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors',
           hasOutput ? 'cursor-pointer hover:bg-surface/70' : 'cursor-default'
         )}
       >
@@ -138,11 +138,11 @@ function LogRow({ entry }: { entry: LogEntry }) {
           ) : null}
         </span>
 
-        {/* Status icon */}
+        {/* Status icon: a success is quiet, so a failure is the one thing in colour */}
         {entry.status === 'success' ? (
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Succeeded" />
         ) : (
-          <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+          <XCircle className="h-4 w-4 shrink-0 text-destructive" aria-label="Failed" />
         )}
 
         {/* Type + icon */}
@@ -173,7 +173,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
       </button>
 
       {expanded && entry.output && (
-        <div className="border-t border-border bg-surface px-4 py-3">
+        <div className="border-t border-border bg-surface px-5 py-3">
           <pre className="whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-foreground">
             {entry.output}
           </pre>
@@ -246,7 +246,7 @@ export function LogsPage() {
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <SearchInput
-          className="max-w-[17rem]"
+          className="max-w-[19rem]"
           value={search}
           onChange={setSearch}
           placeholder="Search by type, subject or output…"
@@ -278,7 +278,6 @@ export function LogsPage() {
               onClick={() => setStatusFilter(s)}
               className={cn(
                 statusFilter === s && s === 'error' && '!text-red-700 dark:!text-red-300',
-                statusFilter === s && s === 'success' && '!text-emerald-700 dark:!text-emerald-300',
               )}
             >
               {s === 'all' ? 'Any outcome' : s === 'success' ? 'Succeeded' : 'Failed'}
@@ -296,7 +295,7 @@ export function LogsPage() {
       {/* Table */}
       <div className="panel overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-2 text-[12px] font-medium text-muted-foreground">
+        <div className="table-head flex items-center gap-3 px-5 py-2.5">
           <span className="w-3.5 shrink-0" />
           <span className="w-4 shrink-0" />
           <span className="w-44 shrink-0">Action</span>
@@ -334,7 +333,7 @@ export function LogsPage() {
       <Dialog
         open={clearOpen}
         onClose={() => setClearOpen(false)}
-        title="Clear all logs?"
+        title="Clear all logs"
         description="Every entry is deleted, including failures you may still need. This cannot be undone."
         size="sm"
         footer={

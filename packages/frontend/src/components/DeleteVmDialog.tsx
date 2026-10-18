@@ -16,8 +16,8 @@ export function DeleteVmDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title={`Delete ${vmName}?`}
-      description="This will undefine the VM in libvirt. Storage deletion is optional."
+      title="Delete virtual machine"
+      description={`Undefines ${vmName} in libvirt. Deleting its disk images too is optional.`}
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose} disabled={isPending}>

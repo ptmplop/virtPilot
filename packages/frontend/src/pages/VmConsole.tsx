@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Check, ChevronDown, Monitor, Palette, Play, Power, RefreshCw, Square, Terminal, Wifi, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Monitor, Palette, Power, PowerOff, RefreshCw, Terminal, Wifi } from 'lucide-react';
 import { Spinner } from '@/components/ui/Spinner';
-import { StatusGlyph } from '@/components/ui/Badge';
-import type { VmStatus } from '@/types';
 import { toast } from 'sonner';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -27,14 +25,15 @@ const connLabel: Record<ConnState, string> = {
   error:        'Error',
 };
 
-// Connection state as a static mark (the progress bar under the header shows motion
-// while connecting): a disc when connected, a ring when closed, a diamond on error.
-const connMark: Record<ConnState, VmStatus> = {
-  connecting:   'paused',
-  reconnecting: 'paused',
-  connected:    'running',
-  closed:       'stopped',
-  error:        'crashed',
+// Connection state is a word, coloured only when something is wrong (the progress bar
+// under the header shows motion while connecting). The status glyphs are kept for a
+// VM's own state.
+const connTone: Record<ConnState, string> = {
+  connecting:   'text-muted-foreground',
+  reconnecting: 'text-amber-300',
+  connected:    'text-muted-foreground',
+  closed:       'text-amber-300',
+  error:        'text-red-300',
 };
 
 interface TerminalPaneProps {
@@ -293,7 +292,13 @@ function TerminalPane({ name, tab, themeId, onConnState }: TerminalPaneProps) {
   // No padding on xterm's parent — FitAddon doesn't subtract container
   // padding, so any here would make it overestimate rows by ~1 and clip the
   // bottom line (visible in nano). Terminal renders edge-to-edge.
-  return <div ref={containerRef} className="vp-terminal-host flex-1 overflow-hidden" />;
+  // The margin is the wrapper's: the fit divides the host's own box, so padding on the
+  // host would over-count a row and clip the last line.
+  return (
+    <div className="flex min-h-0 flex-1 flex-col px-4 pb-2 pt-3">
+      <div ref={containerRef} className="vp-terminal-host min-h-0 flex-1 overflow-hidden" />
+    </div>
+  );
 }
 
 interface ThemePickerProps {
@@ -458,10 +463,10 @@ export function VmConsolePage() {
   };
   const action = {
     isPending: rawAction.isPending,
-    start:      () => fire({ action: 'start' }, 'Start'),
+    start:      () => fire({ action: 'start' }, 'Power on'),
     reboot:     () => fire({ action: 'reboot' }, 'Reboot'),
-    stop:       () => fire({ action: 'stop' }, 'Stop'),
-    forceStop:  () => fire({ action: 'stop', params: { force: 'true' } }, 'Force stop'),
+    stop:       () => fire({ action: 'stop' }, 'Power off'),
+    forceStop:  () => fire({ action: 'stop', params: { force: 'true' } }, 'Force off'),
   };
 
   const isNotRunning = vm && vm.status !== 'running';
@@ -511,9 +516,8 @@ export function VmConsolePage() {
         <span className="h-5 w-px bg-border" />
 
         {/* Connection state */}
-        <div className="flex items-center gap-2" role="status">
-          <StatusGlyph status={connMark[connState]} size={7} />
-          <span className="font-mono text-[12px] text-muted-foreground">{connLabel[connState]}</span>
+        <div role="status" className={cn('font-mono text-[12px]', connTone[connState])}>
+          {connLabel[connState]}
         </div>
 
         {/* VM action buttons — right aligned */}
@@ -523,11 +527,11 @@ export function VmConsolePage() {
               type="button"
               onClick={action.start}
               disabled={action.isPending}
-              title="Start"
+              title="Power on"
               className={cn(consoleAction, 'text-emerald-300 hover:text-emerald-200')}
             >
-              {action.isPending ? <Spinner className="h-3 w-3" /> : <Play size={13} />}
-              Start
+              {action.isPending ? <Spinner className="h-3 w-3" /> : <Power size={13} />}
+              Power on
             </button>
           )}
           {vm?.status === 'running' && (
@@ -546,25 +550,25 @@ export function VmConsolePage() {
                 type="button"
                 onClick={action.stop}
                 disabled={action.isPending}
-                title="Stop"
+                title="Power off (ACPI)"
                 className={consoleAction}
               >
-                {action.isPending ? <Spinner className="h-3 w-3" /> : <Square size={13} />}
-                Stop
+                {action.isPending ? <Spinner className="h-3 w-3" /> : <Power size={13} />}
+                Power off
               </button>
               <button
                 type="button"
                 onClick={action.forceStop}
                 disabled={action.isPending}
-                title="Force stop (virsh destroy)"
+                title="Force off (kill immediately)"
                 className={cn(consoleAction, 'hover:bg-red-500/10 hover:text-red-300')}
               >
-                {action.isPending ? <Spinner className="h-3 w-3" /> : <Zap size={13} />}
-                Force stop
+                {action.isPending ? <Spinner className="h-3 w-3" /> : <PowerOff size={13} />}
+                Force off
               </button>
             </>
           )}
-          <span className="mx-2 hidden font-mono text-[12px] text-muted-foreground lg:inline">{tab}/{vm?.name ?? uuid}</span>
+          <span aria-hidden className="mx-1.5 h-5 w-px bg-border" />
           <ThemePicker themeId={themeId} onChange={handleThemeChange} />
         </div>
       </div>
@@ -581,7 +585,7 @@ export function VmConsolePage() {
         <div className="flex flex-1 flex-col items-center justify-center gap-3">
           <Power size={22} className="text-[#8B95A5]" />
           <p className="text-[13.5px] text-[#B5BDC9]">
-            VM is <span className="font-mono">{vm.status}</span> — use Start above to boot it.
+            {vm.name} is {vm.status}. Power it on to open the console.
           </p>
         </div>
       ) : tab === 'vnc' ? (
