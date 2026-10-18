@@ -31,7 +31,7 @@ function db(): ReturnType<typeof getDb> | null {
     return getDb();
   } catch (err) {
     dbUnavailable = true;
-    console.warn('[tokenStore] SQLite unavailable — revocations will not survive a restart:', err);
+    console.warn('[tokenStore] SQLite unavailable - revocations will not survive a restart:', err);
     return null;
   }
 }

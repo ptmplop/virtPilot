@@ -12,6 +12,7 @@ import * as logService from '../services/logService.js';
 import { createRateLimiter } from '../lib/rateLimit.js';
 import { verifyTotp } from '../lib/totp.js';
 import { getUserSettings } from '../services/userSettingsService.js';
+import { plainDashes } from '../lib/plainDashes.js';
 
 export const systemRouter = Router();
 
@@ -399,15 +400,17 @@ systemRouter.get('/upgrade', upgradeLimiter, async (req, res) => {
       return;
     }
   } else {
-    write('meta', `Upgrade already in progress — attaching to live output…\n`);
+    write('meta', `Upgrade already in progress - attaching to live output…\n`);
   }
 
   // Stream the unit's journal
   const tail = spawn('journalctl', ['-fu', `${UPDATE_UNIT}.service`, '-n', 'all', '-o', 'cat'], {
     env: { ...process.env, PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
   });
-  tail.stdout.on('data', (chunk: Buffer) => write('out', chunk.toString()));
-  tail.stderr.on('data', (chunk: Buffer) => write('err', chunk.toString()));
+  // The journal replays earlier runs too, written by older update.sh versions with long dashes, and
+  // update.sh prints the pulled commits' subjects; both reach the upgrade window as plain hyphens.
+  tail.stdout.on('data', (chunk: Buffer) => write('out', plainDashes(chunk.toString())));
+  tail.stderr.on('data', (chunk: Buffer) => write('err', plainDashes(chunk.toString())));
 
   // Poll the unit's state — when it goes inactive, emit `done` with exit code
   const poll = setInterval(async () => {

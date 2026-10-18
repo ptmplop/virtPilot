@@ -323,7 +323,7 @@ export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: F
           await iptables(['-A', outC, '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT']);
         }
       } else {
-        console.warn('[firewall] Host has no xt_conntrack support — established/related rules omitted');
+        console.warn('[firewall] Host has no xt_conntrack support - established/related rules omitted');
       }
     }
 
@@ -357,7 +357,7 @@ export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: F
       await iptablesSafe(['-A', outC, '-j', outDefault]);
       await iptablesSafe(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
       await iptablesSafe(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
-      console.warn(`[firewall] Apply failed for ${vmUuid} — fell back to the declared default policy (in=${inDefault}, out=${outDefault})`);
+      console.warn(`[firewall] Apply failed for ${vmUuid} - fell back to the declared default policy (in=${inDefault}, out=${outDefault})`);
     } catch (fallbackErr) {
       console.error('[firewall] Could not install the default-policy fallback after a failed apply:', fallbackErr);
     }

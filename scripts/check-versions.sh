@@ -42,6 +42,6 @@ if [[ $fail -eq 0 ]]; then
   echo "  ✓ all four locations agree on ${backend}"
 else
   echo
-  echo "See the 'Before every commit — mandatory version bump' section of CLAUDE.md."
+  echo "See the 'Before every commit' section of CLAUDE.md."
   exit 1
 fi

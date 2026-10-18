@@ -27,6 +27,7 @@ import { createVmFromBackup } from '../services/vmDeriveService.js';
 import * as vmMetaService from '../services/vmMetaService.js';
 import * as logService from '../services/logService.js';
 import { getVmInfo, startVm } from '../services/vmService.js';
+import { plainDashes } from '../lib/plainDashes.js';
 
 export const backupsRouter = Router();
 
@@ -272,7 +273,8 @@ backupsRouter.get('/:vmUuid/:backupId', requireUuidParam, validateBackupId, asyn
     const { vmUuid, backupId } = req.params;
     const manifest = await getBackupManifest(vmUuid, backupId);
     if (!manifest) return res.status(404).json({ error: 'Backup not found' });
-    res.json({ manifest });
+    // Notes written before 2.13.2 may carry long dashes, as in the list endpoint.
+    res.json({ manifest: manifest.notes ? { ...manifest, notes: manifest.notes.map(plainDashes) } : manifest });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

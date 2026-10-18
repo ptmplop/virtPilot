@@ -121,7 +121,7 @@ function BackupAlertsBanner() {
         {alerts.map((a, i) => (
           <li key={`${a.vmUuid}-${a.kind}-${i}`} className="text-[12.5px] leading-relaxed text-muted-foreground">
             <span className="font-medium text-foreground">{a.vmName}</span>
-            {' — '}{a.message}
+            {': '}{a.message}
           </li>
         ))}
       </ul>
@@ -241,10 +241,10 @@ function BackupsList({ onSelect }: { onSelect: (uuid: string) => void }) {
 
         {/* Readouts */}
         <StatStrip>
-          <Stat label="Virtual machines" value={String(vms?.length ?? '—')} />
-          <Stat label="VMs backed up" value={isLoading ? '—' : String(withBackups)} />
-          <Stat label="Total backups" value={isLoading ? '—' : String(totalBackups)} />
-          <Stat label="Storage used" value={isLoading ? '—' : formatBytes(totalSize)} />
+          <Stat label="Virtual machines" value={vms ? String(vms.length) : vmsLoading ? '…' : 'Unknown'} />
+          <Stat label="VMs backed up" value={isLoading ? '…' : String(withBackups)} />
+          <Stat label="Total backups" value={isLoading ? '…' : String(totalBackups)} />
+          <Stat label="Storage used" value={isLoading ? '…' : formatBytes(totalSize)} />
         </StatStrip>
 
         <BackupAlertsBanner />
@@ -333,19 +333,19 @@ function BackupInfoPanel() {
           <InfoStateCard
             glyph={null}
             title="App-consistent"
-            body="Filesystems were frozen via the QEMU guest agent before copying. All writes were flushed — safe to restore any application or database without extra checks."
+            body="Filesystems were frozen via the QEMU guest agent before copying. All writes were flushed - safe to restore any application or database without extra checks."
           />
           <InfoStateCard
             glyph={null}
             title="VM offline"
-            body="The VM was powered off when the backup ran. The disk was idle with no writes in flight — always safe to restore, no guest agent needed."
+            body="The VM was powered off when the backup ran. The disk was idle with no writes in flight - always safe to restore, no guest agent needed."
           />
           <InfoStateCard
             glyph={<WarnGlyph size={9} />}
             title="No guest agent"
             body={
               <>
-                VM was running without a guest agent — filesystems were not frozen.
+                VM was running without a guest agent - filesystems were not frozen.
                 Databases or apps with open transactions may need{' '}
                 <InlineCode>fsck</InlineCode> or{' '}
                 <InlineCode>mysqlcheck</InlineCode> after
@@ -464,12 +464,12 @@ function SummaryRow({
           </span>
         </button>
 
-        {/* Count — an empty cell's dash stays in the sans face so every blank in the row matches */}
+        {/* Count: a VM with no backups shows a muted 0, in the sans face like the rest of the row */}
         <span className={cn(
           'text-right text-[13px] tabular-nums',
           summary.backupCount > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'
         )}>
-          {summary.backupCount > 0 ? summary.backupCount : '—'}
+          {summary.backupCount}
         </span>
 
         {/* Size */}
@@ -477,7 +477,7 @@ function SummaryRow({
           'text-right text-[13px] tabular-nums',
           summary.totalSizeBytes > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'
         )}>
-          {summary.totalSizeBytes > 0 ? formatBytes(summary.totalSizeBytes) : '—'}
+          {formatBytes(summary.totalSizeBytes)}
         </span>
 
         {/* Last backup */}
@@ -485,7 +485,7 @@ function SummaryRow({
           className="pl-4 text-[13px] text-muted-foreground"
           title={!busy && summary.lastBackupAt ? formatDate(summary.lastBackupAt) : undefined}
         >
-          {busy ? 'Backing up…' : (summary.lastBackupAt ? formatRelative(summary.lastBackupAt) : '—')}
+          {busy ? 'Backing up…' : (summary.lastBackupAt ? formatRelative(summary.lastBackupAt) : 'Never')}
         </span>
 
         {/* Schedule */}
@@ -642,7 +642,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
       // down on a live domain, and this status carries no power state to
       // condition on, so promising one outright would be a promise the run
       // cannot keep for a stopped VM.
-      ? 'No checkpoint to measure changes against yet — this run takes a full backup and, if the VM is running, records one so the next can be a true incremental'
+      ? 'No checkpoint to measure changes against yet - this run takes a full backup and, if the VM is running, records one so the next can be a true incremental'
       : 'Copy only the blocks that changed since the last backup';
 
   const emptyTable = !isLoading && backups.length === 0 && !busy;
@@ -702,18 +702,19 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
 
         {/* Readouts */}
         <StatStrip>
-          <Stat label="Backups" value={isLoading ? '—' : String(backups.length)} />
-          <Stat label="Total size" value={isLoading ? '—' : (totalSize > 0 ? formatBytes(totalSize) : '—')} />
+          <Stat label="Backups" value={isLoading ? '…' : String(backups.length)} />
+          <Stat label="Total size" value={isLoading ? '…' : formatBytes(totalSize)} />
           <Stat
             label="Last backup"
-            value={isLoading ? '—' : (lastBackupAt ? formatRelative(lastBackupAt) : 'Never')}
+            value={isLoading ? '…' : (lastBackupAt ? formatRelative(lastBackupAt) : 'Never')}
             sub={!isLoading && lastBackupAt ? formatDate(lastBackupAt) : undefined}
             tone={!isLoading && !lastBackupAt ? 'muted' : undefined}
           />
           <Stat
             label="Next scheduled"
-            value={nextRunAt ? formatUntil(nextRunAt) : '—'}
+            value={nextRunAt ? formatUntil(nextRunAt) : !schedule && isLoading ? '…' : schedule && !schedule.enabled ? 'Paused' : 'None'}
             sub={nextRunAt ? formatDate(nextRunAt) : undefined}
+            tone={nextRunAt || (!schedule && isLoading) ? undefined : schedule && !schedule.enabled ? 'warn' : 'muted'}
           />
         </StatStrip>
 
@@ -744,7 +745,7 @@ function VmBackupsPanel({ vmUuid, onBack }: { vmUuid: string; onBack: () => void
               <span className="font-semibold">
                 {unusableCount} backup director{unusableCount !== 1 ? 'ies' : 'y'} ({formatBytes(unusableSize)})
               </span>{' '}
-              hold data no backup can use — left by a run that was interrupted, or by a manifest that has become
+              hold data no backup can use - left by a run that was interrupted, or by a manifest that has become
               unreadable. Interrupted runs are cleared automatically once they are a day old.
             </p>
           </div>
@@ -963,7 +964,7 @@ function BackupInProgressRow({ triggerType, narrow }: { triggerType: 'manual' | 
         Backing up…
       </span>
       {/* Size */}
-      <span className="text-[12.5px] text-muted-foreground">—</span>
+      <span />
       {/* Disks */}
       <span />
       {/* State */}
@@ -1034,7 +1035,7 @@ function BackupRow({
   function handleVerify() {
     toast.promise(verify.mutateAsync(backup.id), {
       loading: 'Checking every image in the chain…',
-      success: (r) => (r.ok ? `Verified — ${r.summary}` : `Verification FAILED — ${r.summary}`),
+      success: (r) => (r.ok ? r.summary : `Verification FAILED. ${r.summary}`),
       error: (e) => `Could not verify: ${apiError(e)}`,
     });
   }
@@ -1089,7 +1090,7 @@ function BackupRow({
         </div>
         {backup.chainBroken && (
           <p className="mt-1 text-[12px] leading-snug text-red-700 dark:text-red-300">
-            A backup this one builds on is missing — it can no longer be restored.
+            A backup this one builds on is missing - it can no longer be restored.
           </p>
         )}
         {!backup.chainBroken && backup.notes?.length ? (
@@ -1300,7 +1301,7 @@ function ScheduleDialog({
         {frequency === 'monthly' && (
           <Input
             id="schedule-day-of-month"
-            label="Day of month (1–28)"
+            label="Day of month (1-28)"
             type="number"
             min={1}
             max={28}
@@ -1333,8 +1334,8 @@ function ScheduleDialog({
             value={mode}
             onChange={(e) => setMode(e.target.value as BackupScheduleMode)}
           >
-            <option value="full">Always full — a complete copy every run</option>
-            <option value="incremental">Incremental — copy only what changed</option>
+            <option value="full">Always full - a complete copy every run</option>
+            <option value="incremental">Incremental - copy only what changed</option>
           </Select>
           {mode === 'incremental' && (
             <div className="space-y-2.5">
@@ -1350,8 +1351,8 @@ function ScheduleDialog({
               />
               <p className="text-[12px] leading-relaxed text-muted-foreground">
                 Counted in backups, not days. Capping the chain keeps restores quick and limits how much a single
-                damaged link can cost. A run that cannot produce an incremental — the VM was off, the host does not
-                support it, or the previous run recorded no checkpoint — falls back to a full backup rather than
+                damaged link can cost. A run that cannot produce an incremental (the VM was off, the host does not
+                support it, or the previous run recorded no checkpoint) falls back to a full backup rather than
                 being skipped.
               </p>
               {/* The one fallback cause that is near-certain the moment this
@@ -1502,7 +1503,7 @@ function RestoreDialog({
         restoreBackup.mutateAsync({ backupId: backup.id }).then(onClose),
         {
           loading: 'Restoring…',
-          success: 'Restore complete — VM disks replaced',
+          success: 'Restore complete - VM disks replaced',
           error: (e) => `Restore failed: ${apiError(e)}`,
         }
       );
@@ -1587,7 +1588,7 @@ function RestoreDialog({
         ) : (
           <div className="space-y-3.5">
             <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-              Builds a complete new machine from this backup — its own UUID, MAC addresses and IP. Works even if
+              Builds a complete new machine from this backup - its own UUID, MAC addresses and IP. Works even if
               the original VM has been deleted.
             </p>
             <Input

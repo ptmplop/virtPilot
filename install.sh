@@ -23,7 +23,7 @@ cat << 'BANNER'
     \_/ |_|\__|\__|_| |_|_|_\___/\__|
 
 BANNER
-echo -e "${NC}${BOLD}  VirtPilot — KVM Virtual Machine Manager${NC}"
+echo -e "${NC}${BOLD}  VirtPilot - KVM Virtual Machine Manager${NC}"
 echo -e "  Installer for Ubuntu 24\n"
 
 # ─── Pre-flight checks ────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ fi
 
 # OS must be Ubuntu 24.04
 if [[ ! -r /etc/os-release ]]; then
-  die "/etc/os-release not found — cannot verify OS. VirtPilot supports Ubuntu 24.04 only."
+  die "/etc/os-release not found - cannot verify OS. VirtPilot supports Ubuntu 24.04 only."
 fi
 # shellcheck disable=SC1091
 . /etc/os-release
@@ -72,7 +72,7 @@ fi
 git config --global --add safe.directory "${INSTALL_DIR}" 2>/dev/null || true
 
 if [[ "${INSTALL_DIR}" != "${STANDARD_DIR}" ]]; then
-  warn "Installing outside the standard path ${STANDARD_DIR} — fine for development, but the bootstrap installer expects ${STANDARD_DIR}."
+  warn "Installing outside the standard path ${STANDARD_DIR} - fine for development, but the bootstrap installer expects ${STANDARD_DIR}."
 fi
 
 # ─── APT dependencies ─────────────────────────────────────────────────────────
@@ -216,7 +216,7 @@ if [[ ! -f "${TLS_DIR}/cert.pem" || ! -f "${TLS_DIR}/key.pem" ]]; then
   chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TLS_DIR}"
   log "TLS certificate generated at ${TLS_DIR}/"
 else
-  log "TLS certificate already present — leaving in place"
+  log "TLS certificate already present - leaving in place"
   chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TLS_DIR}"
 fi
 
@@ -258,7 +258,7 @@ if [[ -f "${ENV_FILE}" ]]; then
   AUTH_PASSWORD_HASH="$(env_get AUTH_PASSWORD_HASH)"
   JWT_SECRET="$(env_get JWT_SECRET)"
   ENCRYPTION_KEY="$(env_get ENCRYPTION_KEY)"
-  log "Existing configuration found at ${ENV_FILE} — reusing its secrets"
+  log "Existing configuration found at ${ENV_FILE} - reusing its secrets"
 fi
 
 # ─── Password setup ───────────────────────────────────────────────────────────
@@ -360,7 +360,7 @@ CLOUD_INIT_DIR=/var/lib/virtpilot/cloud-init
 DEFAULT_BRIDGE=br0
 LIBVIRT_URI=qemu:///system
 
-# Repo path — used by the in-dashboard self-upgrade to locate update.sh
+# Repo path - used by the in-dashboard self-upgrade to locate update.sh
 VIRTPILOT_REPO_DIR=${INSTALL_DIR}
 
 # Comma-separated list of extra browser origins permitted by CORS. Empty means
@@ -368,7 +368,7 @@ VIRTPILOT_REPO_DIR=${INSTALL_DIR}
 ALLOWED_ORIGINS=
 
 # Number of reverse-proxy hops to trust for X-Forwarded-For. 0 means client IPs
-# come straight off the socket — the only safe default, since a trusted header
+# come straight off the socket - the only safe default, since a trusted header
 # on a directly-exposed backend lets anyone spoof their IP past the rate
 # limiter and the allowlist. The nginx flow below raises this to 1.
 TRUST_PROXY=0
@@ -409,7 +409,7 @@ chmod 640 "${TLS_DIR}/key.pem"
 
 info "Writing VirtPilot nginx site..."
 cat > /etc/nginx/sites-available/virtpilot << NGINXSITE
-# VirtPilot — managed by install.sh
+# VirtPilot - managed by install.sh
 # Public TLS termination on ${PUBLIC_PORT}; backend on 127.0.0.1:${BACKEND_PORT}.
 
 server {
@@ -424,10 +424,10 @@ server {
     ssl_session_cache shared:VirtPilotSSL:10m;
     ssl_session_tickets off;
 
-    # ISO and template uploads can be 50–100 GB.
+    # ISO and template uploads can be 50-100 GB.
     client_max_body_size 100G;
 
-    # Don't buffer — required for streaming SSE (system upgrade output) and
+    # Don't buffer - required for streaming SSE (system upgrade output) and
     # chunked uploads/downloads. The dashboard has no traffic profile that
     # benefits from nginx buffering.
     proxy_buffering off;
@@ -437,7 +437,7 @@ server {
     proxy_read_timeout 1d;
     proxy_send_timeout 1d;
 
-    # WebSocket endpoints — need the Upgrade/Connection dance.
+    # WebSocket endpoints - need the Upgrade/Connection dance.
     location /ws/ {
         proxy_pass http://127.0.0.1:${BACKEND_PORT};
         proxy_http_version 1.1;
@@ -486,7 +486,7 @@ sed -i "s|^PORT=.*|PORT=${BACKEND_PORT}|" "${ENV_FILE}"
 PREV_BIND="$(env_get BIND_ADDRESS)"
 env_set BIND_ADDRESS 127.0.0.1
 if [[ -n "${PREV_BIND}" && "${PREV_BIND}" != "127.0.0.1" && "${PREV_BIND}" != "localhost" ]]; then
-  info "BIND_ADDRESS was ${PREV_BIND} — reset to 127.0.0.1 so only nginx (TLS on :${PUBLIC_PORT}) can reach the backend"
+  info "BIND_ADDRESS was ${PREV_BIND}; reset to 127.0.0.1 so only nginx (TLS on :${PUBLIC_PORT}) can reach the backend"
 fi
 
 sed -i 's|^TLS_CERT_PATH=.*|TLS_CERT_PATH=|' "${ENV_FILE}" || true
@@ -566,8 +566,8 @@ AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 # every sudo invocation with "unable to change to root gid" + audit plugin
 # init failure, including the (libvirt-qemu) qemu-img path used by backups.
 # NB: this heredoc is unquoted (it has to expand ${INSTALL_DIR} and friends),
-# so never use backticks in these comments — the shell runs them as commands.
-# The blast-radius argument is illusory here — the service already has sudo
+# so never use backticks in these comments - the shell runs them as commands.
+# The blast-radius argument is illusory here - the service already has sudo
 # rights to apt-get/systemctl per /etc/sudoers.d/virtpilot, which is strictly
 # more powerful than any cap a hostile exec could gain. The real isolation
 # is ProtectSystem=strict + ProtectKernel* + ReadWritePaths below.
@@ -580,7 +580,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=virtpilot
 
-# Hardening — limits the blast radius if the backend is ever exploited. We
+# Hardening - limits the blast radius if the backend is ever exploited. We
 # deliberately do NOT set NoNewPrivileges here: the in-app self-upgrade and
 # "apt upgrade" flows shell out to "sudo systemd-run" / "sudo apt-get", and
 # the kernel's no_new_privs bit makes sudo refuse to elevate even with the
@@ -593,8 +593,8 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 # ProtectSystem=strict + ReadWritePaths is deliberately NOT set. v2.2 added
 # operator-registered storage directories (mounted iSCSI/NFS at arbitrary
-# paths). ReadWritePaths is a static allowlist — it can't grow at runtime
-# from inside the service — and a stale ReadWritePaths silently breaks every
+# paths). ReadWritePaths is a static allowlist - it can't grow at runtime
+# from inside the service - and a stale ReadWritePaths silently breaks every
 # move/upload/create that targets a freshly registered storage dir. The other
 # hardening below (ProtectKernel*, ProtectControlGroups, RestrictNamespaces,
 # RestrictRealtime, LockPersonality) still constrains exec-time behaviour;
@@ -602,7 +602,7 @@ ProtectControlGroups=true
 # has sudo NOPASSWD on apt-get/systemctl per /etc/sudoers.d/virtpilot.
 # RestrictSUIDSGID is deliberately omitted. Per systemd.exec(5) it "implies
 # NoNewPrivileges=yes, ignoring the value of [the explicit NoNewPrivileges]
-# setting" — so leaving it on silently re-enables the kernel no_new_privs bit
+# setting" - so leaving it on silently re-enables the kernel no_new_privs bit
 # even with NoNewPrivileges= absent, which makes setuid sudo refuse to elevate
 # (sudo: unable to change to root gid + audit plugin init failure). The
 # self-upgrade flow, apt upgrade flow, and (libvirt-qemu) qemu-img backup path
@@ -627,7 +627,7 @@ systemctl enable virtpilot
 # networks.json already contains an entry named "myNet".
 NETWORKS_JSON="/var/lib/virtpilot/networks.json"
 if [[ -f "${NETWORKS_JSON}" ]] && grep -q '"name": *"myNet"' "${NETWORKS_JSON}"; then
-  log "Default network 'myNet' already present — leaving in place"
+  log "Default network 'myNet' already present - leaving in place"
 else
   info "Creating default NAT network 'myNet' (10.0.1.0/24, bridge vp0)..."
   NET_UUID="$(cat /proc/sys/kernel/random/uuid)"

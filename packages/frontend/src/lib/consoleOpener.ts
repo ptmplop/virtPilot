@@ -49,7 +49,7 @@ export function openVmConsole(
 
   const w = window.open(url, `vp-console-${uuid}`, POPUP_FEATURES);
   if (!w) {
-    toast.error('Popup blocked — opening in this tab. Allow popups for this site, or turn off popup mode on the VMs page.');
+    toast.error('Popup blocked - opening in this tab. Allow popups for this site, or turn off popup mode on the VMs page.');
     navigate(url);
     return;
   }

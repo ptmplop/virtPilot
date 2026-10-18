@@ -33,6 +33,12 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # Long dashes in anything a user reads look machine-written to the owner.
+      # Parses the TypeScript (comments are exempt) and checks the scripts'
+      # output, the README and the CHANGELOG.
+      - name: No long dashes in user-facing text
+        run: node scripts/check-dashes.mjs
+
       - name: Build both packages
         run: npm run build
 
@@ -45,6 +51,11 @@ jobs:
             find packages/*/dist -name '*.test.js'
             exit 1
           fi
+
+      # The built bundle has no comments, so a long dash in it in any spelling
+      # (an escape, an HTML entity, CSS) is one a user sees.
+      - name: No long dashes in the built frontend
+        run: node scripts/check-dashes.mjs --dist
 
   shell:
     name: Shell scripts

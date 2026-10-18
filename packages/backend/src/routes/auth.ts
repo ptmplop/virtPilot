@@ -21,13 +21,13 @@ const loginLimiter = createRateLimiter('login', {
   windowMs: 15 * 60_000,
   max: 5,
   blockMs: 15 * 60_000,
-  message: 'Too many login attempts — try again later.',
+  message: 'Too many login attempts - try again later.',
 });
 const totpLimiter = createRateLimiter('verify-totp', {
   windowMs: 15 * 60_000,
   max: 10,
   blockMs: 15 * 60_000,
-  message: 'Too many code attempts — try again later.',
+  message: 'Too many code attempts - try again later.',
 });
 
 // Rewrite AUTH_PASSWORD=plaintext to AUTH_PASSWORD_HASH=… in .env after a
@@ -97,7 +97,7 @@ async function readSettingsOr503(res: Response): Promise<UserSettings | null> {
     return await getUserSettings();
   } catch (err) {
     console.error('[auth] Could not read user settings:', err instanceof Error ? err.message : err);
-    res.status(503).json({ error: 'Server settings unavailable — check user-settings.json and the VirtPilot service log' });
+    res.status(503).json({ error: 'Server settings unavailable - check user-settings.json and the VirtPilot service log' });
     return null;
   }
 }
@@ -128,7 +128,7 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
     // session token here would turn a key rotation into a silent 2FA bypass,
     // so refuse the login and point at the fix.
     res.status(503).json({
-      error: 'Two-factor secret could not be read — restore ENCRYPTION_KEY in .env, or disable 2FA in user-settings.json to recover',
+      error: 'Two-factor secret could not be read - restore ENCRYPTION_KEY in .env, or disable 2FA in user-settings.json to recover',
     });
     return;
   }
@@ -177,14 +177,14 @@ authRouter.post('/verify-totp', totpLimiter, async (req, res) => {
     // Enabled but unreadable — every code must fail rather than the endpoint
     // reporting "2FA is not enabled", which reads like a way in.
     res.status(503).json({
-      error: 'Two-factor secret could not be read — restore ENCRYPTION_KEY in .env, or disable 2FA in user-settings.json to recover',
+      error: 'Two-factor secret could not be read - restore ENCRYPTION_KEY in .env, or disable 2FA in user-settings.json to recover',
     });
     return;
   }
 
   const cleanCode = String(code).replace(/\s/g, '');
   if (isReplay(settings.totpSecret, cleanCode)) {
-    res.status(401).json({ error: 'Code already used — wait for a new one' });
+    res.status(401).json({ error: 'Code already used - wait for a new one' });
     return;
   }
 

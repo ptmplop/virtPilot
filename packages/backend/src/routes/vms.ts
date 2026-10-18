@@ -97,7 +97,7 @@ vmsRouter.get('/disks', async (_req, res) => {
         statusByUuid.set(v.id, v.status);
       }
     } catch (err: unknown) {
-      return res.status(503).json({ error: `libvirt is unavailable — cannot determine which disks are orphaned (${String(err)})` });
+      return res.status(503).json({ error: `libvirt is unavailable - cannot determine which disks are orphaned (${String(err)})` });
     }
 
     const locations = await storageDirService.listAllDiskLocations();
@@ -116,7 +116,7 @@ vmsRouter.get('/disks', async (_req, res) => {
       try {
         if (await isVmDefined(vmUuid)) definedUuids.add(vmUuid);
       } catch (err: unknown) {
-        return res.status(503).json({ error: `libvirt is unavailable — cannot determine which disks are orphaned (${String(err)})` });
+        return res.status(503).json({ error: `libvirt is unavailable - cannot determine which disks are orphaned (${String(err)})` });
       }
     }
 
@@ -1065,7 +1065,7 @@ vmsRouter.post('/:uuid/snapshots/:snapshot/to-template', requireUuidParam, async
         // This is an early return, so the success/error logging at the bottom
         // of the handler never runs — emit the audit entry here or a refused
         // export leaves no trace at all and looks like it never happened.
-        const conflict = `A template file named "${filename}" already exists in "${templatesDir.name}" — choose another name, or delete the existing template first`;
+        const conflict = `A template file named "${filename}" already exists in "${templatesDir.name}" - choose another name, or delete the existing template first`;
         void logService.appendLog({ type: 'vm.snapshot.export', ...log, status: 'error', output: conflict, durationMs: Date.now() - start });
         return res.status(409).json({ error: conflict });
       }
@@ -1146,7 +1146,7 @@ vmsRouter.post('/:uuid/firewall/apply', requireUuidParam, async (req, res) => {
     // moment ago is exactly what stops ARP resolving — which used to leave the
     // operator unable to apply any further rules, including the ones undoing it.
     const ip = await vmService.resolveVmIp(uuid);
-    if (!ip) return res.status(400).json({ error: 'Could not resolve VM IP — ensure the VM is running' });
+    if (!ip) return res.status(400).json({ error: 'Could not resolve VM IP - ensure the VM is running' });
     const cfg = await firewallService.getFirewallConfig(uuid);
     await firewallService.applyFirewallRules(uuid, ip, cfg);
     void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'success', output: `Applied ${cfg.rules.length} rule(s) to ${ip}`, durationMs: Date.now() - start });
@@ -1244,7 +1244,7 @@ vmsRouter.post('/:uuid/disk-files/:filename/move', requireUuidParam, async (req,
             type: 'vm.disk.move',
             ...log,
             status: 'error',
-            output: `define failed: ${String(err)} — rollback also failed: ${String(rbErr)}`,
+            output: `define failed: ${String(err)}; rollback also failed: ${String(rbErr)}`,
             durationMs: Date.now() - start,
           });
         });

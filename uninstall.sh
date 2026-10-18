@@ -26,7 +26,7 @@ cat << 'BANNER'
     \_/ |_|\__|\__|_| |_|_|_\___/\__|
 
 BANNER
-echo -e "${NC}${BOLD}  VirtPilot — Uninstaller${NC}\n"
+echo -e "${NC}${BOLD}  VirtPilot - Uninstaller${NC}\n"
 
 # ─── Pre-flight checks ────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
@@ -71,7 +71,7 @@ echo -e "${YELLOW}This will remove:${NC}"
 echo "  • virtpilot systemd service and unit file"
 echo "  • All libvirt networks named virtpilot-* (defined by VirtPilot)"
 echo "  • Libvirt VMs created by VirtPilot (a hard disk under /var/lib/virtpilot/,"
-echo "    or a cloud-init seed from /var/lib/virtpilot/cloud-init/) — the domain"
+echo "    or a cloud-init seed from /var/lib/virtpilot/cloud-init/) - the domain"
 echo "    and those disk images only; disks stored elsewhere are kept"
 echo "  • iptables VP-IN-* / VP-OUT-* chains"
 echo "  • /etc/nginx/sites-{available,enabled}/virtpilot"
@@ -157,7 +157,7 @@ if command -v virsh >/dev/null 2>&1; then
       done
     fi
     if [[ ${#OTHER_DISKS[@]} -gt 0 ]]; then
-      warn "  $dom had disk(s) outside /var/lib/virtpilot — left in place, remove manually if unwanted:"
+      warn "  $dom had disk(s) outside /var/lib/virtpilot - left in place, remove manually if unwanted:"
       for disk in "${OTHER_DISKS[@]}"; do
         warn "    ${disk}"
       done
@@ -206,7 +206,7 @@ if command -v nginx >/dev/null 2>&1 && systemctl is-active --quiet nginx 2>/dev/
   if nginx -t >/dev/null 2>&1; then
     systemctl reload nginx 2>/dev/null || true
   else
-    warn "nginx config invalid after removal — left running, please inspect /etc/nginx"
+    warn "nginx config invalid after removal - left running, please inspect /etc/nginx"
   fi
 fi
 

@@ -274,7 +274,7 @@ function VmRoster({ vms, cores, memTotalMb }: { vms: VmSummary[]; cores?: number
             warn={!!cores && vcpus / cores > VCPU_WARN_RATIO}
             value={
               <>
-                <span className="font-semibold text-foreground">{vcpus}</span> on {cores ?? '—'} cores
+                <span className="font-semibold text-foreground">{vcpus}</span>{cores != null && <> on {cores} cores</>}
                 {!!cores && vcpus > cores && <> · {Number((vcpus / cores).toFixed(1))}×</>}
               </>
             }
@@ -305,11 +305,11 @@ function PlateRow({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-function LoadValue({ load, cores }: { load?: [number, number, number]; cores?: number }) {
+function LoadValue({ load, cores, missing = '…' }: { load?: [number, number, number]; cores?: number; missing?: string }) {
   // More runnable work than cores needs attention, not alarm: red is kept for failure.
   const color = (v: number) =>
     v / Math.max(cores ?? 1, 1) > 1 ? 'text-amber-700 dark:text-amber-300' : 'text-foreground';
-  if (!load) return <span className="text-muted-foreground">—</span>;
+  if (!load) return <span className="text-muted-foreground">{missing}</span>;
   const spans = ['1m', '5m', '15m'];
   return (
     <span className="flex items-baseline gap-4">
@@ -340,7 +340,9 @@ function NetValue({ rx, tx }: { rx: number; tx: number }) {
 
 function HostOverview() {
   const { data: settings } = useSettings();
-  const { data: info } = useSystemInfo();
+  const { data: info, isError: infoFailed } = useSystemInfo();
+  // "…" only while the first answer is on its way; a failed one never resolves, so say so.
+  const missing = infoFailed ? 'Unknown' : '…';
   const { data: vms } = useVms();
   const { data: stats } = useSystemStats();
   const current = stats?.current;
@@ -364,20 +366,20 @@ function HostOverview() {
             QEMU row, so the first screen says it once. */}
         <PanelHeader title="Host" />
         <dl className="divide-y divide-border px-5 py-1">
-          <PlateRow label="Hostname">{info?.hostname ?? '—'}</PlateRow>
+          <PlateRow label="Hostname">{info?.hostname ?? missing}</PlateRow>
           <PlateRow label="CPU">
-            <span title={info?.cpuModel}>{info ? cleanCpuModel(info.cpuModel) : '—'}</span>
+            <span title={info?.cpuModel}>{info ? cleanCpuModel(info.cpuModel) : missing}</span>
           </PlateRow>
           <PlateRow label="QEMU">
             <span title={isKvm ? 'Hardware-accelerated virtualisation (KVM)' : 'Software emulation (TCG): reduced performance'}>
-              {info?.qemuVersion ?? '—'} · {isKvm ? 'KVM' : 'TCG'}
+              {info?.qemuVersion ?? missing} · {isKvm ? 'KVM' : 'TCG'}
             </span>
           </PlateRow>
-          <PlateRow label="Kernel">{info?.kernelVersion ?? '—'}</PlateRow>
+          <PlateRow label="Kernel">{info?.kernelVersion ?? missing}</PlateRow>
           <PlateRow label="Libvirt">{settings.libvirtUri}</PlateRow>
         </dl>
         <dl className="mt-auto divide-y divide-border border-t border-border bg-surface/60 px-5 py-1">
-          <PlateRow label="Load"><LoadValue load={info?.load} cores={info?.cpuCores} /></PlateRow>
+          <PlateRow label="Load"><LoadValue load={info?.load} cores={info?.cpuCores} missing={missing} /></PlateRow>
           <PlateRow label="Network"><NetValue rx={current?.netRxBps ?? 0} tx={current?.netTxBps ?? 0} /></PlateRow>
         </dl>
       </Panel>
@@ -858,7 +860,7 @@ function VirtPilotUpdateCard() {
         if (latest.updateAvailable) {
           toast.success(`Update v${latest.latest} available`);
         } else {
-          toast.success(`Up to date — v${latest.current}`);
+          toast.success(`Up to date - v${latest.current}`);
         }
       },
       onError: () => {
@@ -916,11 +918,11 @@ function VirtPilotUpdateCard() {
       <>VirtPilot <span className="font-mono text-[12.5px] font-medium">v{data.current}</span></>,
       broken ? (
         <span className="text-amber-800 dark:text-amber-300">
-          In-app upgrades unavailable — {data.repoReason ?? 'repository check failed.'}
+          In-app upgrades unavailable. {data.repoReason ?? 'Repository check failed.'}
         </span>
       ) : (
         <span>
-          Up to date{published(data.publishedAt) ? ` — the latest release, published ${published(data.publishedAt)}` : ''}
+          Up to date{published(data.publishedAt) ? ` - the latest release, published ${published(data.publishedAt)}` : ''}
         </span>
       ),
       <>
@@ -935,7 +937,7 @@ function VirtPilotUpdateCard() {
     return row(
       <>VirtPilot <span className="font-mono text-[12.5px] font-medium">v{data.current}</span></>,
       <span className="text-amber-800 dark:text-amber-300">
-        v{targetVersion} is available, but in-app upgrade is unavailable — {data.repoReason ?? 'repository check failed.'}
+        v{targetVersion} is available, but in-app upgrade is unavailable. {data.repoReason ?? 'Repository check failed.'}
       </span>,
       <>{checkNowButton}{releaseLink('Release notes')}</>,
       <div className="mt-4 rounded-md border border-border bg-surface px-3 py-2.5">
@@ -1153,13 +1155,13 @@ function HealthBand({ stale, lastSampleAt }: { stale: boolean; lastSampleAt: num
         >
           <span className="text-[12.5px] font-medium leading-5 text-muted-foreground">VirtPilot</span>
           <span className="font-mono text-[15px] font-semibold leading-7 tabular-nums text-foreground group-hover:underline group-hover:decoration-border group-hover:underline-offset-4 xl:mt-1.5">
-            v{version?.current ?? '—'}
+            {version?.current ? `v${version.current}` : '…'}
           </span>
           <span className={cn(
             'inline-flex items-center gap-1.5 text-[12.5px] leading-5 xl:mt-2',
             updateAvailable ? 'font-medium text-primary' : 'text-muted-foreground',
           )}>
-            {updateAvailable ? <>v{version?.latest} available <ArrowRight className="h-3 w-3" /></> : 'Up to date'}
+            {updateAvailable ? <>v{version?.latest} available <ArrowRight className="h-3 w-3" /></> : version ? 'Up to date' : 'Checking…'}
           </span>
         </a>
       </div>

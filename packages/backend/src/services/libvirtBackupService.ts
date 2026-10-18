@@ -293,7 +293,7 @@ export async function waitForBackupJob(vmUuid: string, timeoutMs = 6 * 60 * 60_0
 
     if (Date.now() > deadline) {
       await virsh(['domjobabort', vmUuid], { timeout: 30_000 }).catch(() => {});
-      throw new Error(`Backup job did not finish within ${Math.round(timeoutMs / 60_000)} minutes — aborted`);
+      throw new Error(`Backup job did not finish within ${Math.round(timeoutMs / 60_000)} minutes - aborted`);
     }
     await sleep(intervalMs);
     intervalMs = Math.min(intervalMs * 2, 15_000);

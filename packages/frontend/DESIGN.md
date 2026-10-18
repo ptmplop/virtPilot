@@ -129,7 +129,14 @@ Newness comes from structure and type; colour stays quiet.
   Sizes always go through `formatDisk` / `formatBytes` / `formatMemory`, never `{x} GB` by hand.
 - A figure the source can't give is labelled for what it is: a guest without balloon stats shows the
   memory the host has given it, "resident on host", never its allocation as "100% used"; a size nobody
-  measured (an internal snapshot taken offline) is "—", never "0 B".
+  measured (an internal snapshot taken offline) is "Not measured", never "0 B".
+- **No long dashes (— or –) in anything a user reads**: the UI, server messages, installer and upgrade
+  output, the README, the CHANGELOG and the release notes. The owner reads them as machine-written. Where a
+  dash would go, a spaced hyphen ("Cloning - this copies the full disk"); in a range, a hyphen ("1-28").
+  A value that isn't there is a word, never a dash: "…" while it loads (muted; `Stat` does it), "Never", "None", "0" or "0 B" for
+  nothing counted, "any", "Not set" (an unfilled wizard field), "No media", "Not measured", "Unknown";
+  an empty optional field (a description) is left blank. `node scripts/check-dashes.mjs` enforces it in
+  CI; code comments are exempt.
 - Say a fact once: a number shown in a gauge is not repeated in the verdict beside it.
 - Subtitles say what the page holds, in one sentence with a full stop — never "Manage …". The browser
   tab reads "Page · host · VirtPilot" (`docTitle` for pages that draw their own header).
@@ -163,8 +170,8 @@ navigation and page titles included. British English. Dates read `8 Oct 2026` (`
 Pill or chip badges (`rounded-full` tinted labels), icon tiles (an icon in a tinted rounded square),
 pulsing "live" dots, status dots before words that aren't a VM's state (Healthy, Up to date, Live,
 Connected), gradient washes (charts included), glows, blurred orbs, coloured top stripes, macOS
-traffic-light dots, sparkle icons, uniform grids of identical stat cards, tiny spaced capitals. Type,
-rules and alignment do that work.
+traffic-light dots, sparkle icons, uniform grids of identical stat cards, tiny spaced capitals, long
+dashes in user-facing text. Type, rules and alignment do that work.
 
 ## Traps
 

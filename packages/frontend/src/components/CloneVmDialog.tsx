@@ -51,7 +51,7 @@ export function CloneVmDialog({ open, vmUuid, vmName, vmStatus, onClose }: Props
           return created;
         }),
       {
-        loading: 'Cloning — this copies the full disk, so it can take a while…',
+        loading: 'Cloning - this copies the full disk, so it can take a while…',
         success: (created) => `Created "${created.name}"`,
         error: (e) => `Clone failed: ${apiError(e)}`,
       },
@@ -103,7 +103,7 @@ export function CloneVmDialog({ open, vmUuid, vmName, vmStatus, onClose }: Props
             Give the clone its own identity
             <span className="mt-0.5 block text-[12.5px] leading-5 text-muted-foreground">
               Rebuilds cloud-init so the guest boots with the new name as its hostname and its own IP address.
-              Turn this off to keep an exact copy — but a duplicated static IP will take both machines off the
+              Turn this off to keep an exact copy - but a duplicated static IP will take both machines off the
               network.
             </span>
           </span>

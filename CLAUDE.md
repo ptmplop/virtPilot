@@ -111,6 +111,8 @@ Version increment rules:
 npm test                                        # vitest, backend only
 npm --workspace @virtpilot/backend run typecheck # typechecks tests too
 ./scripts/check-versions.sh                      # the four-location version rule
+node scripts/check-dashes.mjs                    # no long dashes in user-facing text (--fix rewrites)
+node scripts/check-dashes.mjs --dist             # the same for the built frontend, after npm run build
 shellcheck bootstrap.sh install.sh update.sh uninstall.sh scripts/*.sh
 ```
 
@@ -128,6 +130,10 @@ shellcheck bootstrap.sh install.sh update.sh uninstall.sh scripts/*.sh
 ## Conventions
 
 - British English in UI copy
+- No long dashes (— or –) in anything a user reads: UI, server messages, installer and upgrade output,
+  README, CHANGELOG, release notes and commit messages (the upgrade window prints the pulled commits'
+  subjects, and GitHub shows them on the repo page). A spaced hyphen where a dash would go, a hyphen in ranges, a word
+  for a missing value (see packages/frontend/DESIGN.md). Code comments are exempt. Checked in CI.
 - camelCase TypeScript throughout
 - Tailwind CSS v3 with `darkMode: 'class'` — same CSS variable palette as hostedai-launchpad
 - Dark mode stored in `localStorage` key `virtpilotTheme`

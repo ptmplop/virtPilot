@@ -29,7 +29,7 @@ totpRouter.post('/enable', async (req, res) => {
     }
     const settings = await getUserSettings();
     if (!settings.totpPendingSecret) {
-      res.status(400).json({ error: 'No pending 2FA setup found — call /setup first' });
+      res.status(400).json({ error: 'No pending 2FA setup found - call /setup first' });
       return;
     }
     if (!verifyTotp(settings.totpPendingSecret, code)) {

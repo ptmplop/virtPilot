@@ -31,7 +31,7 @@ import { useHostName } from '@/hooks/useSystemStats';
 
 // The version the operator sees. scripts/check-versions.sh checks this literal, and the
 // login screen imports it so the two can never disagree again.
-export const APP_VERSION = 'v2.13.1';
+export const APP_VERSION = 'v2.13.2';
 
 interface LayoutProps {
   children?: ReactNode;
@@ -145,7 +145,7 @@ export function Layout({ children, actions, title, subtitle, docTitle }: LayoutP
 function TopBar({ open, onOpen, buttonRef }: { open: boolean; onOpen: () => void; buttonRef: RefObject<HTMLButtonElement> }) {
   return (
     <div className="flex h-14 shrink-0 items-center justify-between pl-3 pr-2 md:hidden">
-      <Link to="/" aria-label="VirtPilot — Dashboard" className="flex h-10 items-center rounded-md px-[7px] focus-visible:outline-offset-0">
+      <Link to="/" aria-label="VirtPilot - Dashboard" className="flex h-10 items-center rounded-md px-[7px] focus-visible:outline-offset-0">
         <img src="/brand/virtpilot-horizontal.svg" alt="" className="h-[26px] w-[83px] max-w-none dark:hidden" />
         <img src="/brand/virtpilot-horizontal-dark.svg" alt="" className="hidden h-[26px] w-[83px] max-w-none dark:block" />
       </Link>
@@ -250,7 +250,7 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
       <div className="flex h-[72px] shrink-0 items-center px-3">
         <Link
           to="/"
-          aria-label="VirtPilot — Dashboard"
+          aria-label="VirtPilot - Dashboard"
           onClick={onNavigate}
           className="flex h-10 items-center rounded-md px-[7px] focus-visible:outline-offset-0"
         >

@@ -12,8 +12,8 @@ function ipBlockedMessage(err: unknown): string | null {
   if (!axios.isAxiosError(err) || err.response?.status !== 403) return null;
   const ip = (err.response.data as { clientIp?: string })?.clientIp;
   return ip
-    ? `Access denied — your IP address ${ip} is not on the allowlist. Contact your administrator.`
-    : 'Access denied — your IP address is not on the allowlist. Contact your administrator.';
+    ? `Access denied - your IP address ${ip} is not on the allowlist. Contact your administrator.`
+    : 'Access denied - your IP address is not on the allowlist. Contact your administrator.';
 }
 
 type Step = 'password' | 'totp';

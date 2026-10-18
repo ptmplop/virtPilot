@@ -62,8 +62,10 @@ export function Stat({
   tone?: 'ok' | 'warn' | 'danger' | 'muted';
   className?: string;
 }) {
+  // A value still on its way ("…") is muted like any other placeholder, not set in full ink.
   const toneClass =
-    tone === 'ok' ? 'text-emerald-700 dark:text-emerald-300'
+    value === '…' ? 'text-muted-foreground'
+    : tone === 'ok' ? 'text-emerald-700 dark:text-emerald-300'
     : tone === 'warn' ? 'text-amber-700 dark:text-amber-300'
     : tone === 'danger' ? 'text-red-700 dark:text-red-300'
     : tone === 'muted' ? 'text-muted-foreground'

@@ -90,7 +90,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // answering. 503 (not 500) tells the operator this is a transient,
     // fixable server-side condition.
     console.error('[auth] Could not read user settings:', err instanceof Error ? err.message : err);
-    res.status(503).json({ error: 'Server settings unavailable — check user-settings.json and the VirtPilot service log' });
+    res.status(503).json({ error: 'Server settings unavailable - check user-settings.json and the VirtPilot service log' });
     return;
   }
   if (!isIpAllowed(req.ip, ipWhitelist)) {

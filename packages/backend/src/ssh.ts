@@ -122,7 +122,7 @@ export function createSshWss(): WebSocketServer {
     const privateKey = await findHostPrivateKey();
 
     if (!privateKey && !meta?.password) {
-      send(`\r\n\x1b[31mNo SSH credentials available — no private key found and no password in metadata.\x1b[0m\r\n`);
+      send(`\r\n\x1b[31mNo SSH credentials available - no private key found and no password in metadata.\x1b[0m\r\n`);
       ws.close(1011, 'No SSH credentials');
       return;
     }

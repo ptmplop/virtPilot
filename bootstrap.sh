@@ -24,7 +24,7 @@ INSTALL_DIR="/usr/local/virtpilot"
 VP_REF="${VP_REF:-}"
 
 # ─── Pre-flight ───────────────────────────────────────────────────────────────
-echo -e "${BOLD}  VirtPilot — Bootstrap${NC}"
+echo -e "${BOLD}  VirtPilot - Bootstrap${NC}"
 echo -e "  Clones VirtPilot to ${INSTALL_DIR} and runs the installer\n"
 
 if [[ $EUID -ne 0 ]]; then
@@ -39,7 +39,7 @@ fi
 
 # OS must be Ubuntu 24.04 — fail fast before we install git or clone
 if [[ ! -r /etc/os-release ]]; then
-  die "/etc/os-release not found — cannot verify OS. VirtPilot supports Ubuntu 24.04 only."
+  die "/etc/os-release not found - cannot verify OS. VirtPilot supports Ubuntu 24.04 only."
 fi
 # shellcheck disable=SC1091
 . /etc/os-release
@@ -83,7 +83,7 @@ GIT_SAFE=(git -c "safe.directory=${INSTALL_DIR}")
 git config --system --add safe.directory "${INSTALL_DIR}" 2>/dev/null || true
 
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
-  info "Existing clone found at ${INSTALL_DIR} — fetching..."
+  info "Existing clone found at ${INSTALL_DIR} - fetching..."
   cd "${INSTALL_DIR}"
   "${GIT_SAFE[@]}" fetch --quiet --tags --prune origin
   # `fetch` only advances origin/<branch>, never the local branch of the same
@@ -98,7 +98,7 @@ if [[ -d "${INSTALL_DIR}/.git" ]]; then
   "${GIT_SAFE[@]}" reset --hard --quiet "${TARGET_REF}"
   log "Updated to $("${GIT_SAFE[@]}" rev-parse --short HEAD) (${VP_REF})"
 elif [[ -e "${INSTALL_DIR}" ]]; then
-  die "${INSTALL_DIR} exists but is not a git clone — refusing to overwrite. Move or remove it and re-run."
+  die "${INSTALL_DIR} exists but is not a git clone - refusing to overwrite. Move or remove it and re-run."
 else
   info "Cloning ${REPO_URL} → ${INSTALL_DIR}..."
   git clone --quiet "${REPO_URL}" "${INSTALL_DIR}"

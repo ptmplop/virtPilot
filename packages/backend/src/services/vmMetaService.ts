@@ -51,7 +51,7 @@ async function quarantineCorruptFile(parseErr: unknown): Promise<void> {
     throw parseErr;
   }
   console.error(
-    `[vm-meta] vm-metadata.json was unreadable (${(parseErr as Error).message}) — moved to ${quarantined}; continuing with an empty list`
+    `[vm-meta] vm-metadata.json was unreadable (${(parseErr as Error).message}) - moved to ${quarantined}; continuing with an empty list`
   );
 }
 

@@ -383,7 +383,7 @@ async function moveMetaIfPresent(srcDir: string, destDir: string, filename: stri
     await moveCrossFs(srcMeta, destMeta);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-    console.warn(`[storage] meta-move failed for ${filename}: ${String(err)} — display name may revert to filename`);
+    console.warn(`[storage] meta-move failed for ${filename}: ${String(err)} - display name may revert to filename`);
   }
 }
 

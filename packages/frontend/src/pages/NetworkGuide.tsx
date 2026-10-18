@@ -95,21 +95,21 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
               <div className="space-y-2 text-muted-foreground">
                 <p>
                   <span className="font-medium text-foreground">VMs just need internet access</span>
-                  {' '}— use <span className="font-medium text-foreground">Option 1: NAT</span>. Easiest, nothing to configure on the host OS.
+                  {' '}- use <span className="font-medium text-foreground">Option 1: NAT</span>. Easiest, nothing to configure on the host OS.
                 </p>
                 <p>
                   <span className="font-medium text-foreground">VMs need IPs on your physical/public network</span>
                   {' '}and you have a <span className="font-medium text-foreground">spare NIC with no IP on it</span>
-                  {' '}— use <span className="font-medium text-foreground">Option 2: Bridge with a dedicated NIC</span>.
+                  {' '}- use <span className="font-medium text-foreground">Option 2: Bridge with a dedicated NIC</span>.
                 </p>
                 <p>
                   <span className="font-medium text-foreground">VMs need IPs on your physical/public network</span>
                   {' '}and <span className="font-medium text-foreground">your only NIC is your SSH/management interface</span>
-                  {' '}(most cloud servers) — use <span className="font-medium text-foreground">Option 3</span> to configure a bridge at the OS level first.
+                  {' '}(most cloud servers) - use <span className="font-medium text-foreground">Option 3</span> to configure a bridge at the OS level first.
                 </p>
                 <p>
                   <span className="font-medium text-foreground">You already have a Linux bridge set up at the OS level</span>
-                  {' '}— use <span className="font-medium text-foreground">Option 4: Existing OS bridge</span> to attach VirtPilot to it.
+                  {' '}- use <span className="font-medium text-foreground">Option 4: Existing OS bridge</span> to attach VirtPilot to it.
                 </p>
               </div>
             </div>
@@ -119,7 +119,7 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
             {/* Option 1 — NAT */}
             <section className="space-y-3">
               <SectionBadge label="Easiest" />
-              <h3 className="text-sm font-semibold text-foreground">Option 1 — NAT network</h3>
+              <h3 className="text-sm font-semibold text-foreground">Option 1: NAT network</h3>
               <p className="text-sm text-muted-foreground">
                 VirtPilot creates an isolated network using libvirt's built-in NAT. VMs receive private IPs via DHCP
                 and can reach the internet through the host. External systems cannot initiate connections to VMs
@@ -149,15 +149,15 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
             {/* Option 2 — Bridge with dedicated NIC */}
             <section className="space-y-3">
               <SectionBadge label="Medium" />
-              <h3 className="text-sm font-semibold text-foreground">Option 2 — Bridge with a dedicated NIC</h3>
+              <h3 className="text-sm font-semibold text-foreground">Option 2: Bridge with a dedicated NIC</h3>
               <p className="text-sm text-muted-foreground">
                 VirtPilot creates a Linux bridge and enslaves a physical NIC to it. VMs plugged into this bridge
-                appear on your upstream network as if they were physical machines — they receive IPs from your
+                appear on your upstream network as if they were physical machines - they receive IPs from your
                 upstream DHCP server, or you assign static IPs from a pool you control.
               </p>
               <p className="text-sm text-muted-foreground">
                 <span className="font-medium text-foreground">Requires:</span> a NIC that has{' '}
-                <strong>no active IP address</strong> — dedicated entirely to VMs. Your SSH/management
+                <strong>no active IP address</strong> - dedicated entirely to VMs. Your SSH/management
                 traffic must run over a separate interface.
               </p>
 
@@ -172,8 +172,8 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
                 <Step n={3}>
                   Set <strong>IP mode</strong>:
                   <ul className="mt-2 space-y-1 text-sm text-muted-foreground list-disc list-inside">
-                    <li><strong>DHCP</strong> — your upstream router assigns IPs to VMs. No further IP configuration needed in VirtPilot.</li>
-                    <li><strong>Static</strong> — you own a block of IPs and VirtPilot assigns them from a pool via cloud-init. Enter the CIDR and gateway of that block.</li>
+                    <li><strong>DHCP</strong> - your upstream router assigns IPs to VMs. No further IP configuration needed in VirtPilot.</li>
+                    <li><strong>Static</strong> - you own a block of IPs and VirtPilot assigns them from a pool via cloud-init. Enter the CIDR and gateway of that block.</li>
                   </ul>
                 </Step>
                 <Step n={4}>
@@ -189,12 +189,12 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
             <section className="space-y-3">
               <SectionBadge label="Advanced" />
               <h3 className="text-sm font-semibold text-foreground">
-                Option 3 — Bridge on a single-NIC server (most cloud servers)
+                Option 3: Bridge on a single-NIC server (most cloud servers)
               </h3>
               <p className="text-sm text-muted-foreground">
-                Many servers — particularly cloud and dedicated servers — have a single NIC that carries
+                Many servers - particularly cloud and dedicated servers - have a single NIC that carries
                 both your SSH connection and your public IP. VirtPilot cannot safely enslave this NIC at
-                runtime — doing so would instantly drop your SSH session. The solution is to convert the
+                runtime - doing so would instantly drop your SSH session. The solution is to convert the
                 NIC into a bridge at the <strong>OS networking layer</strong> before VirtPilot ever touches it.
               </p>
               <p className="text-sm text-muted-foreground">
@@ -267,10 +267,10 @@ network:
         forward-delay: 0`} />
                 </Step>
                 <Step n={4}>
-                  Test the configuration — it will auto-revert after 120 seconds unless you confirm.
+                  Test the configuration - it will auto-revert after 120 seconds unless you confirm.
                   <CodeBlock code="netplan try" />
                   If your SSH session stays connected, confirm by pressing <Code>Enter</Code>.
-                  If the session drops, wait 2 minutes — it will roll back automatically.
+                  If the session drops, wait 2 minutes - it will roll back automatically.
                 </Step>
                 <Step n={5}>
                   Once confirmed, verify the bridge has your IP.
@@ -298,11 +298,11 @@ ip route show" />
                   <CodeBlock code={`auto lo
 iface lo inet loopback
 
-# Raw NIC — no IP, managed by bridge
+# Raw NIC - no IP, managed by bridge
 auto eth0
 iface eth0 inet manual
 
-# Bridge — gets the IP that eth0 used to have
+# Bridge - gets the IP that eth0 used to have
 auto br0
 iface br0 inet static
   address   YOUR.IP.HERE
@@ -321,7 +321,7 @@ iface br0 inet static
                   </p>
                 </Step>
                 <Step n={3}>
-                  Reboot. This is the safest method — the bridge will come up correctly on boot.
+                  Reboot. This is the safest method - the bridge will come up correctly on boot.
                   <CodeBlock code="reboot" />
                 </Step>
                 <Step n={4}>
@@ -340,7 +340,7 @@ brctl show br0" />
             {/* Option 4 — Existing OS bridge */}
             <section className="space-y-3">
               <SectionBadge label="Any server" />
-              <h3 className="text-sm font-semibold text-foreground">Option 4 — Existing OS bridge</h3>
+              <h3 className="text-sm font-semibold text-foreground">Option 4: Existing OS bridge</h3>
               <p className="text-sm text-muted-foreground">
                 If you already have a Linux bridge configured at the OS level (via Option 3 above, or any
                 other method), use this to attach VirtPilot to it. VirtPilot records the bridge name and attaches
@@ -356,8 +356,8 @@ brctl show br0" />
                 <Step n={4}>
                   Set <strong>IP mode</strong>:
                   <ul className="mt-2 space-y-1 text-sm text-muted-foreground list-disc list-inside">
-                    <li><strong>DHCP</strong> — your upstream network assigns IPs to VMs.</li>
-                    <li><strong>Static</strong> — VirtPilot assigns IPs from a pool you define. Enter the CIDR and gateway of the IP range you want VirtPilot to manage.</li>
+                    <li><strong>DHCP</strong> - your upstream network assigns IPs to VMs.</li>
+                    <li><strong>Static</strong> - VirtPilot assigns IPs from a pool you define. Enter the CIDR and gateway of the IP range you want VirtPilot to manage.</li>
                   </ul>
                 </Step>
                 <Step n={5}>
@@ -379,7 +379,7 @@ brctl show br0" />
                   <p className="font-medium text-foreground">DHCP</p>
                   <p className="mt-1 text-muted-foreground">
                     Your upstream router or DHCP server assigns an IP to each VM when it boots. You don't
-                    manage IPs in VirtPilot — the upstream handles it. Best when VMs are on a LAN with an
+                    manage IPs in VirtPilot - the upstream handles it. Best when VMs are on a LAN with an
                     existing DHCP server, or when your hosting provider handles DHCP for your network.
                   </p>
                 </div>
@@ -389,7 +389,7 @@ brctl show br0" />
                     You define a CIDR block (e.g. <Code>203.0.113.0/29</Code>) and a gateway. VirtPilot
                     tracks which IP is assigned to which VM and injects the network configuration via
                     cloud-init when the VM is created. Best for public IP blocks where there is no DHCP
-                    server — for example, additional IPs from your hosting provider that you've routed to
+                    server - for example, additional IPs from your hosting provider that you've routed to
                     this server.
                   </p>
                 </div>

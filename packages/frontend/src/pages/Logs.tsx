@@ -163,7 +163,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
 
         {/* Duration — a fixed column, so the output's edge doesn't move from row to row */}
         <span className="w-16 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
-          {entry.durationMs != null ? formatDuration(entry.durationMs) : '—'}
+          {entry.durationMs != null && formatDuration(entry.durationMs)}
         </span>
 
         {/* Timestamp */}

@@ -310,15 +310,15 @@ export function NetworksPage() {
           <Input label="Name" value={form.name} onChange={set('name')} required placeholder="e.g. lab-net" />
 
           <Select label="Type" value={form.type} onChange={set('type')}>
-            <option value="nat">NAT — libvirt managed, isolated DHCP</option>
-            <option value="bridge">Bridge — VirtPilot creates a new bridge</option>
-            <option value="existing-bridge">Existing OS bridge — attach to a pre-configured bridge</option>
+            <option value="nat">NAT - libvirt managed, isolated DHCP</option>
+            <option value="bridge">Bridge - VirtPilot creates a new bridge</option>
+            <option value="existing-bridge">Existing OS bridge - attach to a pre-configured bridge</option>
           </Select>
 
           {(form.type === 'bridge' || form.type === 'existing-bridge') && (
             <Select label="IP mode" value={form.ipMode} onChange={set('ipMode')}>
-              <option value="static">Static — VirtPilot assigns IPs from pool</option>
-              <option value="dhcp">DHCP — upstream network assigns IPs</option>
+              <option value="static">Static - VirtPilot assigns IPs from pool</option>
+              <option value="dhcp">DHCP - upstream network assigns IPs</option>
             </Select>
           )}
 
@@ -338,7 +338,7 @@ export function NetworksPage() {
           </div>
 
           <Input
-            label={form.type === 'nat' ? 'Gateway (optional — defaults to first usable IP)' : 'Gateway'}
+            label={form.type === 'nat' ? 'Gateway (optional - defaults to first usable IP)' : 'Gateway'}
             value={form.gateway}
             onChange={set('gateway')}
             required={form.type === 'bridge'}
@@ -355,15 +355,15 @@ export function NetworksPage() {
           {form.type === 'bridge' && (
             <div className="space-y-1.5">
               <label className="block text-[13px] font-semibold text-foreground">
-                Physical NIC <span className="font-normal text-muted-foreground">(optional — must be a dedicated NIC with no active IPs)</span>
+                Physical NIC <span className="font-normal text-muted-foreground">(optional - must be a dedicated NIC with no active IPs)</span>
               </label>
               <Select value={form.physicalNic} onChange={set('physicalNic')}>
                 <option value="">None (floating bridge)</option>
                 {(systemNics ?? []).map((nic) => (
                   <option key={nic.name} value={nic.name} disabled={nic.hasIps || nic.inUse}>
-                    {nic.name} — {nic.mac}
-                    {nic.speed ? ` — ${nic.speed}` : ''}
-                    {nic.hasIps ? ' ⚠ has active IPs — use Existing OS bridge instead' : nic.inUse ? ' (already in use)' : ''}
+                    {nic.name}, {nic.mac}
+                    {nic.speed ? `, ${nic.speed}` : ''}
+                    {nic.hasIps ? ' ⚠ has active IPs: use Existing OS bridge instead' : nic.inUse ? ' (already in use)' : ''}
                   </option>
                 ))}
               </Select>

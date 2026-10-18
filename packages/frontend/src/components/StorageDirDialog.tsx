@@ -143,7 +143,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
               {editing.path}
             </p>
             <p className="text-[12px] leading-5 text-muted-foreground">
-              Path is fixed once registered — delete and re-add to point at a different folder.
+              Path is fixed once registered - delete and re-add to point at a different folder.
             </p>
           </div>
         )}
@@ -204,7 +204,7 @@ export function StorageDirDialog({ open, onClose, editing }: Props) {
             })}
           </div>
           <p className="text-[12px] leading-5 text-muted-foreground">
-            The default for a purpose is pre-selected when uploading or creating a VM. Tick to make this directory the default; it'll replace whatever currently holds that flag. A directory that already holds a default can't give it up directly — assign it to another directory instead.
+            The default for a purpose is pre-selected when uploading or creating a VM. Tick to make this directory the default; it'll replace whatever currently holds that flag. A directory that already holds a default can't give it up directly - assign it to another directory instead.
           </p>
         </div>
       </div>

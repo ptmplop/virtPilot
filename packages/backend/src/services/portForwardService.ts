@@ -208,7 +208,7 @@ function resolveWanIface(): Promise<string | null> {
     try {
       if (m) return validateNicName(m[1]);
     } catch { /* unusable interface name — fall through to the bridge exclusion */ }
-    console.warn('[port-forward] Could not determine the WAN interface — falling back to excluding the guest bridge on DNAT rules');
+    console.warn('[port-forward] Could not determine the WAN interface - falling back to excluding the guest bridge on DNAT rules');
     return null;
   })();
   return wanIface;

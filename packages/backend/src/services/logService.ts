@@ -3,6 +3,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { getUserSettings } from './userSettingsService.js';
+import { plainDashes } from '../lib/plainDashes.js';
 
 export interface LogEntry {
   id: string;
@@ -57,7 +58,9 @@ export async function appendLog(entry: Omit<LogEntry, 'id' | 'timestamp'>): Prom
 }
 
 export async function getLogs(): Promise<LogEntry[]> {
-  return readLogs();
+  // Entries written before 2.13.2 may carry long dashes in their output; the file keeps them, the
+  // page doesn't. The subject is a name someone typed, so it is shown exactly as they wrote it.
+  return (await readLogs()).map((e) => (e.output === undefined ? e : { ...e, output: plainDashes(e.output) }));
 }
 
 export async function clearLogs(): Promise<void> {

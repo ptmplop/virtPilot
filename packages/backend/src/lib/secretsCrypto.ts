@@ -26,7 +26,7 @@ function getKey(): Buffer {
     // forward.
     const jwt = process.env.JWT_SECRET ?? '';
     if (jwt.length < 32) {
-      throw new Error('Cannot derive encryption key — ENCRYPTION_KEY (recommended) or JWT_SECRET must be set');
+      throw new Error('Cannot derive encryption key - ENCRYPTION_KEY (recommended) or JWT_SECRET must be set');
     }
     cachedKey = createHash('sha256').update('virtpilot-secrets:' + jwt).digest();
     return cachedKey;

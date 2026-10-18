@@ -29,7 +29,7 @@ function requireSecret(name: string, value: string | undefined, minLen: number, 
     );
   }
   if (badDefaults.includes(value)) {
-    throw new Error(`${name} is set to a known-default value — refusing to start. Generate a fresh secret.`);
+    throw new Error(`${name} is set to a known-default value - refusing to start. Generate a fresh secret.`);
   }
   return value;
 }
@@ -51,7 +51,7 @@ if (isProd) {
   // which means dev sessions are invalidated on reload — that's a desirable
   // signal that JWT_SECRET should be set in .env.
   jwtSecret = require('crypto').randomBytes(32).toString('hex');
-  console.warn('[config] JWT_SECRET not set — generated an ephemeral secret. Set JWT_SECRET in .env for stable sessions.');
+  console.warn('[config] JWT_SECRET not set - generated an ephemeral secret. Set JWT_SECRET in .env for stable sessions.');
 }
 
 // Auth — accept hashed (preferred) or plaintext (legacy). The auth route
@@ -62,7 +62,7 @@ if (isProd && !authPasswordHash && !authPasswordLegacy) {
   throw new Error('AUTH_PASSWORD_HASH (preferred) or AUTH_PASSWORD must be set in .env');
 }
 if (isProd && !authPasswordHash && authPasswordLegacy.length < 8) {
-  throw new Error('AUTH_PASSWORD is shorter than 8 characters — refusing to start');
+  throw new Error('AUTH_PASSWORD is shorter than 8 characters - refusing to start');
 }
 
 // Encryption key for at-rest secrets (TOTP, VM passwords). Optional: defaults
@@ -77,7 +77,7 @@ const encryptionKey = process.env.ENCRYPTION_KEY ?? '';
 // are re-enrolled.
 if (encryptionKey && encryptionKey.length < 32) {
   console.warn(
-    `[config] ENCRYPTION_KEY is only ${encryptionKey.length} characters — too short to use, so at-rest secrets ` +
+    `[config] ENCRYPTION_KEY is only ${encryptionKey.length} characters - too short to use, so at-rest secrets ` +
     'fall back to a key derived from JWT_SECRET. Generate a proper key (openssl rand -hex 32), put it in .env, ' +
     'and re-enrol 2FA so the stored secrets are re-encrypted with it.',
   );

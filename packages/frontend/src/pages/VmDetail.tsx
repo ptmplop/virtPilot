@@ -541,12 +541,12 @@ function OverviewTab({
     const cpus = parseInt(editCpus, 10);
     const memoryMb = parseInt(editMemMb, 10);
     if (!cpus || cpus < 1 || !memoryMb || memoryMb < 128) {
-      toast.error('Invalid values — vCPUs must be ≥ 1 and memory ≥ 128 MB');
+      toast.error('Invalid values - vCPUs must be ≥ 1 and memory ≥ 128 MB');
       return;
     }
     try {
       await updateResources.mutateAsync({ cpus, memoryMb });
-      toast.success('Resources updated — changes take effect on next boot');
+      toast.success('Resources updated - changes take effect on next boot');
       setEditResourcesOpen(false);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to update resources');
@@ -941,7 +941,7 @@ function DisksTab({
   const handleSaveBootOrder = async () => {
     try {
       await setBootOrder.mutateAsync(localOrder);
-      toast.success('Boot order saved — stop and start the VM to apply (reboot is not sufficient)');
+      toast.success('Boot order saved - stop and start the VM to apply (reboot is not sufficient)');
       setOrderDirty(false);
     } catch {
       toast.error('Failed to save boot order');
@@ -1027,15 +1027,15 @@ function DisksTab({
                         <span className="sr-only">{d.type === 'cdrom' ? 'CD-ROM' : 'Disk'}</span>
                       </Tooltip>
                     </td>
-                    <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{d.bus || '—'}</td>
+                    <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{d.bus || <span className="font-sans">Unknown</span>}</td>
                     <td className="whitespace-nowrap px-5 py-2.5 text-[12.5px] tabular-nums text-foreground">
-                      {d.sizeGb != null && d.sizeGb > 0 ? formatDisk(d.sizeGb) : <span className="text-muted-foreground">—</span>}
+                      {d.sizeGb != null && d.sizeGb > 0 ? formatDisk(d.sizeGb) : d.type === 'cdrom' ? null : <span className="text-muted-foreground">Unknown</span>}
                     </td>
                     {/* Elastic column: w-full takes the slack, max-w-0 lets it give way first,
                         so a long path truncates instead of pushing the row actions out. */}
                     <td className="w-full max-w-0 px-5 py-2.5" title={d.source}>
                       <div className={cn('truncate font-mono text-[12px]', d.fileMissing ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
-                        {d.source || '—'}
+                        {d.source || <span className="font-sans">None</span>}
                         {d.storageDirName && (
                           <span className="ml-2 font-sans text-[12px] text-muted-foreground">· {d.storageDirName}</span>
                         )}
@@ -1138,7 +1138,7 @@ function DisksTab({
         <div className="space-y-4">
           <div className="rounded-md border border-border bg-surface px-3.5 py-2.5">
             <p className="truncate font-mono text-[12px] text-foreground">
-              {resizingDisk?.target} <span className="text-muted-foreground">— {resizingDisk?.source?.split('/').pop() ?? ''}</span>
+              {resizingDisk?.target} <span className="text-muted-foreground">- {resizingDisk?.source?.split('/').pop() ?? ''}</span>
             </p>
           </div>
           <Input
@@ -1261,7 +1261,7 @@ function DisksTab({
         currentStorageDirId={movingDisk?.storageDirId ?? ''}
         notes={
           <>
-            VM must be stopped — moving a live qcow2 underneath QEMU corrupts it.
+            VM must be stopped - moving a live qcow2 underneath QEMU corrupts it.
             The domain XML is rewritten to point at the new path on success.
           </>
         }
@@ -1326,7 +1326,7 @@ function DisksTab({
           onChange={(e) => setIsoFilename(e.target.value)}
           required
         >
-          <option value="">— Select an ISO —</option>
+          <option value="">Select an ISO…</option>
           {isos.map((iso) => (
             <option key={iso.filename} value={iso.filename}>
               {iso.name}
@@ -1396,7 +1396,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
     } catch (err: unknown) {
       const isTimeout = (err as { code?: string })?.code === 'ECONNABORTED';
       if (isTimeout) {
-        toast.warning('Snapshot is taking longer than expected — check the list in a moment');
+        toast.warning('Snapshot is taking longer than expected - check the list in a moment');
       } else {
         toast.error('Failed to create snapshot');
       }
@@ -1423,7 +1423,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
     setPendingRevert(target);
     try {
       await revertSnapshot.mutateAsync(target);
-      toast.success('Snapshot restored — VM is starting');
+      toast.success('Snapshot restored - VM is starting');
     } catch {
       toast.error('Failed to restore snapshot');
     } finally {
@@ -1444,7 +1444,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
         const inheritedSlug = templateLogos[sourceTemplateFilename];
         if (inheritedSlug) setTemplateLogo(filename, inheritedSlug);
       }
-      toast.success('Template created — available on the Templates page');
+      toast.success('Template created - available on the Templates page');
     } catch (err: unknown) {
       // The 409 names the *resolved* filename ("Ubuntu 22.04" becomes
       // "Ubuntu-22-04.qcow2"), which the operator cannot work out from what
@@ -1516,7 +1516,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
                       <td className="whitespace-nowrap px-5 py-2.5 text-[12.5px] tabular-nums text-foreground">
                         {/* 0 is "not measured", never an empty snapshot: an internal snapshot's figure is its
                             saved memory (none when taken offline), and a failed read also reports 0. */}
-                        {isBusy ? '' : (snap.sizeBytes ? formatBytes(snap.sizeBytes) : <span className="text-muted-foreground">—</span>)}
+                        {isBusy ? '' : (snap.sizeBytes ? formatBytes(snap.sizeBytes) : <span className="text-muted-foreground">Not measured</span>)}
                       </td>
                       <td className="px-5 py-1.5 text-right">
                         {!isBusy && (
@@ -1582,7 +1582,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
         </p>
         {vmStatus === 'running' && (
           <Callout tone="warn" className="mt-3">
-            The VM is running — the snapshot will include both disk and memory state.
+            The VM is running - the snapshot will include both disk and memory state.
           </Callout>
         )}
       </Dialog>
@@ -1713,7 +1713,7 @@ function PortForwardsSection({
         vmPort: Number(form.vmPort),
         description: form.description || undefined,
       });
-      toast.success('Port forward created — DHCP reservation added');
+      toast.success('Port forward created - DHCP reservation added');
       setAddOpen(false);
       setForm(defaultPfForm);
     } catch (err: unknown) {
@@ -1759,7 +1759,7 @@ function PortForwardsSection({
                   <td className="px-5 py-2.5 font-mono text-[12.5px] tabular-nums text-foreground">{fwd.hostPort}</td>
                   <td className="px-5 py-2.5 font-mono text-[12.5px] tabular-nums text-muted-foreground">{fwd.vmPort}</td>
                   <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{fwd.vmIp}</td>
-                  <td className="px-5 py-2.5 text-[12.5px] text-muted-foreground">{fwd.description ?? '—'}</td>
+                  <td className="px-5 py-2.5 text-[12.5px] text-muted-foreground">{fwd.description}</td>
                   <td className="px-5 py-1.5 text-right">
                     <RowAction
                       label="Delete rule"
@@ -1876,7 +1876,7 @@ function IpCell({
   const handleReserve = async () => {
     try {
       await reserveIp.mutateAsync(nic.mac);
-      toast.success('IP reserved — this address will persist across reboots');
+      toast.success('IP reserved - this address will persist across reboots');
     } catch (err: unknown) {
       toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to reserve IP');
     }
@@ -1885,7 +1885,7 @@ function IpCell({
   if (!displayIp) {
     return (
       <span className="text-[12.5px] text-muted-foreground">
-        {networkType === 'nat' || networkType === 'bridge' || networkType === 'existing-bridge' ? 'DHCP · not resolved yet' : '—'}
+        {networkType === 'nat' || networkType === 'bridge' || networkType === 'existing-bridge' ? 'DHCP · not resolved yet' : 'Unknown'}
       </span>
     );
   }
@@ -2110,7 +2110,9 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                                 {networkTypeLabel(network.type, network.ipMode)}
                               </span>
                             </span>
-                          ) : <span className="text-muted-foreground">—</span>}
+                          ) : nic.source ? (
+                            <span className="font-mono text-[12px] text-muted-foreground">{nic.source}</span>
+                          ) : <span className="text-muted-foreground">Unknown</span>}
                         </td>
                         <td className="px-5 py-2.5">
                           <IpCell
@@ -2224,7 +2226,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
               <span className="font-mono text-[12.5px]">{addedNic.mac}</span>.
             </p>
             <p className="text-[12.5px] leading-5 text-muted-foreground">
-              Cloud-init will not run again for this NIC — configure it inside the VM using your OS's
+              Cloud-init will not run again for this NIC - configure it inside the VM using your OS's
               network tools. The example below is for <span className="font-medium text-foreground">Ubuntu / Debian</span> (netplan);
               adapt as needed for other distributions or Windows.
             </p>
@@ -2283,7 +2285,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                 value={selectedStaticIp}
                 onChange={(e) => setSelectedStaticIp(e.target.value)}
               >
-                <option value="">— select an IP —</option>
+                <option value="">Select an IP…</option>
                 {availableIps.map((ip) => (
                   <option key={ip.ip} value={ip.ip}>{ip.ip}</option>
                 ))}
@@ -2441,7 +2443,7 @@ function FirewallRulesTable({
               <td className="px-4 py-2.5 font-mono text-[12px] text-muted-foreground">
                 {rule.protocol === 'icmp' ? (rule.icmpType ?? 'any') : (rule.portRange ?? 'any')}
               </td>
-              <td className="px-4 py-2.5 font-mono text-[12px] text-muted-foreground">{rule.source ?? rule.destination ?? '—'}</td>
+              <td className="px-4 py-2.5 font-mono text-[12px] text-muted-foreground">{rule.source ?? rule.destination ?? 'any'}</td>
               <td className="px-4 py-2.5">
                 <span className={cn(
                   'text-[12.5px] font-medium capitalize',
@@ -2452,7 +2454,7 @@ function FirewallRulesTable({
                   {rule.action}
                 </span>
               </td>
-              <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground">{rule.description ?? '—'}</td>
+              <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground">{rule.description}</td>
               <td className="py-1.5 pl-4 pr-5 text-right">
                 <div className="inline-flex items-center justify-end gap-0.5">
                   <RowAction label="Move up" onClick={() => onMoveUp(rule.id)} disabled={isPending || idx === 0}>
@@ -2777,7 +2779,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
             onMoveUp={(id) => handleMoveRule(id, 'up')}
             onMoveDown={(id) => handleMoveRule(id, 'down')}
             isPending={saveFirewall.isPending}
-            emptyLabel="No inbound rules — traffic follows the default inbound policy."
+            emptyLabel="No inbound rules - traffic follows the default inbound policy."
           />
         )}
       </Panel>
@@ -2803,7 +2805,7 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
             onMoveUp={(id) => handleMoveRule(id, 'up')}
             onMoveDown={(id) => handleMoveRule(id, 'down')}
             isPending={saveFirewall.isPending}
-            emptyLabel="No outbound rules — traffic follows the default outbound policy."
+            emptyLabel="No outbound rules - traffic follows the default outbound policy."
           />
         )}
       </Panel>
@@ -2936,7 +2938,7 @@ function DeviceRow({
               )}
               {device.driver && (
                 warn ? (
-                  <Tooltip label="Host is currently using this device — attaching it will unbind it from the host and may disrupt host functionality">
+                  <Tooltip label="Host is currently using this device - attaching it will unbind it from the host and may disrupt host functionality">
                     <span className="inline-flex cursor-help items-center gap-1 font-mono text-amber-700 dark:text-amber-300">
                       <WarnGlyph />
                       {device.driver}
@@ -3057,7 +3059,7 @@ function DevicesTab({ vmUuid }: { vmUuid: string }) {
               group must all be passed through together or left entirely on the host.
             </p>
             {available.length === 0 ? (
-              <EmptyState compact>No devices available — all host devices are either in use or filtered out.</EmptyState>
+              <EmptyState compact>No devices available - all host devices are either in use or filtered out.</EmptyState>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">

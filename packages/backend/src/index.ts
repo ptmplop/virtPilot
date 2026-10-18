@@ -71,7 +71,7 @@ app.set('trust proxy', trustProxyHops > 0 ? trustProxyHops : false);
 
 if (!process.env.TRUST_PROXY && !isLoopbackBind(config.bindAddress)) {
   console.warn(
-    `[startup] TRUST_PROXY is unset and BIND_ADDRESS=${config.bindAddress} — X-Forwarded-For is ignored, ` +
+    `[startup] TRUST_PROXY is unset and BIND_ADDRESS=${config.bindAddress} - X-Forwarded-For is ignored, ` +
     'so rate limiting and the IP allowlist use the direct connection address. ' +
     'If a reverse proxy fronts VirtPilot, set TRUST_PROXY=1 in .env.',
   );
@@ -226,14 +226,14 @@ let ready = false;
 process.on('unhandledRejection', (reason) => {
   console.error('[process] Unhandled promise rejection:', reason instanceof Error ? reason.stack ?? reason.message : reason);
   if (!ready) {
-    console.error('[process] Rejection occurred before the server was listening — exiting so systemd can restart.');
+    console.error('[process] Rejection occurred before the server was listening - exiting so systemd can restart.');
     process.exit(1);
   }
 });
 process.on('uncaughtException', (err) => {
   console.error('[process] Uncaught exception:', err.stack ?? err.message);
   if (!ready) {
-    console.error('[process] Exception occurred before the server was listening — exiting so systemd can restart.');
+    console.error('[process] Exception occurred before the server was listening - exiting so systemd can restart.');
     process.exit(1);
   }
 });

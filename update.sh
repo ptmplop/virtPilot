@@ -30,7 +30,7 @@ done
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo -e "${BOLD}  VirtPilot — Update${NC}\n"
+echo -e "${BOLD}  VirtPilot - Update${NC}\n"
 info "Project root: ${INSTALL_DIR}"
 
 # ─── Pull latest ──────────────────────────────────────────────────────────────
@@ -60,14 +60,14 @@ git config --system --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
 "${GIT_SAFE[@]}" fetch --tags --prune origin
 
 if ! "${GIT_SAFE[@]}" show-ref --verify --quiet refs/remotes/origin/main; then
-  die "origin/main not found — remote unreachable or repository misconfigured"
+  die "origin/main not found - remote unreachable or repository misconfigured"
 fi
 
 BEFORE=$("${GIT_SAFE[@]}" rev-parse HEAD)
 
 CURRENT=$("${GIT_SAFE[@]}" symbolic-ref --short --quiet HEAD || echo "(detached)")
 if [[ "$CURRENT" != "main" ]]; then
-  warn "On '$CURRENT' (expected 'main') — switching back to main"
+  warn "On '$CURRENT' (expected 'main') - switching back to main"
 fi
 # -f is load-bearing. Without it `checkout -B` refuses whenever a tracked file
 # has local modifications that the switch would overwrite — which is precisely
@@ -96,12 +96,12 @@ BUILT_VERSION=$(tr -d '[:space:]' < "${INSTALL_DIR}/packages/backend/dist/.versi
 
 if [[ "$BEFORE" == "$AFTER" ]]; then
   if [[ "$FORCE" == true ]]; then
-    warn "Already up to date — rebuilding anyway (--force)"
+    warn "Already up to date - rebuilding anyway (--force)"
   elif [[ "$SOURCE_VERSION" == "$BUILT_VERSION" ]]; then
     log "Already up to date ($("${GIT_SAFE[@]}" rev-parse --short HEAD), built v${BUILT_VERSION})"
     exit 0
   else
-    warn "Source unchanged but built artefacts (${BUILT_VERSION}) lag source (v${SOURCE_VERSION}) — rebuilding"
+    warn "Source unchanged but built artefacts (${BUILT_VERSION}) lag source (v${SOURCE_VERSION}) - rebuilding"
   fi
 else
   log "Updated $("${GIT_SAFE[@]}" rev-parse --short "$BEFORE") → $("${GIT_SAFE[@]}" rev-parse --short "$AFTER")"
@@ -179,7 +179,7 @@ fi
 ENV_FILE="${INSTALL_DIR}/packages/backend/.env"
 if [[ -f "${ENV_FILE}" ]] && ! grep -q '^BIND_ADDRESS=' "${ENV_FILE}"; then
   if [[ -e /etc/nginx/sites-enabled/virtpilot ]]; then
-    info "Existing nginx site detected — pinning backend to 127.0.0.1:3002 plain HTTP"
+    info "Existing nginx site detected - pinning backend to 127.0.0.1:3002 plain HTTP"
     echo "BIND_ADDRESS=127.0.0.1" >> "${ENV_FILE}"
     sed -i 's|^PORT=.*|PORT=3002|' "${ENV_FILE}"
     sed -i 's|^TLS_CERT_PATH=.*|TLS_CERT_PATH=|' "${ENV_FILE}"
@@ -200,10 +200,10 @@ fi
 # 127.0.0.1 and the allowlist would lock the operator out of their own host.
 if [[ -f "${ENV_FILE}" ]] && ! grep -q '^TRUST_PROXY=' "${ENV_FILE}"; then
   if [[ -e /etc/nginx/sites-enabled/virtpilot ]]; then
-    info "nginx front detected — setting TRUST_PROXY=1 so client IPs survive the proxy hop"
+    info "nginx front detected - setting TRUST_PROXY=1 so client IPs survive the proxy hop"
     echo "TRUST_PROXY=1" >> "${ENV_FILE}"
   else
-    info "No nginx front detected — setting TRUST_PROXY=0 (client IPs read straight off the socket)"
+    info "No nginx front detected - setting TRUST_PROXY=0 (client IPs read straight off the socket)"
     echo "TRUST_PROXY=0" >> "${ENV_FILE}"
   fi
 fi

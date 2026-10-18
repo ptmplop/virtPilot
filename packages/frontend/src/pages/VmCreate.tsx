@@ -170,9 +170,9 @@ function generatePassword(): string {
   return chars.join('');
 }
 
-function mbToDisplay(mb: string): string {
+function mbToDisplay(mb: string): string | null {
   const n = parseInt(mb, 10);
-  if (isNaN(n)) return '—';
+  if (isNaN(n)) return null;
   return n >= 1024 && n % 1024 === 0 ? `${n / 1024} GB` : `${n} MB`;
 }
 
@@ -283,32 +283,33 @@ function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
 // images, networks) are mono; quantities and words are Inter's tabular figures.
 
 type RowKind = 'id' | 'qty';
-type SummaryRow = [label: string, value: string, kind: RowKind];
+// A null value is one not given yet: it reads as a muted word ("Not set", or the row's own).
+type SummaryRow = [label: string, value: string | null, kind: RowKind, empty?: string];
 
 function computeRows(form: FormData, sourceName?: string): SummaryRow[] {
   const isIso = form.sourceType === 'iso';
   const disk = Number(form.diskGb);
   return [
-    ['Name', form.name || '—', 'id'],
-    [isIso ? 'Install ISO' : 'Template', sourceName || (isIso ? form.isoFilename : form.templateFilename) || '—', 'id'],
-    ['vCPUs', form.cpus, 'qty'],
+    ['Name', form.name || null, 'id'],
+    [isIso ? 'Install ISO' : 'Template', sourceName || (isIso ? form.isoFilename : form.templateFilename) || null, 'id'],
+    ['vCPUs', form.cpus || null, 'qty'],
     ['Memory', mbToDisplay(form.memoryMb), 'qty'],
     // Only an ISO install starts from a blank disk; a template's disk is the image.
-    ['Disk', `${Number.isFinite(disk) && disk > 0 ? formatDisk(disk) : `${form.diskGb} GB`}${isIso ? ', blank' : ''}`, 'qty'],
+    ['Disk', form.diskGb ? `${Number.isFinite(disk) && disk > 0 ? formatDisk(disk) : `${form.diskGb} GB`}${isIso ? ', blank' : ''}` : null, 'qty'],
   ];
 }
 
-function SummaryValue({ value, kind }: { value: string; kind: RowKind }) {
+function SummaryValue({ value, kind, empty = 'Not set' }: { value: string | null; kind: RowKind; empty?: string }) {
   return (
     <dd
       className={cn(
         'min-w-0 truncate text-right tabular-nums',
-        kind === 'id' && value !== '—' ? 'font-mono text-[12px]' : 'text-[13px]',
-        value === '—' ? 'text-muted-foreground' : 'text-foreground'
+        kind === 'id' && value !== null ? 'font-mono text-[12px]' : 'text-[13px]',
+        value === null ? 'text-muted-foreground' : 'text-foreground'
       )}
-      title={value !== '—' ? value : undefined}
+      title={value ?? undefined}
     >
-      {value}
+      {value ?? empty}
     </dd>
   );
 }
@@ -326,11 +327,11 @@ function SummarySidebar({
 }) {
   const rows: SummaryRow[] = [
     ...computeRows(form, sourceName),
-    ['Networks', networkSummary || '—', 'id'],
+    ['Networks', networkSummary || null, 'id', 'None'],
     ...(form.sourceType === 'template'
       ? ([
-          ['Hostname', form.hostname || form.name || '—', 'id'],
-          ['Username', form.username, 'id'],
+          ['Hostname', form.hostname || form.name || null, 'id'],
+          ['Username', form.username || null, 'id'],
         ] as SummaryRow[])
       : []),
   ];
@@ -339,10 +340,10 @@ function SummarySidebar({
     <Panel>
       <PanelHeader title="VM summary" />
       <dl className="divide-y divide-border px-5 py-1">
-        {rows.map(([label, value, kind]) => (
+        {rows.map(([label, value, kind, empty]) => (
           <div key={label} className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-center gap-x-3 py-[9px]">
             <dt className="text-[12.5px] text-muted-foreground">{label}</dt>
-            <SummaryValue value={value} kind={kind} />
+            <SummaryValue value={value} kind={kind} empty={empty} />
           </div>
         ))}
       </dl>
@@ -772,7 +773,7 @@ function ResourcesStep({
 
       {/* CPU Mode */}
       <div className="space-y-3">
-        <FieldLabel hint="— affects performance and migration compatibility">CPU mode</FieldLabel>
+        <FieldLabel hint="Affects performance and migration compatibility">CPU mode</FieldLabel>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
           {CPU_MODES.map((m) => {
             const sel = form.cpuMode === m.id;
@@ -798,7 +799,7 @@ function ResourcesStep({
 
       {/* Firmware */}
       <div className="space-y-3">
-        <FieldLabel hint="— affects OS compatibility and Secure Boot">Firmware</FieldLabel>
+        <FieldLabel hint="Affects OS compatibility and Secure Boot">Firmware</FieldLabel>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {FIRMWARE_MODES.map((m) => {
             const sel = form.firmware === m.id;
@@ -946,7 +947,7 @@ function NetworkCard({
               <div className="space-y-1.5">
                 <p className="text-[12.5px] font-medium text-foreground">IP address</p>
                 <p className="rounded-md border border-destructive/30 bg-destructive/[0.06] px-3.5 py-2.5 text-[12.5px] text-red-800 dark:text-red-200">
-                  No available IPs — all addresses are allocated.
+                  No available IPs - all addresses are allocated.
                 </p>
               </div>
             ) : (
@@ -1037,7 +1038,7 @@ function NetworkStep({
   return (
     <div className={SECTIONS}>
       <div className="space-y-3">
-        <FieldLabel hint="— applies to all interfaces">NIC model</FieldLabel>
+        <FieldLabel hint="Applies to all interfaces">NIC model</FieldLabel>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
           {NIC_MODELS.map((m) => {
             const sel = form.nicModel === m.id;
@@ -1062,7 +1063,7 @@ function NetworkStep({
       </div>
 
       <div className="space-y-3">
-        <FieldLabel hint="Select one or more — tick to add, set one as primary">
+        <FieldLabel hint="Tick one or more, then choose the primary">
           Networks
         </FieldLabel>
         <div className="space-y-2.5">
@@ -1161,7 +1162,7 @@ function SshKeyPicker({
 
   return (
     <div className="space-y-3">
-      <FieldLabel hint="— optional">SSH keys</FieldLabel>
+      <FieldLabel hint="Optional">SSH keys</FieldLabel>
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
@@ -1271,7 +1272,7 @@ function SshKeyPicker({
       {keys.length > 0 && (
         <p className="text-[12.5px] text-muted-foreground">
           {selected.length === 0
-            ? 'No keys added — password-only access.'
+            ? 'No keys added - password-only access.'
             : `${selected.length} key${selected.length !== 1 ? 's' : ''} will be authorised on this VM.`}
         </p>
       )}
@@ -1399,11 +1400,11 @@ function ReviewSection({
   );
 }
 
-function ReviewRow({ label, value, kind = 'qty' }: { label: string; value: string; kind?: RowKind }) {
+function ReviewRow({ label, value, kind = 'qty', empty }: { label: string; value: string | null; kind?: RowKind; empty?: string }) {
   return (
     <div className="flex items-center justify-between gap-4 py-2.5">
       <dt className="shrink-0 text-[13px] text-muted-foreground">{label}</dt>
-      <SummaryValue value={value} kind={kind} />
+      <SummaryValue value={value} kind={kind} empty={empty} />
     </div>
   );
 }
@@ -1417,7 +1418,7 @@ function ReviewStep({
 }: {
   form: FormData;
   sourceName?: string;
-  networkRows: Array<{ name: string; ip: string; primary: boolean }>;
+  networkRows: Array<{ name: string; ip: string | null; primary: boolean }>;
   startAfterCreate: boolean;
   onToggleStart: () => void;
 }) {
@@ -1426,8 +1427,8 @@ function ReviewStep({
   return (
     <div className="space-y-7">
       <ReviewSection title="Compute">
-        {computeRows(form, sourceName).map(([label, value, kind]) => (
-          <ReviewRow key={label} label={label} value={value} kind={kind} />
+        {computeRows(form, sourceName).map(([label, value, kind, empty]) => (
+          <ReviewRow key={label} label={label} value={value} kind={kind} empty={empty} />
         ))}
         <ReviewRow label="Firmware" value={form.firmware === 'uefi' ? (form.secureBoot ? 'UEFI + Secure Boot' : 'UEFI') : 'SeaBIOS'} />
         {form.vtpm && <ReviewRow label="Virtual TPM" value="TPM 2.0 (emulated)" />}
@@ -1435,7 +1436,7 @@ function ReviewStep({
 
       <ReviewSection title="Network">
         {networkRows.length === 0 ? (
-          <ReviewRow label="Network" value="—" />
+          <ReviewRow label="Network" value={null} empty="None" />
         ) : (
           networkRows.map((r) => (
             <ReviewRow
@@ -1451,7 +1452,7 @@ function ReviewStep({
       {!isIso && (
         <ReviewSection title="Authentication">
           <ReviewRow label="Hostname" value={form.hostname || form.name} kind="id" />
-          <ReviewRow label="Username" value={form.username} kind="id" />
+          <ReviewRow label="Username" value={form.username || null} kind="id" />
           <ReviewRow label="Password" value="••••••••" />
           <ReviewRow
             label="SSH keys"
@@ -1521,7 +1522,7 @@ export function VmCreatePage() {
   const networkRows = form.networks.map((s) => {
     const n = networks?.find((x) => x.id === s.networkId);
     const ip = isStaticBridge(n)
-      ? (s.staticIp || '—')
+      ? (s.staticIp || null)
       : 'DHCP';
     return { name: n?.name ?? s.networkId, ip, primary: s.isPrimary };
   });
@@ -1612,7 +1613,7 @@ export function VmCreatePage() {
           toast.success(`VM "${form.name}" created and started`);
         } catch {
           toast.success(`VM "${form.name}" created`);
-          toast.warning('VM created but could not be started — start it manually from the VM list.');
+          toast.warning('VM created but could not be started - start it manually from the VM list.');
         }
       } else {
         toast.success(`VM "${form.name}" created`);

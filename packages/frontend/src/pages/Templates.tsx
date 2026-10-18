@@ -175,9 +175,9 @@ function TemplateSetCard({
                   <span className="flex items-center gap-2 text-foreground">
                     <Spinner className="h-3 w-3" />
                     <span className="font-medium">
-                      Downloading {bulk.index + 1} of {bulk.total}
+                      Downloading {bulk.index + 1} of {bulk.total}:
                     </span>
-                    <span className="truncate text-muted-foreground">— {bulk.current.name}</span>
+                    <span className="truncate text-muted-foreground">{bulk.current.name}</span>
                   </span>
                   <div className="flex shrink-0 items-center gap-3">
                     <span className="font-mono text-muted-foreground">

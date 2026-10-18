@@ -62,7 +62,7 @@ function warnUnreadableSecret(field: string, err: unknown): void {
   if (loggedSecretFailures.has(field)) return;
   loggedSecretFailures.add(field);
   console.error(
-    `[settings] Could not decrypt ${field} from user-settings.json — ` +
+    `[settings] Could not decrypt ${field} from user-settings.json - ` +
     'ENCRYPTION_KEY has probably changed (a re-run of an older install.sh minted a fresh one). ' +
     'Two-factor authentication stays enabled and will reject every code until the secret is re-enrolled. ' +
     `Cause: ${err instanceof Error ? err.message : String(err)}`,

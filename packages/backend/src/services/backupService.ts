@@ -10,6 +10,7 @@ import { appendLog } from './logService.js';
 import { qemuImg } from './safeExec.js';
 import { encryptSecret, decryptSecret } from '../lib/secretsCrypto.js';
 import { validateVmUuid } from '../lib/validate.js';
+import { plainDashes } from '../lib/plainDashes.js';
 import * as storageDirService from './storageDirService.js';
 import * as libvirtBackup from './libvirtBackupService.js';
 import { copyVmDisks, type CopyMethod, type DiskCopySpec } from './diskCopyService.js';
@@ -603,7 +604,8 @@ async function buildBackupEntries(vmUuid: string, manifests: BackupManifest[]): 
         parentBackupId: m.parentBackupId,
         method: m.method,
         compressed: m.compressed,
-        notes: m.notes,
+        // Notes from before 2.13.2 carry long dashes; the degraded-chain alert matches on their wording.
+        notes: m.notes?.map(plainDashes),
         hasCheckpoint: !!m.checkpointName,
         chainRequested: !!m.chainRequested,
         chainBroken: broken,
@@ -917,7 +919,7 @@ async function _createBackupInner(
     // silently overwrite each other in the backup directory.
     const duplicate = canonicalNames.find((n, i) => canonicalNames.indexOf(n) !== i);
     if (duplicate) {
-      throw new Error(`Two of this VM's disks are both named "${duplicate}" — cannot back up until one is renamed`);
+      throw new Error(`Two of this VM's disks are both named "${duplicate}" - cannot back up until one is renamed`);
     }
 
     // ── Decide full vs incremental ──────────────────────────────────────────
@@ -942,7 +944,7 @@ async function _createBackupInner(
           degradedReason = readiness.reason;
         }
       } else if (readiness.chainLength >= fullEvery) {
-        notes.push(`Chain reached ${readiness.chainLength} incrementals (limit ${fullEvery}) — took a fresh full backup.`);
+        notes.push(`Chain reached ${readiness.chainLength} incrementals (limit ${fullEvery}) - took a fresh full backup.`);
       } else {
         kind = 'incremental';
         parentBackupId = readiness.parent!.id;
@@ -982,7 +984,7 @@ async function _createBackupInner(
       if (kind === 'incremental' && parentBackupId) {
         const parentDisk = parentManifest?.disks.find((pd) => pd.target === d.target);
         if (!parentDisk) {
-          throw new Error(`Parent backup ${parentBackupId} has no image for ${d.target} — cannot chain this incremental`);
+          throw new Error(`Parent backup ${parentBackupId} has no image for ${d.target} - cannot chain this incremental`);
         }
         const filename = assertSafeBackupDiskFilename(parentDisk.filename);
         spec.backing = {
@@ -1031,9 +1033,9 @@ async function _createBackupInner(
         // One was requested and the run still came back without it, which only
         // happens when the copy dropped off the libvirt tier.
         outcome = 'No checkpoint could be recorded, because the copy fell back to '
-          + `${copy.result.method} — so the next run will be a full backup as well.`;
+          + `${copy.result.method}, so the next run will be a full backup as well.`;
       }
-      notes.push(`Took a full backup — ${degradedReason}. ${outcome}`);
+      notes.push(`Took a full backup - ${degradedReason}. ${outcome}`);
     }
 
     const diskEntries: BackupDiskEntry[] = [];
@@ -1367,7 +1369,7 @@ export async function restoreBackup(sourceVmUuid: string, id: string, targetVmUu
       .filter((name) => !liveNames.has(name));
     if (liveNames.size > 0 && unmatched.length === manifest.disks.length) {
       throw new Error(
-        `This VM is not currently booting from ${unmatched.join(', ')} — it has a snapshot overlay active. ` +
+        `This VM is not currently booting from ${unmatched.join(', ')} - it has a snapshot overlay active. ` +
         'Delete the VM\'s snapshots first, then restore.',
       );
     }
@@ -1396,7 +1398,7 @@ export async function restoreBackup(sourceVmUuid: string, id: string, targetVmUu
     let targetDir = targetDirId ? await storageDirService.getDir(targetDirId) : null;
     if (!targetDir) targetDir = fallbackDir;
     if (!targetDir) {
-      throw new Error('No vmDisks storage directory available — register one before restoring backups');
+      throw new Error('No vmDisks storage directory available - register one before restoring backups');
     }
 
     const targetVmDir = path.join(storageDirService.getVmDisksSubdir(targetDir), targetVmUuid);
@@ -1428,7 +1430,7 @@ export async function restoreBackup(sourceVmUuid: string, id: string, targetVmUu
     output: [
       `Restored from backup ${id} (${manifest.kind ?? 'full'}, source VM: ${manifest.vmName})`,
       clearedCheckpoints.length
-        ? `Cleared ${clearedCheckpoints.length} backup checkpoint(s) — the next backup of this VM will be a full one.`
+        ? `Cleared ${clearedCheckpoints.length} backup checkpoint(s) - the next backup of this VM will be a full one.`
         : '',
     ].filter(Boolean).join('\n'),
   });
@@ -1458,7 +1460,7 @@ export async function openBackupForRestore(
   const entry = entries.find((b) => b.id === id);
   if (entry?.chainBroken) {
     throw new Error(
-      'This incremental backup cannot be restored — one of the backups it builds on is missing. ' +
+      'This incremental backup cannot be restored because one of the backups it builds on is missing. ' +
       'Restore an earlier full backup instead.',
     );
   }
@@ -1504,7 +1506,9 @@ const verifyPath = (vmUuid: string, id: string) => path.join(backupDir(vmUuid, i
 
 export async function readVerifyRecord(vmUuid: string, id: string): Promise<BackupVerifyRecord | null> {
   try {
-    return JSON.parse(await fs.readFile(verifyPath(vmUuid, id), 'utf8')) as BackupVerifyRecord;
+    const rec = JSON.parse(await fs.readFile(verifyPath(vmUuid, id), 'utf8')) as BackupVerifyRecord;
+    // A record written before 2.13.2 may carry long dashes in its summary.
+    return { ...rec, summary: plainDashes(rec.summary) };
   } catch {
     return null;
   }
@@ -1585,7 +1589,7 @@ export async function verifyBackup(vmUuid: string, id: string): Promise<BackupVe
   const bad = links.filter((l) => !l.ok);
   const ok = bad.length === 0 && !rootMissing;
   const summary = rootMissing
-    ? `Chain is incomplete — the full backup underneath ${chain[0]?.id} is missing`
+    ? `Chain is incomplete because the full backup underneath ${chain[0]?.id} is missing`
     : ok
       ? `Verified ${links.length} image(s) across ${chain.length} backup(s) in the chain`
       : `${bad.length} of ${links.length} image(s) failed: ${bad.map((b) => `${b.backupId}/${b.filename} (${b.detail})`).join('; ')}`;
@@ -1701,7 +1705,7 @@ export async function getBackupAlerts(): Promise<BackupAlert[]> {
         // Specifically the degradation note, not simply the last one — the copy
         // tiers push their own notes afterwards, so quoting the tail could
         // attach an unrelated consistency warning to this sentence.
-        const why = backups[0]?.notes?.find((n) => n.startsWith('Took a full backup —'));
+        const why = backups[0]?.notes?.find((n) => n.startsWith('Took a full backup -'));
         alerts.push({
           vmUuid: s.vmUuid,
           vmName: s.vmName,
@@ -1743,7 +1747,7 @@ export async function getBackupAlerts(): Promise<BackupAlert[]> {
         vmName: s.vmName,
         severity: 'error',
         kind: 'chain-broken',
-        message: `${broken.length} backup(s) cannot be restored — a backup they build on is missing`,
+        message: `${broken.length} backup(s) cannot be restored because a backup they build on is missing`,
       });
     }
     for (const b of backups) {
@@ -1759,7 +1763,9 @@ export async function getBackupAlerts(): Promise<BackupAlert[]> {
       }
     }
   }
-  return alerts;
+  // Alerts quote stored text (a schedule's last error, a verify summary) that versions before
+  // 2.13.2 wrote with long dashes.
+  return alerts.map((a) => ({ ...a, message: plainDashes(a.message) }));
 }
 
 // ─── Retention ────────────────────────────────────────────────────────────────

@@ -48,7 +48,7 @@ function HoldsList({ dir }: { dir: StorageDir }) {
     vmDisks: dir.isDefaultVmDisks,
   };
   const held = PURPOSE_ORDER.filter((p) => dir.purposes.includes(p));
-  if (held.length === 0) return <span className="text-[12.5px] text-muted-foreground">—</span>;
+  if (held.length === 0) return <span className="text-[12.5px] text-muted-foreground">None</span>;
   return (
     <ul className="space-y-0.5 text-[12.5px] leading-5 text-foreground">
       {held.map((p) => (
@@ -151,7 +151,7 @@ export function StoragePage() {
         <Stat label="ISOs" value={isos?.length ?? 0} sub={`${formatDisk(totalIsoGb)} total`} />
         <Stat
           label="VM disks"
-          value={vmDisksError ? '—' : (vmDisks?.length ?? 0)}
+          value={vmDisksError ? 'Unknown' : (vmDisks?.length ?? 0)}
           sub={vmDisksError ? 'libvirt unreachable' : `${formatDisk(totalDiskGb)} on disk`}
         />
       </StatStrip>
@@ -306,10 +306,10 @@ export function StoragePage() {
           <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-5 py-4">
             <WarnGlyph size={12} className="mt-1" />
             <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">libvirt unreachable — orphan status unknown</p>
+              <p className="text-sm font-medium text-foreground">libvirt unreachable - orphan status unknown</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 VirtPilot cannot ask libvirt which VMs are defined, so it cannot tell which disk files are
-                genuinely orphaned. The list is hidden rather than shown with unreliable orphan flags — deleting
+                genuinely orphaned. The list is hidden rather than shown with unreliable orphan flags - deleting
                 from a stale list would remove the disk of a running VM. Check the libvirt daemon
                 (<code className="font-mono">systemctl status libvirtd</code>) and reload this page.
               </p>
@@ -432,7 +432,7 @@ export function StoragePage() {
         notes={
           <>
             The disk file is moved on disk and the VM's domain XML is rewritten to point at the new path.
-            VM must be stopped — moving a live qcow2 underneath QEMU would corrupt it.
+            VM must be stopped - moving a live qcow2 underneath QEMU would corrupt it.
           </>
         }
         busy={moveVmDisk.isPending}
@@ -477,7 +477,7 @@ export function StoragePage() {
         }
       >
         <p className="text-sm text-foreground">
-          Unregister <span className="font-mono">{confirmDeleteDir?.name}</span> from VirtPilot? Files on disk are left in place — only the registration is removed.
+          Unregister <span className="font-mono">{confirmDeleteDir?.name}</span> from VirtPilot? Files on disk are left in place - only the registration is removed.
           The directory must be empty of templates, ISOs, and VM disks before it can be removed.
         </p>
       </Dialog>

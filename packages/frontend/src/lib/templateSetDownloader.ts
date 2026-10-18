@@ -181,9 +181,9 @@ async function runOrchestrator(): Promise<void> {
   queryClient.invalidateQueries({ queryKey: ['templates'] });
 
   if (cancelled) {
-    toast.info(`Cancelled — ${succeeded} downloaded, ${items.length - succeeded - failed} skipped`);
+    toast.info(`Cancelled: ${succeeded} downloaded, ${items.length - succeeded - failed} skipped`);
   } else if (failed === 0) {
-    toast.success(`Starter set downloaded — ${succeeded} template${succeeded === 1 ? '' : 's'}`);
+    toast.success(`Starter set downloaded: ${succeeded} template${succeeded === 1 ? '' : 's'}`);
   } else {
     // Stick the failure summary on screen until the user dismisses it — the
     // default 3.5s duration was too short to read and easy to miss while on
@@ -191,8 +191,8 @@ async function runOrchestrator(): Promise<void> {
     // doesn't have to dig through journalctl to figure out what happened.
     const description = failures.map((f) => `${f.name}: ${f.reason}`).join('\n');
     const headline = succeeded === 0
-      ? `Starter set failed — ${failed} download${failed === 1 ? '' : 's'} failed`
-      : `Starter set partial — ${succeeded} done, ${failed} failed`;
+      ? `Starter set failed: ${failed} download${failed === 1 ? '' : 's'} failed`
+      : `Starter set partial: ${succeeded} done, ${failed} failed`;
     if (succeeded === 0) {
       toast.error(headline, { description, duration: Infinity });
     } else {

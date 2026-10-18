@@ -185,7 +185,7 @@ async function deriveNetworking(
       const free = status.find((s) => !s.allocated && s.ip !== network!.gateway);
       if (!free) {
         throw new Error(
-          `Network "${network!.name}" has no free IP addresses left — free one before creating another VM on it`,
+          `Network "${network!.name}" has no free IP addresses left - free one before creating another VM on it`,
         );
       }
       await networkService.allocateSpecificIp(alloc.networkId, newUuid, newMac, free.ip);
@@ -285,7 +285,7 @@ async function provisionDerivedVm(opts: ProvisionOptions): Promise<ProvisionResu
     const meta = opts.sourceMeta;
     const canRegenerate = opts.regenerateCloudInit && !!meta?.username;
     if (opts.regenerateCloudInit && !meta?.username) {
-      warnings.push('The source has no cloud-init credentials recorded, so no new seed was generated — the guest keeps its original hostname and login.');
+      warnings.push('The source has no cloud-init credentials recorded, so no new seed was generated - the guest keeps its original hostname and login.');
     }
     if (canRegenerate) {
       const hostPubKey = await getHostSshPublicKey();
@@ -382,7 +382,7 @@ export function getClonesInProgress(): string[] {
 export async function cloneVm(opts: CloneVmOptions): Promise<ProvisionResult & { consistency: string }> {
   const sourceUuid = validateVmUuid(opts.sourceUuid);
   if (clonesInProgress.has(sourceUuid)) {
-    throw new Error('A clone of this VM is already running — wait for it to finish');
+    throw new Error('A clone of this VM is already running - wait for it to finish');
   }
   clonesInProgress.add(sourceUuid);
   try {
@@ -407,7 +407,7 @@ async function cloneVmInner(
   const basenames = copyable.map((d) => path.basename(d.source));
   const duplicate = basenames.find((n, i) => basenames.indexOf(n) !== i);
   if (duplicate) {
-    throw new Error(`Two of the source VM's disks are both named "${duplicate}" — cannot clone until one is renamed`);
+    throw new Error(`Two of the source VM's disks are both named "${duplicate}" - cannot clone until one is renamed`);
   }
   const excludeTargets = source.disks.filter((d) => !copyable.includes(d)).map((d) => d.target);
 
@@ -468,7 +468,7 @@ export async function createVmFromBackup(
   const { manifest, bdir } = await backupService.openBackupForRestore(sourceVmUuid, opts.backupId);
 
   if (!manifest.libvirtXml) {
-    throw new Error('This backup predates full-VM restore — its manifest has no domain definition to rebuild from');
+    throw new Error('This backup predates full-VM restore - its manifest has no domain definition to rebuild from');
   }
   if (manifest.disks.length === 0) throw new Error('Backup contains no disks');
 

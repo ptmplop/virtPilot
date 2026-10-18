@@ -13,14 +13,14 @@ VirtPilot does not run a control plane, an agent, or a database of truth. VM sta
 
 ## Features
 
-- **VMs** — create from cloud images with cloud-init, BIOS or UEFI (OVMF + swtpm), live console via `xterm.js` over a WebSocket-backed `virsh console`; clone any VM into an independent copy without shutting it down
-- **Templates & ISOs** — qcow2 backing chain (overlay per VM), upload custom ISOs, convert a running snapshot back into a template
-- **Networking** — bridged interfaces (host bridge required) and managed NAT bridges (`vp0`, `vp1`, …); per-NIC bandwidth shaping via Linux `tc`; per-VM iptables firewall chains
-- **Snapshots** — internal and external (disk-only and live with RAM); size column shows on-disk cost
-- **Backups** — full and incremental (libvirt checkpoints + qemu dirty bitmaps), scheduled or on demand, locally or to a configurable `BACKUP_ROOT` (e.g. NFS mount). Restore over the original VM, or rebuild the whole machine as a new one. See [Backups](#backups)
-- **Metrics** — Live / 1h / 24h history per VM; CPU, memory, disk, network; survives backend restarts
-- **Auth** — single-password login + optional TOTP; JWT in `httpOnly` cookie
-- **Self-upgrade** — Dashboard polls GitHub Releases and runs `update.sh` in a transient systemd unit; live build output streamed back to the browser
+- **VMs** - create from cloud images with cloud-init, BIOS or UEFI (OVMF + swtpm), live console via `xterm.js` over a WebSocket-backed `virsh console`; clone any VM into an independent copy without shutting it down
+- **Templates & ISOs** - qcow2 backing chain (overlay per VM), upload custom ISOs, convert a running snapshot back into a template
+- **Networking** - bridged interfaces (host bridge required) and managed NAT bridges (`vp0`, `vp1`, …); per-NIC bandwidth shaping via Linux `tc`; per-VM iptables firewall chains
+- **Snapshots** - internal and external (disk-only and live with RAM); size column shows on-disk cost
+- **Backups** - full and incremental (libvirt checkpoints + qemu dirty bitmaps), scheduled or on demand, locally or to a configurable `BACKUP_ROOT` (e.g. NFS mount). Restore over the original VM, or rebuild the whole machine as a new one. See [Backups](#backups)
+- **Metrics** - Live / 1h / 24h history per VM; CPU, memory, disk, network; survives backend restarts
+- **Auth** - single-password login + optional TOTP; JWT in `httpOnly` cookie
+- **Self-upgrade** - Dashboard polls GitHub Releases and runs `update.sh` in a transient systemd unit; live build output streamed back to the browser
 
 ---
 
@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/ptmplop/virtPilot/main/bootstrap.sh
 
 `install.sh`:
 
-1. Installs APT dependencies — `qemu-kvm`, `libvirt-daemon-system`, `libvirt-clients`, `virtinst`, `ovmf`, `swtpm`, `swtpm-tools`, `genisoimage`, `bridge-utils`, `iptables`, `curl`, `openssl`, `build-essential`, `python3`
+1. Installs APT dependencies - `qemu-kvm`, `libvirt-daemon-system`, `libvirt-clients`, `virtinst`, `ovmf`, `swtpm`, `swtpm-tools`, `genisoimage`, `bridge-utils`, `iptables`, `curl`, `openssl`, `build-essential`, `python3`
 2. Installs Node.js 20 from NodeSource (skipped if already present)
 3. Enables and starts `libvirtd`
 4. `npm install` and `npm run build` for both packages
@@ -67,13 +67,13 @@ cd /usr/local/virtpilot
 sudo bash install.sh
 ```
 
-`install.sh` insists on being run from inside a git clone — the in-dashboard self-upgrade runs `git pull`, so a tarball install would break updates.
+`install.sh` insists on being run from inside a git clone - the in-dashboard self-upgrade runs `git pull`, so a tarball install would break updates.
 
 ---
 
 ## Updating
 
-From the Dashboard, click **Update** on the version card — it streams build output into a modal and reloads when the backend comes back on the new version.
+From the Dashboard, click **Update** on the version card - it streams build output into a modal and reloads when the backend comes back on the new version.
 
 From the shell:
 
@@ -93,18 +93,18 @@ A **full** backup copies every allocated block of each disk into
 `${BACKUP_ROOT}/<vm-uuid>/<backup-id>/`. An **incremental** copies only what
 changed since the previous backup, and is stored as a qcow2 whose backing file
 points at its parent (`../<parent-id>/disk.qcow2`). A chain therefore reads as
-one complete image — restoring any link flattens the whole chain automatically.
+one complete image - restoring any link flattens the whole chain automatically.
 
 Incrementals need three things:
 
 | Requirement | Why |
 |---|---|
 | The VM is running | libvirt cannot read a dirty bitmap from a stopped domain |
-| `virsh domcapabilities` reports `<backup supported='yes'/>` | needs libvirt ≥ 6.0 and a qemu with `blockdev-backup` — Ubuntu 22.04+ |
+| `virsh domcapabilities` reports `<backup supported='yes'/>` | needs libvirt ≥ 6.0 and a qemu with `blockdev-backup` - Ubuntu 22.04+ |
 | The previous backup recorded a checkpoint | the bitmap lives in the qcow2, and the checkpoint is what names it |
 
 When any of these is missing, the run takes a **full** backup instead and records
-why on the backup — a schedule never silently skips.
+why on the backup - a schedule never silently skips.
 
 Schedules choose between *always full* and *incremental with a fresh full every
 N backups*. Capping the chain length is deliberate: a long chain is slower to
@@ -117,7 +117,7 @@ restore, and every link after a damaged one is lost with it.
 - Retention obeys the same rule: an expired full backup that still has a live
   incremental on top of it is kept until that incremental expires too.
 - A backup whose ancestors have gone missing is marked **chain broken** and
-  cannot be restored — rather than handing back a silently corrupt disk.
+  cannot be restored - rather than handing back a silently corrupt disk.
 
 ### How the copy is taken
 
@@ -135,8 +135,8 @@ Only `libvirt-backup` can produce incrementals.
 
 ### Restoring
 
-- **Roll back** — replaces the source VM's disks. The VM must be stopped.
-- **New VM** — rebuilds the entire machine from the backup's stored domain
+- **Roll back** - replaces the source VM's disks. The VM must be stopped.
+- **New VM** - rebuilds the entire machine from the backup's stored domain
   definition: new UUID, new MAC addresses, a fresh IP where the original held a
   static one, its own NVRAM, and a regenerated cloud-init seed so the guest
   boots under the new name. Works even if the original VM has been deleted.
@@ -147,8 +147,8 @@ Both flatten any incremental chain, so the restored VM gets one standalone image
 
 - Ubuntu 24 (the installer warns and continues on other distributions, but is only tested here)
 - Root access (the installer needs to install packages, write `/etc/systemd/system`, and create `/var/lib/virtpilot`)
-- KVM-capable CPU (VT-x / AMD-V) — VirtPilot does not run nested or software-only
-- A pre-existing host bridge if you want bridged networking — typically `br0`. Set `DEFAULT_BRIDGE` in `.env` if you use a different name. NAT bridges are managed by VirtPilot itself and need no setup.
+- KVM-capable CPU (VT-x / AMD-V) - VirtPilot does not run nested or software-only
+- A pre-existing host bridge if you want bridged networking - typically `br0`. Set `DEFAULT_BRIDGE` in `.env` if you use a different name. NAT bridges are managed by VirtPilot itself and need no setup.
 
 ---
 
@@ -188,14 +188,14 @@ virsh list --all                   # what VMs does libvirt see?
 ## Architecture
 
 ```
-packages/backend/   Express + TypeScript — wraps virsh / libvirt / qemu-img
+packages/backend/   Express + TypeScript - wraps virsh / libvirt / qemu-img
 packages/frontend/  Vite + React 18 + TypeScript + Tailwind CSS
 ```
 
 - **Live state from libvirt.** `virsh` is the source of truth for VMs, networks, and snapshots. There is no shadow database to fall out of sync.
-- **One small SQLite file** at `${STORAGE_ROOT}/virtpilot.db` for state libvirt doesn't track itself — currently per-VM metrics history. See [DATABASE.md](DATABASE.md) for the schema and migration pattern.
-- **Console** — `/ws/console?vm=<name>` over WebSocket → `node-pty` → `virsh console`.
-- **Cloud-init** — `meta-data` and `user-data` written under `cloud-init/<vm>/`, packed into `seed.iso` with `genisoimage`, attached as a virtual CD on first boot.
+- **One small SQLite file** at `${STORAGE_ROOT}/virtpilot.db` for state libvirt doesn't track itself - currently per-VM metrics history. See [DATABASE.md](DATABASE.md) for the schema and migration pattern.
+- **Console** - `/ws/console?vm=<name>` over WebSocket → `node-pty` → `virsh console`.
+- **Cloud-init** - `meta-data` and `user-data` written under `cloud-init/<vm>/`, packed into `seed.iso` with `genisoimage`, attached as a virtual CD on first boot.
 
 ---
 
@@ -224,4 +224,4 @@ See [CLAUDE.md](CLAUDE.md) for project conventions, the version-bump checklist, 
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md). Releases are also published on [GitHub Releases](https://github.com/ptmplop/virtPilot/releases) — the in-dashboard self-upgrade reads from there.
+See [CHANGELOG.md](CHANGELOG.md). Releases are also published on [GitHub Releases](https://github.com/ptmplop/virtPilot/releases) - the in-dashboard self-upgrade reads from there.

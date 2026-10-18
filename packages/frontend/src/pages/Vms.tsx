@@ -72,10 +72,10 @@ export function VmsPage() {
     >
       {/* Stats */}
       <StatStrip className="mb-6">
-        <Stat label="Virtual machines" value={isLoading ? '—' : total} />
-        <Stat label="Running" value={isLoading ? '—' : running} tone={running > 0 ? 'ok' : undefined} />
-        <Stat label="Stopped" value={isLoading ? '—' : stopped} />
-        <Stat label="vCPUs allocated" value={isLoading ? '—' : totalCpus} />
+        <Stat label="Virtual machines" value={isLoading ? '…' : total} />
+        <Stat label="Running" value={isLoading ? '…' : running} tone={running > 0 ? 'ok' : undefined} />
+        <Stat label="Stopped" value={isLoading ? '…' : stopped} />
+        <Stat label="vCPUs allocated" value={isLoading ? '…' : totalCpus} />
       </StatStrip>
 
       {/* Search + console-popup pref */}

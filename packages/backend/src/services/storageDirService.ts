@@ -371,7 +371,7 @@ export async function updateDir(id: string, input: UpdateDirInput): Promise<Stor
         if (p === 'vmDisks') {
           const inUse = db.prepare('SELECT COUNT(*) as c FROM vm_disk_locations WHERE storage_dir_id = ?').get(id) as { c: number };
           if (inUse.c > 0) {
-            throw new ValidationError('purposes', p, `vmDisks purpose has ${inUse.c} disk(s) — delete or move them first`);
+            throw new ValidationError('purposes', p, `vmDisks purpose has ${inUse.c} disk(s) - delete or move them first`);
           }
         }
         // For templates/isos we can detect leftover files but they may belong
@@ -417,7 +417,7 @@ export async function deleteDir(id: string): Promise<void> {
   // Refuse if VM disks still reference this dir.
   const diskCount = (db.prepare('SELECT COUNT(*) as c FROM vm_disk_locations WHERE storage_dir_id = ?').get(id) as { c: number }).c;
   if (diskCount > 0) {
-    throw new ValidationError('id', id, `still holds ${diskCount} VM disk(s) — delete or move them first`);
+    throw new ValidationError('id', id, `still holds ${diskCount} VM disk(s) - delete or move them first`);
   }
   // Refuse if templates/ISOs still on disk in the relevant subdirs (only
   // counts files matching the listing filters, not arbitrary contents).
@@ -426,7 +426,7 @@ export async function deleteDir(id: string): Promise<void> {
     try {
       const files = (await fs.readdir(sub)).filter((f) => f.endsWith('.qcow2') || f.endsWith('.img'));
       if (files.length > 0) {
-        throw new ValidationError('id', id, `still holds ${files.length} template(s) — delete them first`);
+        throw new ValidationError('id', id, `still holds ${files.length} template(s) - delete them first`);
       }
     } catch (err: unknown) {
       // ENOENT is fine — purpose was set but subdir not yet created.
@@ -438,7 +438,7 @@ export async function deleteDir(id: string): Promise<void> {
     try {
       const files = (await fs.readdir(sub)).filter((f) => f.endsWith('.iso'));
       if (files.length > 0) {
-        throw new ValidationError('id', id, `still holds ${files.length} ISO(s) — delete them first`);
+        throw new ValidationError('id', id, `still holds ${files.length} ISO(s) - delete them first`);
       }
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;

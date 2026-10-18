@@ -260,7 +260,7 @@ export function IsosPage() {
           <Button variant="secondary" onClick={() => setUrlDialogOpen(true)}>
             <Download size={14} /> From URL
           </Button>
-          <Tooltip label="Accepts .iso, .iso.gz and .iso.tar.gz — compressed files are unpacked on upload">
+          <Tooltip label="Accepts .iso, .iso.gz and .iso.tar.gz - compressed files are unpacked on upload">
             <Button onClick={() => fileRef.current?.click()} disabled={uploadIso.isPending}>
               {uploadIso.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Upload size={14} />}
               Upload ISO
@@ -505,7 +505,7 @@ export function IsosPage() {
         currentStorageDirId={moveTarget?.storageDirId ?? ''}
         notes={
           <>
-            ISOs attached as a CDROM to any VM will block the move — the VM's domain XML has the absolute path baked in.
+            ISOs attached as a CDROM to any VM will block the move - the VM's domain XML has the absolute path baked in.
             Detach the ISO from those VMs first, or leave it where it is.
           </>
         }

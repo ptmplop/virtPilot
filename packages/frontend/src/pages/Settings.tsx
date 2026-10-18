@@ -153,7 +153,7 @@ export function SettingsPage() {
       setTotpSecret('');
       toast.success('Two-factor authentication enabled');
     },
-    onError: () => toast.error('Invalid code — please try again'),
+    onError: () => toast.error('Invalid code - please try again'),
   });
 
   // Removing 2FA clears the secret (the authenticator must be enrolled again), so it asks first.
@@ -254,7 +254,7 @@ export function SettingsPage() {
         </div>
         <div className="space-y-1 text-xs text-muted-foreground">
           <p>Point <span className="font-mono">BACKUP_ROOT</span> at a mount point for a second disk or NAS share (NFS, SMB, iSCSI) to keep backups off the primary storage pool.</p>
-          <p>e.g. <span className="font-mono">/mnt/backups</span> — add it to <span className="font-mono">/etc/fstab</span> before starting VirtPilot.</p>
+          <p>e.g. <span className="font-mono">/mnt/backups</span> - add it to <span className="font-mono">/etc/fstab</span> before starting VirtPilot.</p>
         </div>
       </section>
 
@@ -263,7 +263,7 @@ export function SettingsPage() {
         <div>
           <SectionHeading label="Log retention" />
           <p className="mt-2 text-xs text-muted-foreground">
-            Maximum number of log entries to keep. Oldest entries are pruned automatically. Range: 10 – 10,000.
+            Maximum number of log entries to keep. Oldest entries are pruned automatically. Range: 10-10,000.
           </p>
         </div>
 

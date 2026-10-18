@@ -13,6 +13,14 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.13.2',
+    date: '2026-10-18',
+    changes: [
+      { type: 'changed', text: 'No more long dashes in anything you read: a plain hyphen or ordinary punctuation where a dash joined two thoughts, "1-28" in ranges, and a missing value says what it means ("…" while loading, "Never", "None", "Not set", "Not measured", "Unknown"). Older log entries, backup notes, alerts and upgrade output read the same way.' },
+      { type: 'fixed', text: 'Backup alerts put a colon after the VM name, the verify message no longer says "Verified" twice, a switched-off schedule reads "Paused", a failed request reads "Unknown" instead of loading forever, and the wizard summary and Review agree on "Not set" and "None".' },
+    ],
+  },
+  {
     version: '2.13.1',
     date: '2026-10-18',
     changes: [
@@ -20,7 +28,7 @@ export const releaseNotes: ReleaseEntry[] = [
       { type: 'changed', text: 'The new-VM wizard’s Review is ruled sections from the same rows as the summary; the primary network is a radio.' },
       { type: 'changed', text: 'Backups: the VM’s mark on its history, quiet notes, states without dots, the legend under its table, a Restore that says what it replaces (and that a running VM must be powered off first), one schedule time field, and retention that shows its default.' },
       { type: 'changed', text: 'The console uses the VM page’s power words, gives the terminal a margin, and drops the dot before "Connected".' },
-      { type: 'changed', text: 'Network types read the same everywhere, the setup guide loses its status colours, Logs keeps successes quiet, the Storage tables for templates and ISOs share columns, the logo picker names the automatic logo, and unmeasured snapshot sizes show "—".' },
+      { type: 'changed', text: 'Network types read the same everywhere, the setup guide loses its status colours, Logs keeps successes quiet, the Storage tables for templates and ISOs share columns, the logo picker names the automatic logo, and unmeasured snapshot sizes no longer read "0 B".' },
       { type: 'fixed', text: 'A table wider than its panel scrolls inside it at every width instead of hiding its row buttons; a storage directory lists what it holds one per line with "(default)" marks, so Edit and Delete fit at 1024 px, and paths wrap after a slash.' },
     ],
   },
@@ -50,13 +58,13 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '2.12.0',
     date: '2026-10-09',
     changes: [
-      { type: 'changed', text: 'The sidebar’s collapse control moved off the logo. The logo row is now just the logo, which takes you to the Dashboard; collapsing is a small round handle half way down the edge of the sidebar (shown when the pointer is over it, and always once collapsed), and the [ key toggles it. Collapsing is one smooth motion — labels fade, icons stay put.' },
+      { type: 'changed', text: 'The sidebar’s collapse control moved off the logo. The logo row is now just the logo, which takes you to the Dashboard; collapsing is a small round handle half way down the edge of the sidebar (shown when the pointer is over it, and always once collapsed), and the [ key toggles it. Collapsing is one smooth motion - labels fade, icons stay put.' },
       { type: 'changed', text: 'The dashboard’s status band says each thing once: a healthy host reads Healthy with its name and uptime, a single warning is named outright, and the numbers no longer count up from zero every time you open the page.' },
       { type: 'changed', text: 'vCPU over-commit is shown, not alarmed: "6 on 4 cores · 1.5×" with a mark at the host’s capacity, amber only at an extreme ratio. Memory over-commit still warns.' },
-      { type: 'changed', text: 'The VM page has one main action — Console while running, Power on while stopped — and the power actions are set apart from the tools, here and in the VM list.' },
+      { type: 'changed', text: 'The VM page has one main action - Console while running, Power on while stopped - and the power actions are set apart from the tools, here and in the VM list.' },
       { type: 'changed', text: 'Quieter, more precise detail: titles line up with their content, OS logos are one-colour marks, figures are aligned and written one way, form controls share one size and style, and page descriptions say what each page holds.' },
       { type: 'added', text: 'Hover a chart to read the exact values and time (tap on touch screens). Charts over 7 and 30 days label their axis with dates.' },
-      { type: 'added', text: 'The dashboard says when its data stops — "No data since 14:02:31 · retrying" — instead of freezing the last numbers under a healthy verdict.' },
+      { type: 'added', text: 'The dashboard says when its data stops - "No data since 14:02:31 · retrying" - instead of freezing the last numbers under a healthy verdict.' },
       { type: 'added', text: 'Each browser tab names its page and host, e.g. "Virtual machines · db-host · VirtPilot".' },
       { type: 'added', text: 'Whole rows in the VM list and Backups open what they show; a VM’s open tab is kept in the address, and tabs move with the arrow keys.' },
       { type: 'fixed', text: 'The 7- and 30-day charts labelled their axis with times of day only; the VM list’s row actions drew over the Memory column; several page titles sat 20 px left of their content.' },
@@ -68,9 +76,9 @@ export const releaseNotes: ReleaseEntry[] = [
     changes: [
       { type: 'changed', text: 'A new design, built from the logo rather than recoloured around it. Every page keeps its layout, but the interface around it is new: the sidebar follows your theme (light in light mode, with the full-colour logo), each page sits on its own inset sheet, boxes are instruments with a title bar and a hairline frame, rows of figures are one ruled strip instead of a grid of cards with icon tiles, primary buttons are ink (frost in dark mode), and steel blue is kept for focus, selection, links and data.' },
       { type: 'changed', text: 'The dashboard opens on an instrument cluster: CPU, memory, disk and running VMs drawn as gauges in the shape of the logo’s own dial, beside a one-line verdict for the host and the installed VirtPilot version. Host details are a ruled plate, the update card carries the logo, and the metric charts sit in titled panels with their live reading in the title bar.' },
-      { type: 'changed', text: 'Status reads by shape as well as colour — a solid disc is running, an open ring is stopped, two bars are paused, a diamond has crashed — so it still reads in greyscale and for colour-blind eyes.' },
+      { type: 'changed', text: 'Status reads by shape as well as colour - a solid disc is running, an open ring is stopped, two bars are paused, a diamond has crashed - so it still reads in greyscale and for colour-blind eyes.' },
       { type: 'changed', text: 'Headlines use Inter Display, the logo’s own face, through Inter’s optical-size axis. The sign-in screen follows your theme, and native controls (drop-down menus, checkboxes, the browser’s toolbar colour) follow it too.' },
-      { type: 'added', text: 'The dashboard’s VM panel shows what the running VMs have been given against the host — vCPUs against cores, memory against RAM — and turns amber when the host is over-committed.' },
+      { type: 'added', text: 'The dashboard’s VM panel shows what the running VMs have been given against the host - vCPUs against cores, memory against RAM - and turns amber when the host is over-committed.' },
       { type: 'added', text: 'A Backups filter on the Logs page.' },
       { type: 'fixed', text: 'Three back links went to the Dashboard instead of the VM list: the Virtual machines breadcrumb on a VM’s page, Back to list on a VM that no longer exists, and the back link on Create virtual machine.' },
       { type: 'fixed', text: 'Backups: a VM’s next scheduled run always read "just now"; row actions spilled over the Schedule column (narrow windows now get icon buttons); a paused schedule was listed as "None"; and an empty history pointed at a "Back Up Now" button that does not exist.' },
@@ -78,10 +86,10 @@ export const releaseNotes: ReleaseEntry[] = [
       { type: 'fixed', text: 'Idle charts repeated their axis labels ("1 B/s, 1 B/s, 0 B/s") and long labels wrapped onto two lines.' },
       { type: 'fixed', text: 'The new-VM wizard labelled every disk "(blank)" on the Review step, showed its ISO-install notes in near-invisible light amber, and gave no IP note for an existing OS bridge on DHCP.' },
       { type: 'fixed', text: 'The same SSH key could be saved twice, so a VM provisioned with both entries got the key twice in authorized_keys. A duplicate is now refused with a message naming the entry that already holds it, and the form shows the server’s reason instead of "Failed to add SSH key".' },
-      { type: 'fixed', text: 'About twenty kinds of log entry — backups, restores, clones, renames, disk resize/move/download, device and NIC changes, hard resets, VirtPilot upgrades — showed their internal key (backup.create, vm.clone…). Every action now has a name.' },
+      { type: 'fixed', text: 'About twenty kinds of log entry - backups, restores, clones, renames, disk resize/move/download, device and NIC changes, hard resets, VirtPilot upgrades - showed their internal key (backup.create, vm.clone…). Every action now has a name.' },
       { type: 'fixed', text: 'The VM list showed a generic server icon for VMs whose operating system the dashboard already showed, and the dashboard ignored a logo picked by hand. Both now use the chosen logo first and the template’s otherwise.' },
       { type: 'fixed', text: 'The apt-upgrade and self-upgrade windows drew their dividers in the light theme’s border colour across a dark terminal, and the console header’s separators never appeared, because both used a colour class that does not exist. The upgrade windows are now proper dialogs that close with Escape once the job has finished.' },
-      { type: 'fixed', text: 'Tooltips never appeared on disabled buttons — exactly when they explain why — and long hints ran off the screen. Disabled buttons now show their tooltip, and long ones wrap.' },
+      { type: 'fixed', text: 'Tooltips never appeared on disabled buttons - exactly when they explain why - and long hints ran off the screen. Disabled buttons now show their tooltip, and long ones wrap.' },
       { type: 'fixed', text: 'About thirty icon-only buttons were announced to screen readers as just "button", the wizard’s switches had no names, several labels were not tied to their fields, and saved SSH keys in the wizard needed a mouse. All are now named and keyboard-reachable.' },
       { type: 'fixed', text: 'Dates were written four different ways, and snapshot and template dates followed the browser’s locale (10/8/2026, 4:33:17 PM). Every date now reads 8 Oct 2026, with 16:33 where the time matters. The VM pages also said "Active" and "Off" where every other page says Running and Stopped.' },
     ],
@@ -90,15 +98,15 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '2.10.0',
     date: '2026-10-08',
     changes: [
-      { type: 'changed', text: 'A new look, built around a refreshed logo. The rocket-and-planet raster mark is replaced by Heading — an instrument ring with one heading needle — drawn as clean vector artwork in two quiet tones, slate and steel blue. The whole dashboard was restyled to match: the sidebar is the logo’s ink tile, cards sit on hairlines instead of tinted gradient washes, blurred colour orbs and glowing stripes are gone, labels are sentence case rather than tiny spaced-out capitals, and status reads as a coloured mark and a word instead of a pulsing pill. The layout is unchanged — every page, tab and control is where it was.' },
+      { type: 'changed', text: 'A new look, built around a refreshed logo. The rocket-and-planet raster mark is replaced by Heading - an instrument ring with one heading needle - drawn as clean vector artwork in two quiet tones, slate and steel blue. The whole dashboard was restyled to match: the sidebar is the logo’s ink tile, cards sit on hairlines instead of tinted gradient washes, blurred colour orbs and glowing stripes are gone, labels are sentence case rather than tiny spaced-out capitals, and status reads as a coloured mark and a word instead of a pulsing pill. The layout is unchanged - every page, tab and control is where it was.' },
       { type: 'changed', text: 'Type is Inter, with JetBrains Mono for identifiers, bundled with the app. Inter’s tailed l and serifed I are switched on, so hostnames such as vm-l1 and labels such as I/O cannot be misread. Headline figures use tabular numerals rather than bold monospace.' },
       { type: 'changed', text: 'One colour vocabulary for every chart. Paired series are always inbound (read, RX) in steel and outbound (write, TX) in dashed ochre, so a pair separates by colour and stroke and still reads in greyscale. Lines no longer glow.' },
-      { type: 'changed', text: 'Destructive buttons are ranked. Solid red is reserved for confirming a destructive act. In the VM header, Power Off — a graceful ACPI shutdown — is an ordinary button, and Force Off is outlined in red rather than filled.' },
-      { type: 'changed', text: 'Text you could barely read is now readable. Several labels, step names and placeholders were set at 25–40 % opacity, and light-theme status text used shades as low as 2:1 against white. The palette’s text shades now clear 4.5:1 on both the page and cards, and faded secondary text was raised to a legible level throughout.' },
+      { type: 'changed', text: 'Destructive buttons are ranked. Solid red is reserved for confirming a destructive act. In the VM header, Power Off - a graceful ACPI shutdown - is an ordinary button, and Force Off is outlined in red rather than filled.' },
+      { type: 'changed', text: 'Text you could barely read is now readable. Several labels, step names and placeholders were set at 25-40 % opacity, and light-theme status text used shades as low as 2:1 against white. The palette’s text shades now clear 4.5:1 on both the page and cards, and faded secondary text was raised to a legible level throughout.' },
       { type: 'changed', text: 'A new house terminal theme, VirtPilot Slate, is the console’s default. A theme you had already picked is kept.' },
       { type: 'changed', text: 'New favicon and app icons. The browser-tab icon follows the browser’s light or dark setting, and the dashboard now ships a web manifest with home-screen icons.' },
       { type: 'fixed', text: 'The dashboard loaded its fonts from Google on every page load. Air-gapped and firewalled hosts fell back to system fonts, and every visit to a self-hosted dashboard was announced to a third party. Fonts are now bundled with the app, and the Content-Security-Policy no longer allows Google’s font domains.' },
-      { type: 'fixed', text: 'The sign-in screen always said v1.7.0, whatever was installed — it had its own copy of the version string that nothing updated. It now reads the same constant as the sidebar. Its "System online" light, which was always shown and never checked anything, has been removed.' },
+      { type: 'fixed', text: 'The sign-in screen always said v1.7.0, whatever was installed - it had its own copy of the version string that nothing updated. It now reads the same constant as the sidebar. Its "System online" light, which was always shown and never checked anything, has been removed.' },
       { type: 'fixed', text: 'The VM header said "KVM" on hosts without /dev/kvm, where guests actually run under TCG software emulation. It now reports what the host provides.' },
       { type: 'fixed', text: 'The VM header pushed the page sideways at narrower widths (around 1024 px with the sidebar open) because its six action buttons could not wrap. They now drop below the VM name when space runs out.' },
       { type: 'fixed', text: 'Stacked dialogs announced the wrong title to screen readers: every dialog labelled itself with the same fixed element id. Each now has its own.' },
@@ -108,55 +116,55 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '2.9.1',
     date: '2026-08-05',
     changes: [
-      { type: 'fixed', text: 'Every incremental-mode backup in 2.9.0 destroyed the checkpoint it had just created, so no chain could form. 2.9.0 stopped counting the backup currently being written as leftover data — correct in itself, but it did so by hiding that directory from every scan. Checkpoint reconciliation runs at the end of a backup, while the backup is still registered as in progress, so it could no longer see the manifest written moments earlier and deleted the brand-new checkpoint as unreferenced. The backup then recorded a manifest naming a checkpoint that no longer existed: the history showed it as "Chainable", the degraded-runs alert was blinded because it trusts that same field, and the next run found the checkpoint missing and took another full backup. Only the display suppression is applied now, and never to a directory that holds a readable manifest.' },
-      { type: 'fixed', text: 'A backup now confirms its checkpoint exists rather than assuming it. The copy reported a checkpoint as created whenever one had been asked for, so anything that removed it afterwards went unnoticed and the manifest advertised a backup nothing could chain onto. libvirt is asked directly, and a missing checkpoint is recorded as a note on the backup. If you ran 2.9.0, any backup it took in incremental mode carries a checkpoint name that is not in libvirt — nothing is lost, those backups restore normally, but the next run will take a full backup and lay down a working checkpoint.' },
+      { type: 'fixed', text: 'Every incremental-mode backup in 2.9.0 destroyed the checkpoint it had just created, so no chain could form. 2.9.0 stopped counting the backup currently being written as leftover data - correct in itself, but it did so by hiding that directory from every scan. Checkpoint reconciliation runs at the end of a backup, while the backup is still registered as in progress, so it could no longer see the manifest written moments earlier and deleted the brand-new checkpoint as unreferenced. The backup then recorded a manifest naming a checkpoint that no longer existed: the history showed it as "Chainable", the degraded-runs alert was blinded because it trusts that same field, and the next run found the checkpoint missing and took another full backup. Only the display suppression is applied now, and never to a directory that holds a readable manifest.' },
+      { type: 'fixed', text: 'A backup now confirms its checkpoint exists rather than assuming it. The copy reported a checkpoint as created whenever one had been asked for, so anything that removed it afterwards went unnoticed and the manifest advertised a backup nothing could chain onto. libvirt is asked directly, and a missing checkpoint is recorded as a note on the backup. If you ran 2.9.0, any backup it took in incremental mode carries a checkpoint name that is not in libvirt - nothing is lost, those backups restore normally, but the next run will take a full backup and lay down a working checkpoint.' },
     ],
   },
   {
     version: '2.9.0',
     date: '2026-08-05',
     changes: [
-      { type: 'changed', text: '"Incremental not possible — the previous backup did not record a checkpoint" now explains itself. Switching a schedule to incremental made the very next run report that, which read as a fault in a full backup that was perfectly good. The message named a symptom and stopped: it never said that only a backup taken with incremental backups switched on records a checkpoint, and never said that the run writing the message had just laid one down, so the next run would be a true incremental. The wording now says both — and when a checkpoint genuinely could not be created, it says that instead, along with which copy method it fell back to.' },
-      { type: 'changed', text: 'The Incremental button used to give advice that could not work. It was disabled whenever no checkpoint existed, with a tooltip saying "take a full backup first" — but a full backup taken from the button beside it records no checkpoint either, so following the instruction literally could never enable it. It is now enabled whenever the host supports incrementals: with no checkpoint to chain onto, it takes a full backup and records one.' },
-      { type: 'changed', text: 'The schedule dialog now warns before the fact. Switching backup type to incremental says that the first run will still be a full backup and why. The list of reasons a run can fall back to a full also gained the missing checkpoint — the one cause that is near-certain the moment the setting is saved.' },
+      { type: 'changed', text: '"Incremental not possible - the previous backup did not record a checkpoint" now explains itself. Switching a schedule to incremental made the very next run report that, which read as a fault in a full backup that was perfectly good. The message named a symptom and stopped: it never said that only a backup taken with incremental backups switched on records a checkpoint, and never said that the run writing the message had just laid one down, so the next run would be a true incremental. The wording now says both - and when a checkpoint genuinely could not be created, it says that instead, along with which copy method it fell back to.' },
+      { type: 'changed', text: 'The Incremental button used to give advice that could not work. It was disabled whenever no checkpoint existed, with a tooltip saying "take a full backup first" - but a full backup taken from the button beside it records no checkpoint either, so following the instruction literally could never enable it. It is now enabled whenever the host supports incrementals: with no checkpoint to chain onto, it takes a full backup and records one.' },
+      { type: 'changed', text: 'The schedule dialog now warns before the fact. Switching backup type to incremental says that the first run will still be a full backup and why. The list of reasons a run can fall back to a full also gained the missing checkpoint - the one cause that is near-certain the moment the setting is saved.' },
       { type: 'changed', text: 'Storage Used counts backup directories that nothing can restore from. They were filtered out of every listing, so a volume holding 95 GB could report 40 GB with nothing to explain the difference.' },
-      { type: 'added', text: 'An alert when a schedule set to incremental keeps producing full backups. If the libvirt push-mode tier fails every night, every run still succeeds as a full backup — so the schedule reported success, the banner still said "Incremental", and the only trace was a note buried in one row. Two consecutive non-chaining runs now raise a warning quoting the underlying cause.' },
+      { type: 'added', text: 'An alert when a schedule set to incremental keeps producing full backups. If the libvirt push-mode tier fails every night, every run still succeeds as a full backup - so the schedule reported success, the banner still said "Incremental", and the only trace was a note buried in one row. Two consecutive non-chaining runs now raise a warning quoting the underlying cause.' },
       { type: 'added', text: 'An alert for backup directories holding data nothing can use, and an automatic sweep of the ones left by an interrupted run once they are a day old. A backend killed mid-copy never reached its own cleanup, so a part-written multi-GB image stayed on the volume forever, invisible to every total the product showed. Retention and the sweep now also run every twelve hours rather than only at startup.' },
       { type: 'added', text: 'Backups that carry a checkpoint are marked "Chainable" in the history list, so it is visible which backup the next incremental will build on.' },
-      { type: 'fixed', text: 'Opening the schedule dialog too quickly could silently downgrade an incremental schedule to "always full". The dialog reads its initial values once, when it opens, and the button that opens it was clickable before the schedule had loaded. Clicking in that window built the form from blank defaults and saved them explicitly — overwriting the VM’s backup type, frequency, time and retention, with a "Schedule saved" toast. The button now waits for the data, and the dialog re-reads it if it arrives late.' },
+      { type: 'fixed', text: 'Opening the schedule dialog too quickly could silently downgrade an incremental schedule to "always full". The dialog reads its initial values once, when it opens, and the button that opens it was clickable before the schedule had loaded. Clicking in that window built the form from blank defaults and saved them explicitly - overwriting the VM’s backup type, frequency, time and retention, with a "Schedule saved" toast. The button now waits for the data, and the dialog re-reads it if it arrives late.' },
       { type: 'fixed', text: 'An unreadable backup-schedules.json deleted every schedule on the host. Any read failure was treated as "no schedules configured", so every automatic backup stopped without raising anything, and the next schedule saved persisted that emptiness over the top. Reads now distinguish a genuinely absent file from a broken one, and writes go through a temporary file and a rename.' },
-      { type: 'fixed', text: 'Two VMs due at the same minute could lose each other’s schedule updates. Saving a schedule is a read-modify-write of one shared file and the scheduler fires every due VM at once — and the dialog pre-fills 02:00, so several really do come due in the same tick. Writes are now serialised.' },
-      { type: 'fixed', text: 'Opening a failed schedule and pressing Save cleared the "last scheduled backup failed" alert. The record of how the last run ended was rebuilt from the request body, which does not carry it — so investigating a failure was enough to hide it until the next run failed.' },
-      { type: 'fixed', text: 'A backup that had already succeeded could be deleted by the housekeeping that runs after it. The retention pass sat inside the same error handler that cleans up a failed copy, whose first act is to remove the backup directory — so an unreadable settings file during that pass destroyed a complete, restorable backup and swept its checkpoint.' },
+      { type: 'fixed', text: 'Two VMs due at the same minute could lose each other’s schedule updates. Saving a schedule is a read-modify-write of one shared file and the scheduler fires every due VM at once - and the dialog pre-fills 02:00, so several really do come due in the same tick. Writes are now serialised.' },
+      { type: 'fixed', text: 'Opening a failed schedule and pressing Save cleared the "last scheduled backup failed" alert. The record of how the last run ended was rebuilt from the request body, which does not carry it - so investigating a failure was enough to hide it until the next run failed.' },
+      { type: 'fixed', text: 'A backup that had already succeeded could be deleted by the housekeeping that runs after it. The retention pass sat inside the same error handler that cleans up a failed copy, whose first act is to remove the backup directory - so an unreadable settings file during that pass destroyed a complete, restorable backup and swept its checkpoint.' },
       { type: 'fixed', text: 'One unreadable manifest could delete an entire backup chain. It was indistinguishable from a backup that did not exist, which made an incremental’s parent look like a childless leaf; retention removed it and cascaded down the chain. Retention and checkpoint reconciliation now refuse to prune anything while any manifest is unreadable, and say which one.' },
-      { type: 'fixed', text: 'A single unlucky capability probe disabled incremental backups until the service was restarted. "virsh domcapabilities" reporting no backup support was cached for the process lifetime on the grounds that it could not change — but upgrading qemu and restarting libvirtd changes it. A negative answer is now re-probed.' },
-      { type: 'fixed', text: 'Taking a full backup by hand on an incremental-mode VM now asks first. It records no checkpoint, so the next scheduled run had nothing to chain onto and took a full backup as well — with no warning, and different behaviour depending on which screen the button was pressed from.' },
+      { type: 'fixed', text: 'A single unlucky capability probe disabled incremental backups until the service was restarted. "virsh domcapabilities" reporting no backup support was cached for the process lifetime on the grounds that it could not change - but upgrading qemu and restarting libvirtd changes it. A negative answer is now re-probed.' },
+      { type: 'fixed', text: 'Taking a full backup by hand on an incremental-mode VM now asks first. It records no checkpoint, so the next scheduled run had nothing to chain onto and took a full backup as well - with no warning, and different behaviour depending on which screen the button was pressed from.' },
     ],
   },
   {
     version: '2.8.2',
     date: '2026-08-04',
     changes: [
-      { type: 'fixed', text: 'The in-dashboard upgrade cut its own output off after a few seconds and then looked like it had hung. The endpoint watched the upgrade’s systemd unit with "systemctl is-active", which exits non-zero for any state other than exactly "active" — and the upgrade runs as a oneshot unit, which is "activating" for its entire life. The first poll read "not running", declared the upgrade finished about two seconds in, killed the live log part-way through npm ci, and reported the exit status of a process that had not exited. The dashboard then waited for a backend that was still building, and gave up 90 seconds later. The upgrade itself was running normally throughout.' },
+      { type: 'fixed', text: 'The in-dashboard upgrade cut its own output off after a few seconds and then looked like it had hung. The endpoint watched the upgrade’s systemd unit with "systemctl is-active", which exits non-zero for any state other than exactly "active" - and the upgrade runs as a oneshot unit, which is "activating" for its entire life. The first poll read "not running", declared the upgrade finished about two seconds in, killed the live log part-way through npm ci, and reported the exit status of a process that had not exited. The dashboard then waited for a backend that was still building, and gave up 90 seconds later. The upgrade itself was running normally throughout.' },
     ],
   },
   {
     version: '2.8.1',
     date: '2026-08-04',
     changes: [
-      { type: 'fixed', text: 'The in-dashboard update could stop dead after "Pulling latest changes…" with nothing to show for it. Before resetting the working tree, update.sh switched it onto origin/main — and that switch refuses whenever a tracked file has local modifications, which is exactly the drift the reset immediately afterwards exists to clear (npm install rewriting package-lock.json is enough to cause it). The switch is now forced, and the failure is no longer silent: the command’s output was discarded and the script exited on it without a word.' },
+      { type: 'fixed', text: 'The in-dashboard update could stop dead after "Pulling latest changes…" with nothing to show for it. Before resetting the working tree, update.sh switched it onto origin/main - and that switch refuses whenever a tracked file has local modifications, which is exactly the drift the reset immediately afterwards exists to clear (npm install rewriting package-lock.json is enough to cause it). The switch is now forced, and the failure is no longer silent: the command’s output was discarded and the script exited on it without a word.' },
     ],
   },
   {
     version: '2.8.0',
     date: '2026-08-03',
     changes: [
-      { type: 'added', text: 'Backups can now be verified, not just taken. A backup used to be read only on the day you needed it — and an incremental is only as good as every backup beneath it. Verify walks the whole chain, confirms each image is present and runs qemu-img check over every one. The result is kept with the backup, so the list shows what was last proved good and when.' },
+      { type: 'added', text: 'Backups can now be verified, not just taken. A backup used to be read only on the day you needed it - and an incremental is only as good as every backup beneath it. Verify walks the whole chain, confirms each image is present and runs qemu-img check over every one. The result is kept with the backup, so the list shows what was last proved good and when.' },
       { type: 'added', text: 'Backups that stop working now say so. A failed scheduled run previously left nothing but a line in journalctl. The outcome is recorded on the schedule itself, and the Backups page carries a banner for anything needing attention: a run that failed, one overdue and not firing, a chain with a missing link, or a backup whose last verification failed.' },
-      { type: 'added', text: 'Metrics go back further than a day. Completed hours are folded into an hourly rollup kept for 90 days, so 7d and 30d ranges join Live/1h/24h on the dashboard and each VM’s Metrics tab. The short ranges still read raw 30-second samples — those are simply no longer the only thing stored, which is what capped history at 24 hours.' },
-      { type: 'added', text: 'A test suite and CI: 157 unit tests over the logic that has actually broken before — input validation, the SSRF guard, domain-XML generation and escaping, firewall rule validation, backup scheduling, backup-chain resolution, and the clone/restore XML rewriting. CI also runs shellcheck over the installer scripts and checks that the four places a version must be bumped agree.' },
-      { type: 'fixed', text: 'The self-upgrade can finally carry its own migrations. update.sh runs from the copy already on disk — the previous release’s — so a release could never ship a fix that had to run during its own upgrade; that is what let 2.6.0 lock operators out. Once the working tree has moved, the update now hands off to the update.sh it just pulled. This release is still upgraded by the old script; from the next one onward a fix can travel with the upgrade that needs it.' },
-      { type: 'fixed', text: 'Cloning or restoring into a new VM carried over the source’s cached backing-file chain. libvirt records that chain in the VM definition and the copy’s disks are standalone, so the new VM described a chain its files did not have — the same stale-cache condition that makes qemu refuse to open a disk. Found by the new tests.' },
+      { type: 'added', text: 'Metrics go back further than a day. Completed hours are folded into an hourly rollup kept for 90 days, so 7d and 30d ranges join Live/1h/24h on the dashboard and each VM’s Metrics tab. The short ranges still read raw 30-second samples - those are simply no longer the only thing stored, which is what capped history at 24 hours.' },
+      { type: 'added', text: 'A test suite and CI: 157 unit tests over the logic that has actually broken before - input validation, the SSRF guard, domain-XML generation and escaping, firewall rule validation, backup scheduling, backup-chain resolution, and the clone/restore XML rewriting. CI also runs shellcheck over the installer scripts and checks that the four places a version must be bumped agree.' },
+      { type: 'fixed', text: 'The self-upgrade can finally carry its own migrations. update.sh runs from the copy already on disk - the previous release’s - so a release could never ship a fix that had to run during its own upgrade; that is what let 2.6.0 lock operators out. Once the working tree has moved, the update now hands off to the update.sh it just pulled. This release is still upgraded by the old script; from the next one onward a fix can travel with the upgrade that needs it.' },
+      { type: 'fixed', text: 'Cloning or restoring into a new VM carried over the source’s cached backing-file chain. libvirt records that chain in the VM definition and the copy’s disks are standalone, so the new VM described a chain its files did not have - the same stale-cache condition that makes qemu refuse to open a disk. Found by the new tests.' },
       { type: 'fixed', text: 'Invalid firewall rules now name which rule is at fault rather than reporting a bad value with no indication of where it came from.' },
     ],
   },
@@ -164,86 +172,86 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '2.7.1',
     date: '2026-08-03',
     changes: [
-      { type: 'fixed', text: 'Running "git clean" inside the install directory could permanently break the SSH tab for every existing VM. The service account’s home is the install directory, so the SSH keypair VirtPilot injects into every VM it builds lives at /usr/local/virtpilot/.ssh/ — untracked but not ignored, so a plain "git clean -fd" deleted it. The backend then quietly generates a fresh keypair, so new VMs keep working while every VM created earlier still holds the old key and can never be reached from the SSH tab again; the serial console is the only way back in. Nothing VirtPilot ships runs git clean (update.sh uses git reset --hard), so no install can have hit this on its own. The keypair is now git-ignored.' },
+      { type: 'fixed', text: 'Running "git clean" inside the install directory could permanently break the SSH tab for every existing VM. The service account’s home is the install directory, so the SSH keypair VirtPilot injects into every VM it builds lives at /usr/local/virtpilot/.ssh/ - untracked but not ignored, so a plain "git clean -fd" deleted it. The backend then quietly generates a fresh keypair, so new VMs keep working while every VM created earlier still holds the old key and can never be reached from the SSH tab again; the serial console is the only way back in. Nothing VirtPilot ships runs git clean (update.sh uses git reset --hard), so no install can have hit this on its own. The keypair is now git-ignored.' },
     ],
   },
   {
     version: '2.7.0',
     date: '2026-08-03',
     changes: [
-      { type: 'added', text: 'Incremental backups. A backup can now copy only the blocks that changed since the previous one, using libvirt checkpoints and qemu’s persistent dirty bitmaps. Each incremental is a qcow2 backed by its parent, so a chain reads as one complete image — restoring any link rebuilds the whole thing automatically. Schedules gain a backup type: always full, or incremental with a fresh full every N backups. A scheduled run that cannot produce an incremental (VM was off, previous checkpoint gone, host unsupported) takes a full backup rather than being skipped, and records why.' },
-      { type: 'added', text: 'Deleting a backup that later incrementals build on is now refused instead of silently orphaning them — the dialog offers to remove the whole subtree instead. Retention follows the same rule: an expired full backup with a live incremental on top survives until that incremental expires too.' },
-      { type: 'added', text: 'Restore into a new VM. Restoring no longer only means overwriting the VM the backup came from. The backup already held the domain definition, NICs and cloud-init metadata, so it can rebuild the entire machine — new UUID, new MAC addresses, a fresh IP where the original had a static one, its own NVRAM, and a regenerated cloud-init seed so the guest boots under the new name. Works even when the original VM has been deleted.' },
-      { type: 'added', text: 'Clone a VM. One action produces a complete, independent copy with a new identity throughout and disks copied in full rather than layered on the original. The source does not have to be shut down first — the copy goes through the same point-in-time machinery as a backup.' },
-      { type: 'changed', text: 'Backing up a running VM no longer freezes its filesystems for the length of the copy. The guest agent was asked to freeze before the copy began and thaw only once every disk had finished — up to an hour of stalled I/O on a large disk, long enough to trip guest watchdogs. Backups now use libvirt’s push-mode backup API where available (qemu takes the point-in-time internally and copies in the background), or pivot the VM onto a throwaway overlay where it isn’t. Both are milliseconds of guest impact rather than minutes, and each backup records which ran.' },
-      { type: 'changed', text: 'The backup manifest no longer stores the guest password in plain text — it is encrypted with the same key as vm-metadata.json. Manifests written by earlier versions are read as before.' },
-      { type: 'changed', text: 'Existing backups keep working and are treated as full backups. A backup records a checkpoint only when incremental backups are switched on for that VM, so switching a schedule to incremental still takes a full backup on its first run — that run lays down the checkpoint, and the run after it is a true incremental. (Corrected in 2.9.0; this note previously claimed any post-upgrade backup recorded one.)' },
-      { type: 'fixed', text: 'A port forward could silently punch a hole through a deny-all firewall. The per-VM firewall and port forwarding both wrote to the same iptables chain, and whichever was configured last ended up on top — so setting the firewall first and adding a forward afterwards left the forward bypassing the policy entirely, while the opposite order blocked it. The firewall is now always evaluated first.' },
-      { type: 'fixed', text: 'Port forwarding never actually worked on a managed NAT network. The DNAT rule was right, but the FORWARD ACCEPT that lets the translated packet through was appended below libvirt’s own rules — and libvirt’s chain ends by rejecting forwarded traffic to the guest bridge. Connections were refused before VirtPilot’s rule was ever consulted, while the DNAT counter ticked up as if all was well.' },
-      { type: 'fixed', text: 'A snapshot taken while the VM was shut down could never be deleted. libvirt only hands an overlay to the qemu user when there is a running qemu to hand it to, so a snapshot of a stopped VM left a file VirtPilot could neither read nor change permissions on — and the VM was left running off an overlay it could not get rid of.' },
-      { type: 'fixed', text: 'Applying a deny-all firewall could lock you out of your own firewall. Rules are applied against the VM’s IP, resolved from the host’s ARP cache — and a deny-all inbound policy is precisely what stops that resolving, so the next apply (including the one undoing it) failed. DHCP leases are now consulted too.' },
+      { type: 'added', text: 'Incremental backups. A backup can now copy only the blocks that changed since the previous one, using libvirt checkpoints and qemu’s persistent dirty bitmaps. Each incremental is a qcow2 backed by its parent, so a chain reads as one complete image - restoring any link rebuilds the whole thing automatically. Schedules gain a backup type: always full, or incremental with a fresh full every N backups. A scheduled run that cannot produce an incremental (VM was off, previous checkpoint gone, host unsupported) takes a full backup rather than being skipped, and records why.' },
+      { type: 'added', text: 'Deleting a backup that later incrementals build on is now refused instead of silently orphaning them - the dialog offers to remove the whole subtree instead. Retention follows the same rule: an expired full backup with a live incremental on top survives until that incremental expires too.' },
+      { type: 'added', text: 'Restore into a new VM. Restoring no longer only means overwriting the VM the backup came from. The backup already held the domain definition, NICs and cloud-init metadata, so it can rebuild the entire machine - new UUID, new MAC addresses, a fresh IP where the original had a static one, its own NVRAM, and a regenerated cloud-init seed so the guest boots under the new name. Works even when the original VM has been deleted.' },
+      { type: 'added', text: 'Clone a VM. One action produces a complete, independent copy with a new identity throughout and disks copied in full rather than layered on the original. The source does not have to be shut down first - the copy goes through the same point-in-time machinery as a backup.' },
+      { type: 'changed', text: 'Backing up a running VM no longer freezes its filesystems for the length of the copy. The guest agent was asked to freeze before the copy began and thaw only once every disk had finished - up to an hour of stalled I/O on a large disk, long enough to trip guest watchdogs. Backups now use libvirt’s push-mode backup API where available (qemu takes the point-in-time internally and copies in the background), or pivot the VM onto a throwaway overlay where it isn’t. Both are milliseconds of guest impact rather than minutes, and each backup records which ran.' },
+      { type: 'changed', text: 'The backup manifest no longer stores the guest password in plain text - it is encrypted with the same key as vm-metadata.json. Manifests written by earlier versions are read as before.' },
+      { type: 'changed', text: 'Existing backups keep working and are treated as full backups. A backup records a checkpoint only when incremental backups are switched on for that VM, so switching a schedule to incremental still takes a full backup on its first run - that run lays down the checkpoint, and the run after it is a true incremental. (Corrected in 2.9.0; this note previously claimed any post-upgrade backup recorded one.)' },
+      { type: 'fixed', text: 'A port forward could silently punch a hole through a deny-all firewall. The per-VM firewall and port forwarding both wrote to the same iptables chain, and whichever was configured last ended up on top - so setting the firewall first and adding a forward afterwards left the forward bypassing the policy entirely, while the opposite order blocked it. The firewall is now always evaluated first.' },
+      { type: 'fixed', text: 'Port forwarding never actually worked on a managed NAT network. The DNAT rule was right, but the FORWARD ACCEPT that lets the translated packet through was appended below libvirt’s own rules - and libvirt’s chain ends by rejecting forwarded traffic to the guest bridge. Connections were refused before VirtPilot’s rule was ever consulted, while the DNAT counter ticked up as if all was well.' },
+      { type: 'fixed', text: 'A snapshot taken while the VM was shut down could never be deleted. libvirt only hands an overlay to the qemu user when there is a running qemu to hand it to, so a snapshot of a stopped VM left a file VirtPilot could neither read nor change permissions on - and the VM was left running off an overlay it could not get rid of.' },
+      { type: 'fixed', text: 'Applying a deny-all firewall could lock you out of your own firewall. Rules are applied against the VM’s IP, resolved from the host’s ARP cache - and a deny-all inbound policy is precisely what stops that resolving, so the next apply (including the one undoing it) failed. DHCP leases are now consulted too.' },
       { type: 'fixed', text: 'Restoring a backup could leave the VM unable to start. libvirt caches each disk’s backing-file chain in the VM definition; replacing the image out-of-band left that cache describing a chain the file no longer had, and qemu then refused to open the disk at all.' },
       { type: 'fixed', text: 'Invalid firewall rules were accepted and only failed later. A rule with an out-of-range port saved successfully and blew up at apply time, after you had left the page. Rule sets are now validated when saved.' },
-      { type: 'fixed', text: 'install.sh ran fragments of its own comments as root — two comment lines in the systemd-unit template contained backticks, which the shell executed while writing the file.' },
+      { type: 'fixed', text: 'install.sh ran fragments of its own comments as root - two comment lines in the systemd-unit template contained backticks, which the shell executed while writing the file.' },
       { type: 'fixed', text: 'Deleting a VM without deleting its storage could be refused once it had been backed up. libvirt will not undefine a domain that still carries checkpoint metadata unless told to drop it, and nothing else clears it when the disks are being kept.' },
-      { type: 'fixed', text: 'Un-ticking a storage directory’s "use as default" checkbox appeared to work but never could — every purpose must always have exactly one default. The checkbox is now disabled once the directory holds the flag, with an explanation.' },
-      { type: 'fixed', text: 'Malformed request bodies returned "Internal server error" instead of 400. Several operations refused for legible reasons — restoring onto a running VM, snapshotting a VM with backup checkpoints, deleting a template that does not exist — reported themselves as server faults rather than 4xx.' },
-      { type: 'fixed', text: 'A restore refused for a reason the operator can act on — the VM is still running, the name is taken, the backup’s chain is incomplete — now returns the matching 4xx status instead of reporting a server error.' },
+      { type: 'fixed', text: 'Un-ticking a storage directory’s "use as default" checkbox appeared to work but never could - every purpose must always have exactly one default. The checkbox is now disabled once the directory holds the flag, with an explanation.' },
+      { type: 'fixed', text: 'Malformed request bodies returned "Internal server error" instead of 400. Several operations refused for legible reasons - restoring onto a running VM, snapshotting a VM with backup checkpoints, deleting a template that does not exist - reported themselves as server faults rather than 4xx.' },
+      { type: 'fixed', text: 'A restore refused for a reason the operator can act on - the VM is still running, the name is taken, the backup’s chain is incomplete - now returns the matching 4xx status instead of reporting a server error.' },
     ],
   },
   {
     version: '2.6.1',
     date: '2026-07-27',
     changes: [
-      { type: 'fixed', text: 'Upgrading to 2.6.0 locked operators out of nginx-fronted installs that had an IP allowlist configured. 2.6.0 stopped trusting X-Forwarded-For unless TRUST_PROXY was set — right for a directly-exposed backend, wrong for the standard install, where every request then resolved to 127.0.0.1, matched no allowlist entry, and login returned "403 IP not allowed" while the service still reported healthy. The TRUST_PROXY migration in 2.6.0’s update.sh could never have prevented it: the self-upgrade runs the update.sh already on disk — the previous version’s — so a migration only takes effect from the release after the one that needs it.' },
-      { type: 'changed', text: 'The bind address now decides whether proxy headers are trusted, with no env var required. A backend bound to loopback is unreachable from the network, so the only thing that can set X-Forwarded-For is a proxy on the same host and one hop is trusted; a backend bound to a routable address may be directly exposed, so it keeps ignoring the header until TRUST_PROXY says otherwise. An explicit TRUST_PROXY still wins either way, so existing configurations are unaffected. If 2.6.0 locked you out, this release restores access on its own — no .env edit needed.' },
+      { type: 'fixed', text: 'Upgrading to 2.6.0 locked operators out of nginx-fronted installs that had an IP allowlist configured. 2.6.0 stopped trusting X-Forwarded-For unless TRUST_PROXY was set - right for a directly-exposed backend, wrong for the standard install, where every request then resolved to 127.0.0.1, matched no allowlist entry, and login returned "403 IP not allowed" while the service still reported healthy. The TRUST_PROXY migration in 2.6.0’s update.sh could never have prevented it: the self-upgrade runs the update.sh already on disk - the previous version’s - so a migration only takes effect from the release after the one that needs it.' },
+      { type: 'changed', text: 'The bind address now decides whether proxy headers are trusted, with no env var required. A backend bound to loopback is unreachable from the network, so the only thing that can set X-Forwarded-For is a proxy on the same host and one hop is trusted; a backend bound to a routable address may be directly exposed, so it keeps ignoring the header until TRUST_PROXY says otherwise. An explicit TRUST_PROXY still wins either way, so existing configurations are unaffected. If 2.6.0 locked you out, this release restores access on its own - no .env edit needed.' },
     ],
   },
   {
     version: '2.6.0',
     date: '2026-07-27',
     changes: [
-      { type: 'changed', text: 'Proxy headers are no longer trusted by default. The backend trusted one proxy hop unconditionally, so an install reachable directly (BIND_ADDRESS=0.0.0.0 with no reverse proxy) let an unauthenticated client spoof X-Forwarded-For and walk past login rate limiting, 2FA rate limiting and the IP allowlist. Client IPs now come off the socket unless TRUST_PROXY opts in — update.sh sets it automatically for nginx-fronted installs. If you front VirtPilot with something else, add TRUST_PROXY=1 to packages/backend/.env yourself.' },
+      { type: 'changed', text: 'Proxy headers are no longer trusted by default. The backend trusted one proxy hop unconditionally, so an install reachable directly (BIND_ADDRESS=0.0.0.0 with no reverse proxy) let an unauthenticated client spoof X-Forwarded-For and walk past login rate limiting, 2FA rate limiting and the IP allowlist. Client IPs now come off the socket unless TRUST_PROXY opts in - update.sh sets it automatically for nginx-fronted installs. If you front VirtPilot with something else, add TRUST_PROXY=1 to packages/backend/.env yourself.' },
       { type: 'fixed', text: 'Three ways to kill the backend, one of them unauthenticated. A login attempt with a non-ASCII password crashed the process (the length check counted UTF-16 units while the comparison used UTF-8 bytes); an ISO download filename containing a space threw outside its error handler; and the WebSocket handlers registered their error listener only after several awaits, so a malformed frame in that window took the daemon down along with every live console, SSH and VNC session. Process-level guards now keep the service up rather than letting one bad request end it.' },
-      { type: 'fixed', text: 'A failed secret decryption no longer silently disables two-factor auth and the IP allowlist. Settings loading caught every error and returned defaults, so a rotated or mismatched ENCRYPTION_KEY turned 2FA off and emptied the allowlist without a word — and the next settings save made it permanent by overwriting the TOTP secret. Only a genuinely absent settings file now yields defaults.' },
+      { type: 'fixed', text: 'A failed secret decryption no longer silently disables two-factor auth and the IP allowlist. Settings loading caught every error and returned defaults, so a rotated or mismatched ENCRYPTION_KEY turned 2FA off and emptied the allowlist without a word - and the next settings save made it permanent by overwriting the TOTP secret. Only a genuinely absent settings file now yields defaults.' },
       { type: 'fixed', text: 'Deleting an "orphaned" disk during a libvirt outage no longer deletes live VM disks. The "is this VM still defined?" check failed open, so the Storage page marked every disk orphaned and the delete button removed real data. It now fails closed and reports an error.' },
       { type: 'fixed', text: 'Uploads and snapshot exports no longer overwrite live disk images. Templates are backing files for every VM created from them, so writing over one corrupted running guests. Colliding writes now return a conflict, and cross-filesystem moves write to a temporary file and rename instead of rewriting an inode QEMU has open. Replacing a template or ISO means deleting the old file first.' },
-      { type: 'fixed', text: 'Console, SSH and VNC sessions no longer leak. A client that vanished without closing cleanly left a virsh console pty, an SSH channel into the guest, or a VNC socket to QEMU open forever — and the VNC leak blocked all future VNC sessions for that VM. All three now use a heartbeat.' },
+      { type: 'fixed', text: 'Console, SSH and VNC sessions no longer leak. A client that vanished without closing cleanly left a virsh console pty, an SSH channel into the guest, or a VNC socket to QEMU open forever - and the VNC leak blocked all future VNC sessions for that VM. All three now use a heartbeat.' },
       { type: 'fixed', text: 'Firewall rules are no longer torn down before they are validated. The existing chains were flushed first, so a rule set that failed to apply left the VM with no filtering at all while the API reported success. Rules are now built and validated up front, applied strictly, and rolled back on failure.' },
       { type: 'fixed', text: 'Port forwarding no longer hijacks other guests’ traffic. The NAT rule matched on destination port alone, so forwarding a host port to one VM silently redirected every other guest’s outbound traffic on that port. Rules now match on the inbound interface, and existing ones are reconciled at startup.' },
       { type: 'changed', text: 'VM creation can no longer inject arbitrary libvirt device XML, and the download URL check now resolves hostnames rather than only inspecting literal addresses. Disk-download tickets are no longer accepted as full session tokens, revoked tokens survive a restart, and the service account can no longer rewrite the script that runs as root.' },
       { type: 'fixed', text: 'Re-running install.sh no longer destroys an existing install. It regenerated JWT_SECRET and ENCRYPTION_KEY and rewrote .env wholesale, orphaning every encrypted value on disk and discarding operator edits. It now reuses existing secrets and preserves unrelated settings. uninstall.sh no longer deletes VM disks it did not create.' },
       { type: 'fixed', text: 'Smaller fixes: cloud-init passwords containing a colon or backslash now work; VM names accepted at creation match what the rest of the app accepts; a backup schedule with an unrecognised frequency no longer loops every minute; the starter-template downloader can no longer run twice across tabs; the Backups page now shows backups belonging to deleted VMs; and a cleared disk-size field no longer silently provisions 20 GB.' },
-      { type: 'changed', text: 'Dependencies updated for published advisories, including tar (critical — used by backup and restore) and ws (high — every console session).' },
+      { type: 'changed', text: 'Dependencies updated for published advisories, including tar (critical - used by backup and restore) and ws (high - every console session).' },
     ],
   },
   {
     version: '2.5.4',
     date: '2026-06-03',
     changes: [
-      { type: 'changed', text: 'Dashboard health band no longer truncates long hostnames. The host status line used to cram the hostname and VM count onto one line, so longer hostnames were cut off — the hostname now sits on its own line with the VM count beneath it (full name on hover). The status block stays vertically centred against the vitals, so card alignment is unchanged.' },
+      { type: 'changed', text: 'Dashboard health band no longer truncates long hostnames. The host status line used to cram the hostname and VM count onto one line, so longer hostnames were cut off - the hostname now sits on its own line with the VM count beneath it (full name on hover). The status block stays vertically centred against the vitals, so card alignment is unchanged.' },
     ],
   },
   {
     version: '2.5.3',
     date: '2026-06-02',
     changes: [
-      { type: 'fixed', text: 'Action tooltips now appear on every VM action. The tooltip only worked when wrapping a raw DOM element, so the console action (a plain link) showed a tooltip but the power on / reboot / hard reset / shutdown / force off / delete actions did not. The hover (and now keyboard-focus) listeners sit on the tooltip wrapper itself, so tooltips work regardless of child type — fixing the same gap across the Templates, ISOs, Storage and VM detail pages too.' },
+      { type: 'fixed', text: 'Action tooltips now appear on every VM action. The tooltip only worked when wrapping a raw DOM element, so the console action (a plain link) showed a tooltip but the power on / reboot / hard reset / shutdown / force off / delete actions did not. The hover (and now keyboard-focus) listeners sit on the tooltip wrapper itself, so tooltips work regardless of child type - fixing the same gap across the Templates, ISOs, Storage and VM detail pages too.' },
     ],
   },
   {
     version: '2.5.2',
     date: '2026-06-02',
     changes: [
-      { type: 'fixed', text: 'Backups page styling now matches the rest of the app. In the VM list, the machine name rendered in a lighter sans-serif at the wrong size and sat top-aligned against its icon — it now uses the same mono semibold treatment as the VMs list and is vertically centred. Numeric columns (backup count, disk count) were a mix of mono and sans within the same tables and are now consistently mono.' },
+      { type: 'fixed', text: 'Backups page styling now matches the rest of the app. In the VM list, the machine name rendered in a lighter sans-serif at the wrong size and sat top-aligned against its icon - it now uses the same mono semibold treatment as the VMs list and is vertically centred. Numeric columns (backup count, disk count) were a mix of mono and sans within the same tables and are now consistently mono.' },
     ],
   },
   {
     version: '2.5.1',
     date: '2026-06-02',
     changes: [
-      { type: 'fixed', text: 'Dashboard Memory readout no longer flashes long decimals on refresh — the animated count-up now rounds to whole MB, matching the CPU/Disk/Network readouts.' },
-      { type: 'fixed', text: 'Starter template set: the Fedora 41 Cloud image was returning HTTP 404 (its mirror had pruned the release), so the starter set now ships Fedora 44 Cloud — the current stable Generic Cloud image.' },
+      { type: 'fixed', text: 'Dashboard Memory readout no longer flashes long decimals on refresh - the animated count-up now rounds to whole MB, matching the CPU/Disk/Network readouts.' },
+      { type: 'fixed', text: 'Starter template set: the Fedora 41 Cloud image was returning HTTP 404 (its mirror had pruned the release), so the starter set now ships Fedora 44 Cloud - the current stable Generic Cloud image.' },
       { type: 'added', text: 'Ubuntu 26.04 LTS Resolute added to the starter template set.' },
     ],
   },
@@ -251,11 +259,11 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '2.5.0',
     date: '2026-06-02',
     changes: [
-      { type: 'added', text: 'Dashboard health summary band. A full-width strip at the top gives an at-a-glance verdict — All systems healthy or N warnings, derived from KVM availability plus CPU/memory/disk thresholds — alongside CPU, memory and disk vitals with micro-bars, the running/total VM count, and a VirtPilot version chip.' },
+      { type: 'added', text: 'Dashboard health summary band. A full-width strip at the top gives an at-a-glance verdict - All systems healthy or N warnings, derived from KVM availability plus CPU/memory/disk thresholds - alongside CPU, memory and disk vitals with micro-bars, the running/total VM count, and a VirtPilot version chip.' },
       { type: 'added', text: 'VM roster on the Overview row. The old stat tiles are replaced with the actual machines, grouped by status: a per-OS logo derived from the source image, a live status dot, autostart and guest-agent flags, a recent-CPU sparkline for running VMs, and the vCPU/RAM allocation. Rows link straight to the VM.' },
       { type: 'added', text: 'Live, animated metrics. Vitals and metric-card values count up on load and glide between polls (respecting reduced-motion); every chart line carries a glowing "live" endpoint marker; and the metrics range toggle shows a pulsing dot when Live is selected.' },
-      { type: 'changed', text: 'Host Metrics are now a responsive 2×2 grid (CPU / Memory / Disk / Network) instead of four full-width stacked charts — roughly a third less scrolling.' },
-      { type: 'changed', text: 'Host identity card reworked into one aligned spec sheet — Hostname / CPU / QEMU / Kernel / Libvirt / Load / Network now share a single label→value rhythm with one consistent value style.' },
+      { type: 'changed', text: 'Host Metrics are now a responsive 2×2 grid (CPU / Memory / Disk / Network) instead of four full-width stacked charts - roughly a third less scrolling.' },
+      { type: 'changed', text: 'Host identity card reworked into one aligned spec sheet - Hostname / CPU / QEMU / Kernel / Libvirt / Load / Network now share a single label→value rhythm with one consistent value style.' },
       { type: 'changed', text: 'The VM console route (and its noVNC dependency) is lazy-loaded, trimming the main bundle so the dashboard loads faster.' },
     ],
   },
@@ -272,9 +280,9 @@ export const releaseNotes: ReleaseEntry[] = [
     changes: [
       { type: 'added', text: 'Terminal theme picker. A palette button in the VM Console header switches the xterm colour scheme between Tokyo Night (default), Dracula, Catppuccin Mocha, Gruvbox Dark, Nord, One Dark, and Solarized Dark. Themes apply to both Console and SSH tabs and to the page chrome background. The choice is per-device and is applied live without tearing down the active session.' },
       { type: 'added', text: 'VM consoles can open in a popup window. A toggle on the VMs page (default ON) routes the Console buttons to a 960×600 borderless popup instead of in-tab navigation. A second click on the same VM\'s button focuses the existing popup rather than spawning duplicates. If the browser blocks the popup we fall back to in-tab navigation and toast a hint.' },
-      { type: 'changed', text: 'VM console + SSH terminal rendering and responsiveness overhaul. The in-dashboard terminal (both Console and SSH tabs) now uses the Canvas renderer (~5–10× faster paint than the DOM default). System monospace stack (Menlo / Consolas / DejaVu Sans Mono) replaces Geist Mono so unicode glyphs nano/vi paint in status bars don\'t trigger per-glyph font substitution at non-monospace widths. Cell-aligned width calculation bypasses FitAddon\'s hard-coded scrollbar reservation so nano/vi/htop render edge-to-edge with no right-side gap and no clipped bottom row. ResizeObserver with rAF coalescing replaces window.resize. Ctrl+Shift+F searches the scrollback; Ctrl+Shift+V/C handles clipboard paste/copy. Auto-reconnect with exponential backoff (250 → 500 → 1000 → 2000 → 5000 ms) keeps the session alive across network blips; 20 s keepalive ping prevents NAT timeouts; scrollback survives reconnects. Thin progress bar shows during (re)connect.' },
-      { type: 'fixed', text: 'SSH terminal pty booted at placeholder 220×50 instead of the client\'s actual geometry. The backend\'s WebSocket message handler was attached inside the ssh.shell callback, which fires only after the SSH handshake completes (50–300 ms). The client\'s first resize message (sent on WS open) landed at the backend before any listener existed, and Node\'s ws library silently dropped it. Apps like nano/vi/htop therefore painted their UI at 220 cols — visible as a chunky right-side gap because the terminal is actually rendered at ~150 cols. The message handler now attaches at WS upgrade time and the pty is opened at the latest client-reported cols/rows; keystrokes typed during the handshake are buffered and drained when the shell stream is ready.' },
-      { type: 'fixed', text: 'Pty I/O is now binary on the wire. Pty output goes out as binary WebSocket frames (no UTF-8 round-trip on either side) and keystrokes go in as binary, with text frames reserved for JSON control messages (resize, ping). Closes a JSON-paste hijack — a pasted {"type":"resize",…} no longer accidentally resizes the pty.' },
+      { type: 'changed', text: 'VM console + SSH terminal rendering and responsiveness overhaul. The in-dashboard terminal (both Console and SSH tabs) now uses the Canvas renderer (~5-10× faster paint than the DOM default). System monospace stack (Menlo / Consolas / DejaVu Sans Mono) replaces Geist Mono so unicode glyphs nano/vi paint in status bars don\'t trigger per-glyph font substitution at non-monospace widths. Cell-aligned width calculation bypasses FitAddon\'s hard-coded scrollbar reservation so nano/vi/htop render edge-to-edge with no right-side gap and no clipped bottom row. ResizeObserver with rAF coalescing replaces window.resize. Ctrl+Shift+F searches the scrollback; Ctrl+Shift+V/C handles clipboard paste/copy. Auto-reconnect with exponential backoff (250 → 500 → 1000 → 2000 → 5000 ms) keeps the session alive across network blips; 20 s keepalive ping prevents NAT timeouts; scrollback survives reconnects. Thin progress bar shows during (re)connect.' },
+      { type: 'fixed', text: 'SSH terminal pty booted at placeholder 220×50 instead of the client\'s actual geometry. The backend\'s WebSocket message handler was attached inside the ssh.shell callback, which fires only after the SSH handshake completes (50-300 ms). The client\'s first resize message (sent on WS open) landed at the backend before any listener existed, and Node\'s ws library silently dropped it. Apps like nano/vi/htop therefore painted their UI at 220 cols - visible as a chunky right-side gap because the terminal is actually rendered at ~150 cols. The message handler now attaches at WS upgrade time and the pty is opened at the latest client-reported cols/rows; keystrokes typed during the handshake are buffered and drained when the shell stream is ready.' },
+      { type: 'fixed', text: 'Pty I/O is now binary on the wire. Pty output goes out as binary WebSocket frames (no UTF-8 round-trip on either side) and keystrokes go in as binary, with text frames reserved for JSON control messages (resize, ping). Closes a JSON-paste hijack - a pasted {"type":"resize",…} no longer accidentally resizes the pty.' },
     ],
   },
   {
@@ -288,15 +296,15 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '2.3.4',
     date: '2026-05-05',
     changes: [
-      { type: 'fixed', text: 'In-dashboard self-upgrade failed with "You are not currently on a branch." bootstrap.sh pins fresh installs to the latest release tag (git checkout v<release>), which leaves HEAD detached. The previous update.sh then ran git pull --ff-only, which has no upstream on a detached HEAD and aborted the entire update. The pull step is now a fetch + checkout -B main origin/main + reset --hard, so the working tree is forced back onto main regardless of prior state — detached HEAD, package-lock.json drift, a stale local main that diverged from origin. Operator state (STORAGE_ROOT, .env, generated .ssh/ host keypair, node_modules) lives outside git and is untouched. Hosts already stuck in detached HEAD on 2.3.2 need a one-time manual recovery (three git commands) to land on the new code; the dashboard self-upgrade then works going forward.' },
+      { type: 'fixed', text: 'In-dashboard self-upgrade failed with "You are not currently on a branch." bootstrap.sh pins fresh installs to the latest release tag (git checkout v<release>), which leaves HEAD detached. The previous update.sh then ran git pull --ff-only, which has no upstream on a detached HEAD and aborted the entire update. The pull step is now a fetch + checkout -B main origin/main + reset --hard, so the working tree is forced back onto main regardless of prior state - detached HEAD, package-lock.json drift, a stale local main that diverged from origin. Operator state (STORAGE_ROOT, .env, generated .ssh/ host keypair, node_modules) lives outside git and is untouched. Hosts already stuck in detached HEAD on 2.3.2 need a one-time manual recovery (three git commands) to land on the new code; the dashboard self-upgrade then works going forward.' },
     ],
   },
   {
     version: '2.3.3',
     date: '2026-05-05',
     changes: [
-      { type: 'fixed', text: 'Console / SSH / VNC tabs returned 403 once an IP whitelist was configured. The HTTP API used req.ip (which honours trust proxy and resolves to the real client from X-Forwarded-For), but the WebSocket upgrade handler was reading req.socket.remoteAddress directly — always 127.0.0.1 behind nginx — so any non-empty ipWhitelist rejected every console/SSH/VNC upgrade while the rest of the dashboard kept working. The upgrade handler now mirrors Express\'s trust-proxy walk over X-Forwarded-For. Regression since v1.6.0.' },
-      { type: 'fixed', text: 'Stale virsh console children outliving their WebSocket. node-pty\'s default kill() sends SIGHUP, which virsh console ignores while blocked in a libvirt RPC — leaving orphaned clients attached to a VM\'s serial PTY across browser refreshes. Cleanup now sends SIGTERM and escalates to SIGKILL after 1.5s.' },
+      { type: 'fixed', text: 'Console / SSH / VNC tabs returned 403 once an IP whitelist was configured. The HTTP API used req.ip (which honours trust proxy and resolves to the real client from X-Forwarded-For), but the WebSocket upgrade handler was reading req.socket.remoteAddress directly - always 127.0.0.1 behind nginx - so any non-empty ipWhitelist rejected every console/SSH/VNC upgrade while the rest of the dashboard kept working. The upgrade handler now mirrors Express\'s trust-proxy walk over X-Forwarded-For. Regression since v1.6.0.' },
+      { type: 'fixed', text: 'Stale virsh console children outliving their WebSocket. node-pty\'s default kill() sends SIGHUP, which virsh console ignores while blocked in a libvirt RPC - leaving orphaned clients attached to a VM\'s serial PTY across browser refreshes. Cleanup now sends SIGTERM and escalates to SIGKILL after 1.5s.' },
     ],
   },
   {
@@ -311,7 +319,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '2.3.1',
     date: '2026-05-05',
     changes: [
-      { type: 'fixed', text: 'Move button missing on the VmDetail Disks tab. getVmDisks enriches each disk with storageDirId/storageDirName so the UI knows where the file lives, but the underlying virsh lookup didn\'t accept a UUID input — and every public API path passes a UUID. Detect a UUID-shaped input and skip the round-trip.' },
+      { type: 'fixed', text: 'Move button missing on the VmDetail Disks tab. getVmDisks enriches each disk with storageDirId/storageDirName so the UI knows where the file lives, but the underlying virsh lookup didn\'t accept a UUID input - and every public API path passes a UUID. Detect a UUID-shaped input and skip the round-trip.' },
       { type: 'fixed', text: 'Move-to-wrong-purpose returned HTTP 500 instead of 4xx. Templates and ISOs move endpoints now map ValidationError to 400 and "not flagged for {purpose}" / "already exists" errors to 409.' },
       { type: 'fixed', text: '/tmp and /var/tmp were not in the forbidden list when registering a storage directory. /tmp is cleared on reboot, silently destroying VM disks on next boot. Both now rejected up-front.' },
       { type: 'fixed', text: 'Relative path registration ("templates" or similar) was rejected with "cannot be inside the VirtPilot install directory" because path.resolve runs the input through process.cwd(). Now rejected up-front with "must be absolute".' },
@@ -321,7 +329,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '2.3.0',
     date: '2026-05-05',
     changes: [
-      { type: 'added', text: 'Move templates, ISOs, and VM disks between storage directories. Each row in the Templates list, ISOs list, and the Storage page\'s VM Disks table gets a "Move to another storage directory" button alongside Delete. Moves are physical file moves on disk (cross-filesystem aware — falls back to copy + unlink when source and destination are on different mounts). VM disks additionally get their domain XML rewritten so libvirt knows the new path; the VM must be stopped before its disk can be moved. Templates with VMs created from them are blocked from moving (the qcow2 backing chain encodes the absolute path at create time, so moving would silently break those VMs at next start). ISOs currently attached as a CDROM to any VM are blocked for the same reason.' },
+      { type: 'added', text: 'Move templates, ISOs, and VM disks between storage directories. Each row in the Templates list, ISOs list, and the Storage page\'s VM Disks table gets a "Move to another storage directory" button alongside Delete. Moves are physical file moves on disk (cross-filesystem aware - falls back to copy + unlink when source and destination are on different mounts). VM disks additionally get their domain XML rewritten so libvirt knows the new path; the VM must be stopped before its disk can be moved. Templates with VMs created from them are blocked from moving (the qcow2 backing chain encodes the absolute path at create time, so moving would silently break those VMs at next start). ISOs currently attached as a CDROM to any VM are blocked for the same reason.' },
       { type: 'added', text: 'Missing-file detection for VM disks. The VM detail page surfaces an amber "missing" badge on any disk whose source path no longer exists on the host (mount disappeared, file deleted out from under VirtPilot, manual mv outside the dashboard). Each disk row also shows which storage directory holds the file. Detection runs on every VM info refresh.' },
     ],
   },
@@ -329,49 +337,49 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '2.2.0',
     date: '2026-05-05',
     changes: [
-      { type: 'added', text: 'Multiple storage directories. Templates, ISOs, and VM disks no longer have to live under /var/lib/virtpilot. Mount any local disk, NFS share, or iSCSI volume to a folder, register it on the redesigned Storage page, and pick it when uploading a template, downloading an ISO, creating a VM, or adding an extra disk. Each registered directory is purpose-tagged (templates / ISOs / VM disks — any combination), shows free/used space with a health indicator, and one directory per purpose can be flagged as the default for new uploads. The original /var/lib/virtpilot layout is auto-seeded on first boot as the "Local" directory with all three purposes set as default, so existing flows keep working untouched. Per-VM control state (NVRAM, name.txt, cloud-init seed) stays on the system root so libvirt can still start a VM if a non-default mount drops; only the qcow2 disk files migrate to the chosen directory.' },
+      { type: 'added', text: 'Multiple storage directories. Templates, ISOs, and VM disks no longer have to live under /var/lib/virtpilot. Mount any local disk, NFS share, or iSCSI volume to a folder, register it on the redesigned Storage page, and pick it when uploading a template, downloading an ISO, creating a VM, or adding an extra disk. Each registered directory is purpose-tagged (templates / ISOs / VM disks - any combination), shows free/used space with a health indicator, and one directory per purpose can be flagged as the default for new uploads. The original /var/lib/virtpilot layout is auto-seeded on first boot as the "Local" directory with all three purposes set as default, so existing flows keep working untouched. Per-VM control state (NVRAM, name.txt, cloud-init seed) stays on the system root so libvirt can still start a VM if a non-default mount drops; only the qcow2 disk files migrate to the chosen directory.' },
     ],
   },
   {
     version: '2.1.0',
     date: '2026-05-04',
     changes: [
-      { type: 'added', text: 'Download a VM\'s disk image. New download buttons on the VM detail "Disks" tab and on the Storage page next to each qcow2 file. Clicking either streams the disk straight from the host to the browser — no temp file, no double disk usage — so disks of any size go through without buffering. The VM must be stopped (or undefined / orphaned) before its disk can be downloaded; otherwise the file is being mutated live and the download would be torn. The button is disabled with a tooltip when the VM is running. Auth uses a single-shot, 60-second signed ticket bound to that one filename rather than the regular Bearer token, so it can ride in the URL without exposing the long-lived session. Useful for moving VMs between VirtPilot installations: download the disk on the source host, upload it back as a template on the destination.' },
+      { type: 'added', text: 'Download a VM\'s disk image. New download buttons on the VM detail "Disks" tab and on the Storage page next to each qcow2 file. Clicking either streams the disk straight from the host to the browser - no temp file, no double disk usage - so disks of any size go through without buffering. The VM must be stopped (or undefined / orphaned) before its disk can be downloaded; otherwise the file is being mutated live and the download would be torn. The button is disabled with a tooltip when the VM is running. Auth uses a single-shot, 60-second signed ticket bound to that one filename rather than the regular Bearer token, so it can ride in the URL without exposing the long-lived session. Useful for moving VMs between VirtPilot installations: download the disk on the source host, upload it back as a template on the destination.' },
     ],
   },
   {
     version: '2.0.5',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'Snapshot revert and snapshot-export-to-template still failed after v2.0.4, this time on the *write* side. `qemu-img create -b sealed overlay` couldn\'t create the revert overlay inside `vms/<uuid>/` (the dir was 0755 owned virtpilot:virtpilot — group can read+traverse but not write), and `qemu-img convert ... templates/<dest>.qcow2` couldn\'t write into the templates dir for the same reason. v2.0.5 bumps the storage subdirs to mode 0770 in `ensureDirs()` (templates, isos, vms, cloud-init, backups) so libvirt-qemu — a member of the virtpilot group via v1.21.6\'s group plumbing — can write into them. Per-VM dirs are also chmodded to 0770 in `createVmDisk` / `createBlankPrimaryDisk` / `createBlankDisk`. The parent `/var/lib/virtpilot` stays at 0750 from install.sh — the group can still traverse to find subdirs but can\'t see siblings.' },
+      { type: 'fixed', text: 'Snapshot revert and snapshot-export-to-template still failed after v2.0.4, this time on the *write* side. `qemu-img create -b sealed overlay` couldn\'t create the revert overlay inside `vms/<uuid>/` (the dir was 0755 owned virtpilot:virtpilot - group can read+traverse but not write), and `qemu-img convert ... templates/<dest>.qcow2` couldn\'t write into the templates dir for the same reason. v2.0.5 bumps the storage subdirs to mode 0770 in `ensureDirs()` (templates, isos, vms, cloud-init, backups) so libvirt-qemu - a member of the virtpilot group via v1.21.6\'s group plumbing - can write into them. Per-VM dirs are also chmodded to 0770 in `createVmDisk` / `createBlankPrimaryDisk` / `createBlankDisk`. The parent `/var/lib/virtpilot` stays at 0750 from install.sh - the group can still traverse to find subdirs but can\'t see siblings.' },
     ],
   },
   {
     version: '2.0.4',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'Snapshot delete (stopped path) and disk resize on a post-snapshot active disk still failed after v2.0.3. v2.0.3 routed VM-disk qemu-img calls via `sudo -u libvirt-qemu`, but external snapshot overlays emerge from `virsh snapshot-create-as` owned `virtpilot:virtpilot` mode 0600 — meaning libvirt-qemu (a member of the virtpilot group, but not the owner) could neither read nor write them. The qemu-img-as-libvirt-qemu invocations therefore EACCESed on the overlay even though the helper itself was correct. v2.0.4 adds a chmod 0660 in three places: (1) right after `virsh snapshot-create-as` succeeds, on every newly-created overlay path; (2) defensively at the start of each `deleteSnapshot` iteration in case libvirt has re-chowned in the interim; (3) in `resizeDisk` before invoking `qemu-img resize`, since the active disk may itself be a snapshot overlay. With the file mode at 0660 the virtpilot group (which includes libvirt-qemu per v1.21.6\'s group plumbing) gets read+write, and the qcow2-chain operations all succeed under either user.' },
+      { type: 'fixed', text: 'Snapshot delete (stopped path) and disk resize on a post-snapshot active disk still failed after v2.0.3. v2.0.3 routed VM-disk qemu-img calls via `sudo -u libvirt-qemu`, but external snapshot overlays emerge from `virsh snapshot-create-as` owned `virtpilot:virtpilot` mode 0600 - meaning libvirt-qemu (a member of the virtpilot group, but not the owner) could neither read nor write them. The qemu-img-as-libvirt-qemu invocations therefore EACCESed on the overlay even though the helper itself was correct. v2.0.4 adds a chmod 0660 in three places: (1) right after `virsh snapshot-create-as` succeeds, on every newly-created overlay path; (2) defensively at the start of each `deleteSnapshot` iteration in case libvirt has re-chowned in the interim; (3) in `resizeDisk` before invoking `qemu-img resize`, since the active disk may itself be a snapshot overlay. With the file mode at 0660 the virtpilot group (which includes libvirt-qemu per v1.21.6\'s group plumbing) gets read+write, and the qcow2-chain operations all succeed under either user.' },
     ],
   },
   {
     version: '2.0.3',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'Snapshot delete (and other qcow2-touching operations on started VMs) failed with `qemu-img: Could not open …: Permission denied`. Once a VM has run, libvirt\'s `dynamic_ownership=1` chowns the active qcow2 to `libvirt-qemu:kvm` mode 0644 and the snapshot overlay to mode 0600. The unprivileged backend user (`virtpilot`) can read mode-0644 group-readable files but cannot write them, and cannot read mode-0600 files at all — so any `qemu-img commit`, `qemu-img info` on the overlay, `qemu-img resize`, or `qemu-img convert` (snapshot-export-to-template) hit EACCES. v1.21.9 solved the same shape on the backup path by running `qemu-img convert` via `sudo -u libvirt-qemu`. v2.0.3 generalises that fix into a `qemuImg()` helper in `safeExec.ts` and routes every VM-disk-touching qemu-img call through it: snapshot delete (running + stopped paths), snapshot revert, snapshot-export-to-template (both external and live paths), disk resize, getSnapshotSizeBytes, and the to-template flow\'s backing-chain probe. The existing `virtpilot ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img` sudoers rule covers all of them. `qemu-img create` calls in `storageService` are unchanged — they write fresh files in already-virtpilot-owned directories. Pre-existing in v1.x — unrelated to the v2.0.0 UUID refactor — but fixed alongside the release.' },
+      { type: 'fixed', text: 'Snapshot delete (and other qcow2-touching operations on started VMs) failed with `qemu-img: Could not open …: Permission denied`. Once a VM has run, libvirt\'s `dynamic_ownership=1` chowns the active qcow2 to `libvirt-qemu:kvm` mode 0644 and the snapshot overlay to mode 0600. The unprivileged backend user (`virtpilot`) can read mode-0644 group-readable files but cannot write them, and cannot read mode-0600 files at all - so any `qemu-img commit`, `qemu-img info` on the overlay, `qemu-img resize`, or `qemu-img convert` (snapshot-export-to-template) hit EACCES. v1.21.9 solved the same shape on the backup path by running `qemu-img convert` via `sudo -u libvirt-qemu`. v2.0.3 generalises that fix into a `qemuImg()` helper in `safeExec.ts` and routes every VM-disk-touching qemu-img call through it: snapshot delete (running + stopped paths), snapshot revert, snapshot-export-to-template (both external and live paths), disk resize, getSnapshotSizeBytes, and the to-template flow\'s backing-chain probe. The existing `virtpilot ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img` sudoers rule covers all of them. `qemu-img create` calls in `storageService` are unchanged - they write fresh files in already-virtpilot-owned directories. Pre-existing in v1.x - unrelated to the v2.0.0 UUID refactor - but fixed alongside the release.' },
     ],
   },
   {
     version: '2.0.2',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'VM delete now tears down its iptables firewall chains and FORWARD jump rules. Previously, `firewallService.deleteFirewallConfig` only unlinked the per-VM `*-firewall.json` config; the `VP-IN-${uuid8}` / `VP-OUT-${uuid8}` chains and the FORWARD jump rules pivoting on the VM\'s IP persisted. If the same IP later got allocated to a different VM, the orphaned rules would still match traffic to/from that IP. The delete handler now snapshots the VM\'s primary IP before undefine (from `vmMeta.networks[].ip` or live ARP) and calls `removeVmFirewall(uuid, ip)` to flush + drop the chains and remove the FORWARD jumps. Pre-existing in v1.x — unrelated to the v2.0.0 UUID refactor — but easy to fix while we were here.' },
+      { type: 'fixed', text: 'VM delete now tears down its iptables firewall chains and FORWARD jump rules. Previously, `firewallService.deleteFirewallConfig` only unlinked the per-VM `*-firewall.json` config; the `VP-IN-${uuid8}` / `VP-OUT-${uuid8}` chains and the FORWARD jump rules pivoting on the VM\'s IP persisted. If the same IP later got allocated to a different VM, the orphaned rules would still match traffic to/from that IP. The delete handler now snapshots the VM\'s primary IP before undefine (from `vmMeta.networks[].ip` or live ARP) and calls `removeVmFirewall(uuid, ip)` to flush + drop the chains and remove the FORWARD jumps. Pre-existing in v1.x - unrelated to the v2.0.0 UUID refactor - but easy to fix while we were here.' },
     ],
   },
   {
     version: '2.0.1',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'Rename failed with `domain \'X\' is already defined with uuid Y`. The v2.0.0 rename flow assumed `virsh define` on an existing `<uuid>` would update the domain\'s `<name>` element in place. It does not — libvirt rejects the redefine because the existing entry has a different name. Restored the v1-era `undefine --keep-nvram --snapshots-metadata` + `define` cycle: NVRAM (UUID-keyed) survives the cycle untouched, snapshot metadata is preserved, and the domain comes back under the new name with the same UUID. BIOS-firmware VMs that reject `--keep-nvram` fall back to a plain `undefine --snapshots-metadata`.' },
+      { type: 'fixed', text: 'Rename failed with `domain \'X\' is already defined with uuid Y`. The v2.0.0 rename flow assumed `virsh define` on an existing `<uuid>` would update the domain\'s `<name>` element in place. It does not - libvirt rejects the redefine because the existing entry has a different name. Restored the v1-era `undefine --keep-nvram --snapshots-metadata` + `define` cycle: NVRAM (UUID-keyed) survives the cycle untouched, snapshot metadata is preserved, and the domain comes back under the new name with the same UUID. BIOS-firmware VMs that reject `--keep-nvram` fall back to a plain `undefine --snapshots-metadata`.' },
     ],
   },
   {
@@ -389,29 +397,29 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.22.0',
     date: '2026-05-04',
     changes: [
-      { type: 'changed', text: '`install.sh` no longer prompts for nginx — it is always installed. The reverse proxy is the only sensible default (TLS termination, request streaming, large-upload handling, single public surface), and the prompt was a foot-gun: skipping it left the Node backend bound to `0.0.0.0:3001` directly, with no separation between TLS termination and application code. The `VP_NGINX=` env var, the TTY question, and the `USE_NGINX` branches in the closing summary are gone. Existing installs are unaffected — `update.sh` doesn\'t run install.sh — but every fresh install now lands on the nginx-fronted topology that v1.21.0 introduced.' },
-      { type: 'added', text: 'Default NAT network "myNet" is seeded on fresh install. Before today, a freshly installed dashboard had zero networks and the operator had to visit the Networks page and create one before any VM could get a NIC. `install.sh` now defines a libvirt NAT network (bridge `vp0`, CIDR `10.0.1.0/24`, gateway `10.0.1.1`, DHCP `10.0.1.2–10.0.1.254`, DNS `1.1.1.1` + `8.8.8.8`) and appends a matching entry to `/var/lib/virtpilot/networks.json` so the dashboard surfaces it immediately. The seed step is idempotent — re-running `install.sh` on an install that already has a `myNet` entry leaves it in place — and only fires on fresh installs (`update.sh` never runs install.sh).' },
+      { type: 'changed', text: '`install.sh` no longer prompts for nginx - it is always installed. The reverse proxy is the only sensible default (TLS termination, request streaming, large-upload handling, single public surface), and the prompt was a foot-gun: skipping it left the Node backend bound to `0.0.0.0:3001` directly, with no separation between TLS termination and application code. The `VP_NGINX=` env var, the TTY question, and the `USE_NGINX` branches in the closing summary are gone. Existing installs are unaffected - `update.sh` doesn\'t run install.sh - but every fresh install now lands on the nginx-fronted topology that v1.21.0 introduced.' },
+      { type: 'added', text: 'Default NAT network "myNet" is seeded on fresh install. Before today, a freshly installed dashboard had zero networks and the operator had to visit the Networks page and create one before any VM could get a NIC. `install.sh` now defines a libvirt NAT network (bridge `vp0`, CIDR `10.0.1.0/24`, gateway `10.0.1.1`, DHCP `10.0.1.2-10.0.1.254`, DNS `1.1.1.1` + `8.8.8.8`) and appends a matching entry to `/var/lib/virtpilot/networks.json` so the dashboard surfaces it immediately. The seed step is idempotent - re-running `install.sh` on an install that already has a `myNet` entry leaves it in place - and only fires on fresh installs (`update.sh` never runs install.sh).' },
     ],
   },
   {
     version: '1.21.11',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: '`sudo: unable to change to root gid: Operation not permitted` survived both v1.21.8 and v1.21.10. v1.21.8 removed the explicit `NoNewPrivileges=true` from the unit; v1.21.10 dropped `CapabilityBoundingSet=`. Both fixes were aimed at the right symptom but missed the actual switch: per `systemd.exec(5)`, `RestrictSUIDSGID=true` *"implies `NoNewPrivileges=yes`, ignoring the value of [the explicit `NoNewPrivileges`] setting"*. So the kernel `no_new_privs` bit was still being set on every service start by the `RestrictSUIDSGID` line in the unit, the `setuid` bit on `/usr/bin/sudo` therefore did nothing, and sudo aborted in its init phase before it ever reached `qemu-img` — same error message regardless of which intermediate hardening line was removed. The v1.21.8 release shipped without ever exercising the in-app self-upgrade flow (which goes through `sudo systemd-run`); manual `sudo bash update.sh` from SSH masked the regression because that path is already root and never invokes setuid sudo. `RestrictSUIDSGID` is now omitted from the unit and stripped from any pre-existing live unit by `update.sh`. The protection it nominally offered was illusory in this service: it blocks *creating* setuid files, not *exec\'ing* them, and the backend has no reason to `chmod +s` anything. Real isolation continues to come from `ProtectSystem=strict` + `ProtectKernel*` + `ReadWritePaths=/var/lib/virtpilot`.' },
+      { type: 'fixed', text: '`sudo: unable to change to root gid: Operation not permitted` survived both v1.21.8 and v1.21.10. v1.21.8 removed the explicit `NoNewPrivileges=true` from the unit; v1.21.10 dropped `CapabilityBoundingSet=`. Both fixes were aimed at the right symptom but missed the actual switch: per `systemd.exec(5)`, `RestrictSUIDSGID=true` *"implies `NoNewPrivileges=yes`, ignoring the value of [the explicit `NoNewPrivileges`] setting"*. So the kernel `no_new_privs` bit was still being set on every service start by the `RestrictSUIDSGID` line in the unit, the `setuid` bit on `/usr/bin/sudo` therefore did nothing, and sudo aborted in its init phase before it ever reached `qemu-img` - same error message regardless of which intermediate hardening line was removed. The v1.21.8 release shipped without ever exercising the in-app self-upgrade flow (which goes through `sudo systemd-run`); manual `sudo bash update.sh` from SSH masked the regression because that path is already root and never invokes setuid sudo. `RestrictSUIDSGID` is now omitted from the unit and stripped from any pre-existing live unit by `update.sh`. The protection it nominally offered was illusory in this service: it blocks *creating* setuid files, not *exec\'ing* them, and the backend has no reason to `chmod +s` anything. Real isolation continues to come from `ProtectSystem=strict` + `ProtectKernel*` + `ReadWritePaths=/var/lib/virtpilot`.' },
     ],
   },
   {
     version: '1.21.10',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'The v1.21.9 backup fix died inside sudo with `unable to change to root gid: Operation not permitted` and `error initializing audit plugin sudoers_audit`. v1.21.0 pinned `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW` on `virtpilot.service`. The bounding set persists across `execve`, so when the setuid-root sudo binary takes over it lacks `CAP_SETUID`, `CAP_SETGID` and `CAP_AUDIT_WRITE` — sudo\'s first `setgid(0)` and the audit plugin\'s `auditctl` calls both `EPERM` out, and the entire invocation aborts before it ever reaches `qemu-img`. Same root cause would silently break `sudo systemd-run` (in-app self-upgrade) and `sudo apt-get` (apt upgrade flow); v1.21.8 only removed `NoNewPrivileges`, not the bounding set, so those paths were one user-test away from the same wall. The bounding set now drops back to the systemd default — `ProtectSystem=strict` + `ProtectKernel*` + `ReadWritePaths` are still in force for the real isolation, and the blast-radius argument for pinning the bounding set is illusory anyway since the service already has sudo rights to apt-get/systemctl per `/etc/sudoers.d/virtpilot`. `update.sh` strips `CapabilityBoundingSet=` from any pre-existing live unit and runs `daemon-reload` before restart, so a one-time `sudo bash /usr/local/virtpilot/update.sh` heals an already-stuck install.' },
+      { type: 'fixed', text: 'The v1.21.9 backup fix died inside sudo with `unable to change to root gid: Operation not permitted` and `error initializing audit plugin sudoers_audit`. v1.21.0 pinned `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW` on `virtpilot.service`. The bounding set persists across `execve`, so when the setuid-root sudo binary takes over it lacks `CAP_SETUID`, `CAP_SETGID` and `CAP_AUDIT_WRITE` - sudo\'s first `setgid(0)` and the audit plugin\'s `auditctl` calls both `EPERM` out, and the entire invocation aborts before it ever reaches `qemu-img`. Same root cause would silently break `sudo systemd-run` (in-app self-upgrade) and `sudo apt-get` (apt upgrade flow); v1.21.8 only removed `NoNewPrivileges`, not the bounding set, so those paths were one user-test away from the same wall. The bounding set now drops back to the systemd default - `ProtectSystem=strict` + `ProtectKernel*` + `ReadWritePaths` are still in force for the real isolation, and the blast-radius argument for pinning the bounding set is illusory anyway since the service already has sudo rights to apt-get/systemctl per `/etc/sudoers.d/virtpilot`. `update.sh` strips `CapabilityBoundingSet=` from any pre-existing live unit and runs `daemon-reload` before restart, so a one-time `sudo bash /usr/local/virtpilot/update.sh` heals an already-stuck install.' },
     ],
   },
   {
     version: '1.21.9',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'Backups failed with `qemu-img: Could not open … Permission denied` for any VM that had ever been started. v1.21.0 moved the backend off root onto the unprivileged `virtpilot` system user. While a VM is running (or was running and libvirt has not yet restored the original ownership), libvirt\'s `dynamic_ownership=1` chowns the qcow2 to `libvirt-qemu` mode 0600 — so the backend\'s own `qemu-img convert` call ran straight into EACCES. The v1.21.6 fix made libvirt-qemu a member of the `virtpilot` group, which solved the *forward* direction (libvirt-qemu traversing into virtpilot\'s storage tree); the reverse — virtpilot reading a libvirt-qemu-owned file — is not solvable by group membership when the file is mode 0600. `backupService` now invokes `qemu-img convert` via `sudo -n -u libvirt-qemu /usr/bin/qemu-img …`, gated by a tightly-scoped sudoers rule (`virtpilot ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img`). The destination directory is bumped from 0755 to 0770 so libvirt-qemu (already in the `virtpilot` group) can write the converted qcow2 into the operator\'s backup tree without any further widening. `update.sh` adds the missing sudoers line on existing installs and `visudo`-validates the file before reload. No qemu.conf or libvirtd changes — every other path keeps running unprivileged.' },
+      { type: 'fixed', text: 'Backups failed with `qemu-img: Could not open … Permission denied` for any VM that had ever been started. v1.21.0 moved the backend off root onto the unprivileged `virtpilot` system user. While a VM is running (or was running and libvirt has not yet restored the original ownership), libvirt\'s `dynamic_ownership=1` chowns the qcow2 to `libvirt-qemu` mode 0600 - so the backend\'s own `qemu-img convert` call ran straight into EACCES. The v1.21.6 fix made libvirt-qemu a member of the `virtpilot` group, which solved the *forward* direction (libvirt-qemu traversing into virtpilot\'s storage tree); the reverse - virtpilot reading a libvirt-qemu-owned file - is not solvable by group membership when the file is mode 0600. `backupService` now invokes `qemu-img convert` via `sudo -n -u libvirt-qemu /usr/bin/qemu-img …`, gated by a tightly-scoped sudoers rule (`virtpilot ALL=(libvirt-qemu) NOPASSWD: /usr/bin/qemu-img`). The destination directory is bumped from 0755 to 0770 so libvirt-qemu (already in the `virtpilot` group) can write the converted qcow2 into the operator\'s backup tree without any further widening. `update.sh` adds the missing sudoers line on existing installs and `visudo`-validates the file before reload. No qemu.conf or libvirtd changes - every other path keeps running unprivileged.' },
     ],
   },
   {
@@ -425,38 +433,38 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.21.7',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'Plaintext guest password no longer ships with every `/api/vms/<name>/meta` poll. The Access card on the VM detail page used to receive the decrypted root password as part of the routine 10-second meta refresh, so the secret sat in the React Query cache, in nginx access logs that include response bodies, and in any browser devtools tab the operator had open. The password now lives behind a separate `/api/vms/<name>/credentials` endpoint that\'s only hit when the operator clicks the eye icon or the copy icon — the standing `/meta` payload no longer carries the secret at all. UI behaviour is unchanged for the operator.' },
+      { type: 'fixed', text: 'Plaintext guest password no longer ships with every `/api/vms/<name>/meta` poll. The Access card on the VM detail page used to receive the decrypted root password as part of the routine 10-second meta refresh, so the secret sat in the React Query cache, in nginx access logs that include response bodies, and in any browser devtools tab the operator had open. The password now lives behind a separate `/api/vms/<name>/credentials` endpoint that\'s only hit when the operator clicks the eye icon or the copy icon - the standing `/meta` payload no longer carries the secret at all. UI behaviour is unchanged for the operator.' },
       { type: 'fixed', text: 'Backup restore can no longer write disks outside `STORAGE_ROOT/vms/`. `POST /api/backups/<vmName>/<backupId>/restore` accepted a `newVmName` body field that fed straight into `path.join(vmsDir, newVmName)`. A payload like `"../../etc/cron.d/x"` resolved outside `vmsDir` and the restore loop would happily copy the backup\'s qcow2 files into that arbitrary directory (whatever the `virtpilot` service user could touch). The restore handler now runs `validateVmName()` *before* any path math, so a traversal payload is rejected instead of being normalised by `path.join`.' },
       { type: 'fixed', text: 'Backup routes reject malformed `:backupId` URL params. `GET`, `DELETE`, and `POST .../restore` all accepted any string as the backup id and passed it straight through `path.join(backupRoot, vmName, id)`. URL-encoded `..%2F` traversal worked because Express doesn\'t strip `..` from path params. All three endpoints now gate on the strict `^\\d{8}T\\d{6}Z-[0-9a-f]{6}$` shape that `backupId()` actually produces, so the `path.join` only ever sees a known-good leaf id.' },
-      { type: 'changed', text: 'WebSocket auth no longer accepts the legacy `?token=<jwt>` query param. v1.21.0 moved console/SSH/VNC tokens to `Sec-WebSocket-Protocol: virtpilot.token.<jwt>` to keep them out of nginx logs, journalctl, and browser history, but the server kept honouring the old query-string form during the upgrade window. The fallback is gone — the dashboard already uses the header form, so anyone on a build older than v1.21.0 just needs to refresh.' },
+      { type: 'changed', text: 'WebSocket auth no longer accepts the legacy `?token=<jwt>` query param. v1.21.0 moved console/SSH/VNC tokens to `Sec-WebSocket-Protocol: virtpilot.token.<jwt>` to keep them out of nginx logs, journalctl, and browser history, but the server kept honouring the old query-string form during the upgrade window. The fallback is gone - the dashboard already uses the header form, so anyone on a build older than v1.21.0 just needs to refresh.' },
     ],
   },
   {
     version: '1.21.6',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'Clean install couldn\'t start any VM — `Cannot access storage file ... (as uid:64055, gid:994): Permission denied`. `install.sh` chowned `/var/lib/virtpilot` to `virtpilot:virtpilot` mode 750, but QEMU runs as `libvirt-qemu` and that user wasn\'t in the `virtpilot` group, so it couldn\'t even traverse the storage tree to reach `vms/<name>/disk.qcow2`. libvirt\'s `dynamic_ownership` would have handled the disk file\'s own permissions, but path traversal failed first. The installer now adds `libvirt-qemu` to the `virtpilot` group and restarts `libvirtd` so the daemon picks up the new supplementary group before forking qemu. Existing installs: re-run `install.sh` (idempotent) or do `sudo usermod -aG virtpilot libvirt-qemu && sudo systemctl restart libvirtd` once.' },
+      { type: 'fixed', text: 'Clean install couldn\'t start any VM - `Cannot access storage file ... (as uid:64055, gid:994): Permission denied`. `install.sh` chowned `/var/lib/virtpilot` to `virtpilot:virtpilot` mode 750, but QEMU runs as `libvirt-qemu` and that user wasn\'t in the `virtpilot` group, so it couldn\'t even traverse the storage tree to reach `vms/<name>/disk.qcow2`. libvirt\'s `dynamic_ownership` would have handled the disk file\'s own permissions, but path traversal failed first. The installer now adds `libvirt-qemu` to the `virtpilot` group and restarts `libvirtd` so the daemon picks up the new supplementary group before forking qemu. Existing installs: re-run `install.sh` (idempotent) or do `sudo usermod -aG virtpilot libvirt-qemu && sudo systemctl restart libvirtd` once.' },
     ],
   },
   {
     version: '1.21.5',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'The v1.21.4 CORS fix didn\'t work behind nginx. I checked `URL.host === req.headers.host` for same-origin, but nginx\'s `proxy_set_header Host $host` *strips the port* — so the backend saw `Host: 89.167.48.215` while the Origin URL still said `89.167.48.215:3001`. They never matched and the cors callback errored on every same-origin asset request, producing the same 500 + `text/html` symptoms as v1.21.3. CORS now compares hostnames only (`URL.hostname` against `req.headers.host` with the port stripped), which is correct regardless of whether the request arrives directly or via nginx. Also patched the bundled nginx vhost to use `$http_host` instead of `$host` so the backend sees the original `Host` header verbatim' },
+      { type: 'fixed', text: 'The v1.21.4 CORS fix didn\'t work behind nginx. I checked `URL.host === req.headers.host` for same-origin, but nginx\'s `proxy_set_header Host $host` *strips the port* - so the backend saw `Host: 89.167.48.215` while the Origin URL still said `89.167.48.215:3001`. They never matched and the cors callback errored on every same-origin asset request, producing the same 500 + `text/html` symptoms as v1.21.3. CORS now compares hostnames only (`URL.hostname` against `req.headers.host` with the port stripped), which is correct regardless of whether the request arrives directly or via nginx. Also patched the bundled nginx vhost to use `$http_host` instead of `$host` so the backend sees the original `Host` header verbatim' },
     ],
   },
   {
     version: '1.21.4',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: 'White page after a fresh v1.21 install — the JS bundle returned 500 and the CSS came back as `text/html`. Two interacting bugs in the v1.21.0 hardening: (1) the new CORS middleware accepted requests only when `Origin` was on the `ALLOWED_ORIGINS` allow-list, but Vite\'s `<script crossorigin>` tag makes the browser send an `Origin` header even for same-origin module preloads — so the cors callback errored, Express returned 500 to the script request, and the SPA never mounted. The CSS request fell through to the SPA catch-all and came back with `text/html` for the same reason. CORS now treats any request whose `Origin` host matches the request\'s `Host` header as same-origin and allows it unconditionally; cross-origin still gates on `ALLOWED_ORIGINS`. (2) the CSP blocked the Google Fonts stylesheet (`fonts.googleapis.com`) and font files (`fonts.gstatic.com`) — secondary to the white page but cosmetic-broken on its own. CSP now allows both, plus an explicit `style-src-elem`' },
+      { type: 'fixed', text: 'White page after a fresh v1.21 install - the JS bundle returned 500 and the CSS came back as `text/html`. Two interacting bugs in the v1.21.0 hardening: (1) the new CORS middleware accepted requests only when `Origin` was on the `ALLOWED_ORIGINS` allow-list, but Vite\'s `<script crossorigin>` tag makes the browser send an `Origin` header even for same-origin module preloads - so the cors callback errored, Express returned 500 to the script request, and the SPA never mounted. The CSS request fell through to the SPA catch-all and came back with `text/html` for the same reason. CORS now treats any request whose `Origin` host matches the request\'s `Host` header as same-origin and allows it unconditionally; cross-origin still gates on `ALLOWED_ORIGINS`. (2) the CSP blocked the Google Fonts stylesheet (`fonts.googleapis.com`) and font files (`fonts.gstatic.com`) - secondary to the white page but cosmetic-broken on its own. CSP now allows both, plus an explicit `style-src-elem`' },
     ],
   },
   {
     version: '1.21.3',
     date: '2026-05-04',
     changes: [
-      { type: 'fixed', text: '`bootstrap.sh` and `update.sh` still hit "dubious ownership" on hosts that already had v1.21 installed, even after the v1.21.2 fix. The previous fix wrote `safe.directory` via `git config --global`, but under `curl … | sudo bash` the resolved `$HOME` doesn\'t always end up at `/root` — the config write lands somewhere git won\'t read back from. Both scripts now pass `safe.directory` inline via `git -c safe.directory=…` on every invocation, which is immune to whichever `.gitconfig` HOME ends up resolving to. They also try a best-effort `git config --system --add safe.directory` (writes to `/etc/gitconfig` so future tooling still benefits) but no longer depend on it' },
+      { type: 'fixed', text: '`bootstrap.sh` and `update.sh` still hit "dubious ownership" on hosts that already had v1.21 installed, even after the v1.21.2 fix. The previous fix wrote `safe.directory` via `git config --global`, but under `curl … | sudo bash` the resolved `$HOME` doesn\'t always end up at `/root` - the config write lands somewhere git won\'t read back from. Both scripts now pass `safe.directory` inline via `git -c safe.directory=…` on every invocation, which is immune to whichever `.gitconfig` HOME ends up resolving to. They also try a best-effort `git config --system --add safe.directory` (writes to `/etc/gitconfig` so future tooling still benefits) but no longer depend on it' },
     ],
   },
   {
@@ -477,21 +485,21 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.21.0',
     date: '2026-05-03',
     changes: [
-      { type: 'changed', text: 'Comprehensive security hardening pass — every Critical and High finding from the public-IP review is addressed. After upgrade you must re-enter your login password (legacy plaintext is migrated to a hash on first login) and existing 2FA secrets are silently re-encrypted on the next settings save' },
+      { type: 'changed', text: 'Comprehensive security hardening pass - every Critical and High finding from the public-IP review is addressed. After upgrade you must re-enter your login password (legacy plaintext is migrated to a hash on first login) and existing 2FA secrets are silently re-encrypted on the next settings save' },
       { type: 'changed', text: 'Backend now runs as the unprivileged `virtpilot` system user, not root. `install.sh` creates a dedicated account with `libvirt`/`kvm`/`systemd-journal` group membership and `CAP_NET_ADMIN`/`CAP_NET_RAW` ambient capabilities, sandboxed via `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `ProtectKernelTunables`, `ProtectKernelModules`, `RestrictSUIDSGID`. The handful of operations that still need root go through a tightly-scoped `/etc/sudoers.d/virtpilot` allow-list' },
-      { type: 'added', text: 'Login password is hashed with scrypt at install time and verified with `crypto.timingSafeEqual()`. The runtime accepts both `AUTH_PASSWORD_HASH` (preferred) and the legacy plaintext `AUTH_PASSWORD` for backwards compatibility — the first successful login on an upgraded install rewrites `.env` to swap in the hash and remove the plaintext line' },
-      { type: 'added', text: 'Brute-force-resistant auth — rate limiter caps `/api/auth/login` and `/api/auth/verify-totp` at 5/10 attempts per 15 minutes per IP, then a 15-minute lockout. TOTP codes are tracked in a replay-protection map so the same code can\'t be submitted twice inside its 90-second tolerance window' },
+      { type: 'added', text: 'Login password is hashed with scrypt at install time and verified with `crypto.timingSafeEqual()`. The runtime accepts both `AUTH_PASSWORD_HASH` (preferred) and the legacy plaintext `AUTH_PASSWORD` for backwards compatibility - the first successful login on an upgraded install rewrites `.env` to swap in the hash and remove the plaintext line' },
+      { type: 'added', text: 'Brute-force-resistant auth - rate limiter caps `/api/auth/login` and `/api/auth/verify-totp` at 5/10 attempts per 15 minutes per IP, then a 15-minute lockout. TOTP codes are tracked in a replay-protection map so the same code can\'t be submitted twice inside its 90-second tolerance window' },
       { type: 'added', text: 'Logout actually revokes the JWT. Previously a leaked token was usable for the full 24-hour TTL; the new `/api/auth/logout` endpoint adds the bearer token to a server-side revocation list that `requireAuth` and the WebSocket upgrade handler both consult' },
-      { type: 'changed', text: 'WebSocket auth moves out of the URL. Console/SSH/VNC endpoints negotiate the JWT via `Sec-WebSocket-Protocol: virtpilot.token.<jwt>` instead of `?token=` — tokens no longer leak into nginx access logs, journalctl, or browser history. SSE endpoints (apt upgrade, virtpilot self-upgrade) similarly switched from `EventSource` to `fetch`+`ReadableStream` so the JWT rides in the `Authorization` header. Each WebSocket gets a `maxPayload` cap so a malicious peer can\'t memory-exhaust the host with one giant frame' },
-      { type: 'changed', text: 'Pervasive command-injection elimination. Every shell-out (`virsh`, `iptables`, `ip`, `qemu-img`, `genisoimage`, `apt`, `git`, `systemctl`, `systemd-run`, …) now goes through a single `safeExec.run()` helper using `execFile` with array arguments — no more `exec()` with concatenated strings. A new `lib/validate.ts` gates VM/network/snapshot names, MACs, IPs, CIDRs, ports, port ranges, ICMP types, disk targets, NIC names, bridge names and filenames at every public boundary. Cloud-init `meta-data`/`user-data`/`network-config` are rebuilt with explicit YAML quoting so a hostname with embedded newlines can\'t inject extra cloud-config keys, and SSH key text containing newlines can\'t append `command="…"` lines to `authorized_keys`' },
+      { type: 'changed', text: 'WebSocket auth moves out of the URL. Console/SSH/VNC endpoints negotiate the JWT via `Sec-WebSocket-Protocol: virtpilot.token.<jwt>` instead of `?token=` - tokens no longer leak into nginx access logs, journalctl, or browser history. SSE endpoints (apt upgrade, virtpilot self-upgrade) similarly switched from `EventSource` to `fetch`+`ReadableStream` so the JWT rides in the `Authorization` header. Each WebSocket gets a `maxPayload` cap so a malicious peer can\'t memory-exhaust the host with one giant frame' },
+      { type: 'changed', text: 'Pervasive command-injection elimination. Every shell-out (`virsh`, `iptables`, `ip`, `qemu-img`, `genisoimage`, `apt`, `git`, `systemctl`, `systemd-run`, …) now goes through a single `safeExec.run()` helper using `execFile` with array arguments - no more `exec()` with concatenated strings. A new `lib/validate.ts` gates VM/network/snapshot names, MACs, IPs, CIDRs, ports, port ranges, ICMP types, disk targets, NIC names, bridge names and filenames at every public boundary. Cloud-init `meta-data`/`user-data`/`network-config` are rebuilt with explicit YAML quoting so a hostname with embedded newlines can\'t inject extra cloud-config keys, and SSH key text containing newlines can\'t append `command="…"` lines to `authorized_keys`' },
       { type: 'added', text: 'SSRF guard on URL-driven downloads. The "download ISO/template from URL" endpoints reject anything that isn\'t `http`/`https`, anything resolving to RFC1918/loopback/link-local/CGNAT/IPv6 ULA addresses or to `localhost`/`169.254.169.254`/`::1`, with each redirect target re-validated. Operators on private mirrors can opt out with `ALLOW_PRIVATE_DOWNLOAD=1`' },
       { type: 'fixed', text: 'Path-traversal hardening on uploads, deletes, archives, and backup restore. Multer uploads `path.basename()` `originalname` before joining; tar.gz ISO extractor rejects entries with absolute paths or `..` components (zip-slip); `DELETE` routes re-validate path parameters; `restoreBackup` strips directory components from manifest disk filenames so a tampered backup tarball can\'t write outside the VM directory' },
       { type: 'changed', text: 'CORS now defaults to same-origin only (set `ALLOWED_ORIGINS=https://example.com` for cross-origin frontends) instead of `origin: true, credentials: true`. Helmet\'s CSP is restored with a tight directive set' },
       { type: 'added', text: 'TOTP secrets and VM passwords encrypted at rest. New `lib/secretsCrypto.ts` provides AES-256-GCM with a key derived from the auto-generated `ENCRYPTION_KEY`; legacy plaintext values pass through transparently and are re-encrypted on the next save. `vm-metadata.json` and `user-settings.json` are written with mode 0600' },
       { type: 'added', text: 'Self-upgrade requires TOTP step-up when 2FA is enabled, and is rate-limited to one attempt per 5 minutes. A stolen JWT can no longer push a malicious tag through the in-dashboard self-upgrade path without also stealing the user\'s authenticator code' },
-      { type: 'changed', text: 'Default bind address is now `127.0.0.1`, not `0.0.0.0`. Operators put nginx/Caddy in front of port 3001 with a real cert; running directly on a public IP requires explicit opt-in via `BIND_ADDRESS=0.0.0.0` in `.env`. The TLS cert generator stops using `CN=test` — it picks the actual hostname (or, if that\'s empty, the primary IP)' },
+      { type: 'changed', text: 'Default bind address is now `127.0.0.1`, not `0.0.0.0`. Operators put nginx/Caddy in front of port 3001 with a real cert; running directly on a public IP requires explicit opt-in via `BIND_ADDRESS=0.0.0.0` in `.env`. The TLS cert generator stops using `CN=test` - it picks the actual hostname (or, if that\'s empty, the primary IP)' },
       { type: 'changed', text: 'Bootstrap pins to the latest release tag by default. `bootstrap.sh` resolves the latest GitHub release tag and checks that ref out instead of tracking `main`, so a compromise of `main` doesn\'t auto-deploy to every fresh install. Override with `VP_REF=main` or `VP_REF=v1.20.0`' },
-      { type: 'changed', text: '`npm ci` instead of `npm install` during install/update — the lockfile is treated as authoritative and refuses to install if `package.json` and `package-lock.json` disagree (defends against tampered npm registry mirrors). `update.sh` now also runs npm as the `virtpilot` user instead of root' },
+      { type: 'changed', text: '`npm ci` instead of `npm install` during install/update - the lockfile is treated as authoritative and refuses to install if `package.json` and `package-lock.json` disagree (defends against tampered npm registry mirrors). `update.sh` now also runs npm as the `virtpilot` user instead of root' },
       { type: 'added', text: 'Optional nginx reverse proxy bundled with `install.sh`. Default-yes prompt offers to install nginx in front of the backend: nginx listens on the existing public port (3001) with the self-signed cert, the Node backend moves to `127.0.0.1:3002` and speaks plain HTTP. Same URL the operator already uses (`https://host:3001`), but TLS termination, request logging, large-file uploads (`client_max_body_size 100G`), WebSocket upgrades for `/ws/*`, and SSE-friendly `proxy_buffering off` all live at the edge instead of in Node. Ports 80 and 443 are intentionally not touched. Skip with `VP_NGINX=no` for unattended installs; if you skip, the backend keeps binding to `0.0.0.0:3001` directly with its own TLS' },
     ],
   },
@@ -507,50 +515,50 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.20.0',
     date: '2026-05-03',
     changes: [
-      { type: 'added', text: 'HTTPS by default with a self-signed TLS certificate. VirtPilot now serves the web UI and all WebSocket traffic (console, SSH, VNC) over TLS instead of plain HTTP. The installer generates a 10-year self-signed certificate at `${STORAGE_ROOT}/tls/{cert,key}.pem` with `subjectAltName` covering the host\'s hostname, `localhost`, the primary IP, and `127.0.0.1`. Existing installs migrate automatically — `update.sh` runs the same idempotent cert generation, so a single update flips an existing host onto HTTPS without manual intervention. The browser will warn about the self-signed cert on first visit; click "Advanced → Proceed" once and the warning is dismissed for that host. Old `http://host:3001` bookmarks need updating to `https://`' },
+      { type: 'added', text: 'HTTPS by default with a self-signed TLS certificate. VirtPilot now serves the web UI and all WebSocket traffic (console, SSH, VNC) over TLS instead of plain HTTP. The installer generates a 10-year self-signed certificate at `${STORAGE_ROOT}/tls/{cert,key}.pem` with `subjectAltName` covering the host\'s hostname, `localhost`, the primary IP, and `127.0.0.1`. Existing installs migrate automatically - `update.sh` runs the same idempotent cert generation, so a single update flips an existing host onto HTTPS without manual intervention. The browser will warn about the self-signed cert on first visit; click "Advanced → Proceed" once and the warning is dismissed for that host. Old `http://host:3001` bookmarks need updating to `https://`' },
     ],
   },
   {
     version: '1.19.11',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: '`install.sh` no longer drops out silently at the password prompt when run via the `curl … | sudo bash` bootstrap. The installer used `read -rsp` against stdin, but stdin in that flow is the curl pipe — already EOF by the time the prompt runs. Combined with `set -euo pipefail`, `read` returned non-zero and the script exited immediately after printing "Set a login password for the VirtPilot web UI:" with no further output. The password reads now go to `/dev/tty` directly so the prompt works regardless of how stdin was wired up. Also added a `VP_PASSWORD` env var override for fully unattended installs (`VP_PASSWORD=secret sudo -E bash install.sh`), and a clear error if neither a TTY nor `VP_PASSWORD` is available instead of failing silently' },
+      { type: 'fixed', text: '`install.sh` no longer drops out silently at the password prompt when run via the `curl … | sudo bash` bootstrap. The installer used `read -rsp` against stdin, but stdin in that flow is the curl pipe - already EOF by the time the prompt runs. Combined with `set -euo pipefail`, `read` returned non-zero and the script exited immediately after printing "Set a login password for the VirtPilot web UI:" with no further output. The password reads now go to `/dev/tty` directly so the prompt works regardless of how stdin was wired up. Also added a `VP_PASSWORD` env var override for fully unattended installs (`VP_PASSWORD=secret sudo -E bash install.sh`), and a clear error if neither a TTY nor `VP_PASSWORD` is available instead of failing silently' },
     ],
   },
   {
     version: '1.19.10',
     date: '2026-05-03',
     changes: [
-      { type: 'changed', text: 'Dashboard\'s Host Metrics section is now collapsible. The four full-width charts (CPU, Memory, Disk I/O, Network) take up a lot of vertical space, which is wasted when you\'ve come to the dashboard for the Overview tiles or to check System Updates. Click the "Host Metrics" header (or its chevron) to fold the whole block away — the Live/1h/24h range toggle is hidden alongside the charts so the collapsed header sits clean. State persists in `localStorage` under `virtpilotHostMetricsCollapsed` so the preference survives reload' },
+      { type: 'changed', text: 'Dashboard\'s Host Metrics section is now collapsible. The four full-width charts (CPU, Memory, Disk I/O, Network) take up a lot of vertical space, which is wasted when you\'ve come to the dashboard for the Overview tiles or to check System Updates. Click the "Host Metrics" header (or its chevron) to fold the whole block away - the Live/1h/24h range toggle is hidden alongside the charts so the collapsed header sits clean. State persists in `localStorage` under `virtpilotHostMetricsCollapsed` so the preference survives reload' },
     ],
   },
   {
     version: '1.19.9',
     date: '2026-05-03',
     changes: [
-      { type: 'added', text: 'Storage page now lets you delete orphaned VM folders. When a VM is deleted with "keep storage", or when libvirt loses track of one (e.g. a manual `virsh undefine`), the qcow2 disks under `$STORAGE_ROOT/vms/<name>/` had no UI to remove them — they could only be cleaned by SSHing in and `rm -rf`-ing the directory by hand. The Storage page already flagged these rows with an "orphaned" badge; it now also shows a trash button on those rows (and only those rows). Confirming recursively removes the VM directory and any leftover cloud-init scaffolding (`seed.iso`, `domain.xml`, per-VM cloud-init dir). The endpoint refuses if libvirt still has a domain by that name, so it can\'t wipe storage out from under a defined VM' },
-      { type: 'fixed', text: '"Essential cloud images" card now only appears when the templates library is genuinely empty, and re-appears if you later empty it. The card was gated on "any starter image is missing on disk", so a user who\'d uploaded their own qcow2 still saw it whenever they were missing one of the starter set entries. It\'s now gated on `templates.length === 0`. Additionally, the persistent `templateSetDismissed` flag was sticky forever once set — meaning a user who dismissed the card on day 1 would never see it again, even after wiping every template on day 100. The flag now auto-clears whenever the templates list is non-empty, so dismissal effectively means "hide for this empty state" rather than "hide forever"' },
+      { type: 'added', text: 'Storage page now lets you delete orphaned VM folders. When a VM is deleted with "keep storage", or when libvirt loses track of one (e.g. a manual `virsh undefine`), the qcow2 disks under `$STORAGE_ROOT/vms/<name>/` had no UI to remove them - they could only be cleaned by SSHing in and `rm -rf`-ing the directory by hand. The Storage page already flagged these rows with an "orphaned" badge; it now also shows a trash button on those rows (and only those rows). Confirming recursively removes the VM directory and any leftover cloud-init scaffolding (`seed.iso`, `domain.xml`, per-VM cloud-init dir). The endpoint refuses if libvirt still has a domain by that name, so it can\'t wipe storage out from under a defined VM' },
+      { type: 'fixed', text: '"Essential cloud images" card now only appears when the templates library is genuinely empty, and re-appears if you later empty it. The card was gated on "any starter image is missing on disk", so a user who\'d uploaded their own qcow2 still saw it whenever they were missing one of the starter set entries. It\'s now gated on `templates.length === 0`. Additionally, the persistent `templateSetDismissed` flag was sticky forever once set - meaning a user who dismissed the card on day 1 would never see it again, even after wiping every template on day 100. The flag now auto-clears whenever the templates list is non-empty, so dismissal effectively means "hide for this empty state" rather than "hide forever"' },
     ],
   },
   {
     version: '1.19.8',
     date: '2026-05-03',
     changes: [
-      { type: 'removed', text: 'CentOS Stream 10 dropped from the starter template set. Confirmed on the production host that booting the GenericCloud image under VirtPilot\'s UEFI VMs drops to the EDK II UEFI shell — the qcow2 has only `1.0M BIOS-boot + 7.8G root` (GPT, no EFI System Partition), so OVMF can\'t find a bootloader. The older Stream 9 image and the newer `…-x86_64-…` 10 build ship the same BIOS-only layout; the cloud SIG only publishes BIOS-style images. No URL fix is possible — for a CentOS-equivalent UEFI cloud image use AlmaLinux 9 (already in the set) or AlmaLinux 10. Existing installs that already downloaded `centos-stream-10.qcow2` can delete it from `$STORAGE_ROOT/templates/`; any VMs created from it never reached a kernel and need to be recreated from a working template' },
+      { type: 'removed', text: 'CentOS Stream 10 dropped from the starter template set. Confirmed on the production host that booting the GenericCloud image under VirtPilot\'s UEFI VMs drops to the EDK II UEFI shell - the qcow2 has only `1.0M BIOS-boot + 7.8G root` (GPT, no EFI System Partition), so OVMF can\'t find a bootloader. The older Stream 9 image and the newer `…-x86_64-…` 10 build ship the same BIOS-only layout; the cloud SIG only publishes BIOS-style images. No URL fix is possible - for a CentOS-equivalent UEFI cloud image use AlmaLinux 9 (already in the set) or AlmaLinux 10. Existing installs that already downloaded `centos-stream-10.qcow2` can delete it from `$STORAGE_ROOT/templates/`; any VMs created from it never reached a kernel and need to be recreated from a working template' },
     ],
   },
   {
     version: '1.19.7',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: 'Cloud-init now uses `/bin/sh` for the default user so SSH works on Alpine. v1.19.6 fixed Alpine\'s BIOS/UEFI mismatch and the VM booted, but SSH still rejected every attempt with `Permission denied`. The auth log had the real reason: `User virtpilot not allowed because shell /bin/bash does not exist`. The cloud-init template hardcoded `shell: /bin/bash`, which doesn\'t exist on Alpine — sshd refuses login for any user whose shell is missing, regardless of how good the keys or password are. Switched the user shell to `/bin/sh` (the only shell guaranteed everywhere) and added a `runcmd` that does `chsh -s "$(command -v bash)" virtpilot` on systems where bash is installed, so interactive shells on Ubuntu/Debian/RHEL/Alma/Rocky/Fedora/openSUSE still get bash. Only affects newly-created VMs; existing Alpine VMs need their shell updated by hand or to be recreated' },
+      { type: 'fixed', text: 'Cloud-init now uses `/bin/sh` for the default user so SSH works on Alpine. v1.19.6 fixed Alpine\'s BIOS/UEFI mismatch and the VM booted, but SSH still rejected every attempt with `Permission denied`. The auth log had the real reason: `User virtpilot not allowed because shell /bin/bash does not exist`. The cloud-init template hardcoded `shell: /bin/bash`, which doesn\'t exist on Alpine - sshd refuses login for any user whose shell is missing, regardless of how good the keys or password are. Switched the user shell to `/bin/sh` (the only shell guaranteed everywhere) and added a `runcmd` that does `chsh -s "$(command -v bash)" virtpilot` on systems where bash is installed, so interactive shells on Ubuntu/Debian/RHEL/Alma/Rocky/Fedora/openSUSE still get bash. Only affects newly-created VMs; existing Alpine VMs need their shell updated by hand or to be recreated' },
     ],
   },
   {
     version: '1.19.6',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: 'Alpine 3.21 starter template now boots. The pinned URL was the BIOS-only artifact (`nocloud_alpine-3.21.0-x86_64-bios-cloudinit-r0.qcow2`), which writes SYSLINUX into the MBR of an unpartitioned ext4 disk — no GPT, no EFI System Partition. VirtPilot defines every VM with `<os firmware=\'efi\'>` (OVMF/UEFI), and OVMF can\'t chain a SYSLINUX MBR, so guests stayed in the firmware boot manager forever — `virsh dominfo` reported `running` while the VM never reached a kernel. Switched the URL to the UEFI variant (`nocloud_alpine-3.21.7-x86_64-uefi-cloudinit-r0.qcow2`, also bumped to the latest 3.21 patch). Existing installs: delete the old `alpine-3.21.qcow2` from `$STORAGE_ROOT/templates/` and re-download (the bulk card resurfaces once it\'s gone). Any VMs already created from the bad template must be recreated, since their `disk.qcow2` overlays the broken backing image' },
+      { type: 'fixed', text: 'Alpine 3.21 starter template now boots. The pinned URL was the BIOS-only artifact (`nocloud_alpine-3.21.0-x86_64-bios-cloudinit-r0.qcow2`), which writes SYSLINUX into the MBR of an unpartitioned ext4 disk - no GPT, no EFI System Partition. VirtPilot defines every VM with `<os firmware=\'efi\'>` (OVMF/UEFI), and OVMF can\'t chain a SYSLINUX MBR, so guests stayed in the firmware boot manager forever - `virsh dominfo` reported `running` while the VM never reached a kernel. Switched the URL to the UEFI variant (`nocloud_alpine-3.21.7-x86_64-uefi-cloudinit-r0.qcow2`, also bumped to the latest 3.21 patch). Existing installs: delete the old `alpine-3.21.qcow2` from `$STORAGE_ROOT/templates/` and re-download (the bulk card resurfaces once it\'s gone). Any VMs already created from the bad template must be recreated, since their `disk.qcow2` overlays the broken backing image' },
     ],
   },
   {
@@ -564,35 +572,35 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.19.4',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: 'CentOS Stream 10 was silently 403\'ing because the backend sent no User-Agent header — `cloud.centos.org` rejects requests with no UA. Verified by `curl -H "User-Agent:"` from the production host: 403 every time, with default UA: 200 every time. Node\'s `http.get` doesn\'t send a User-Agent by default. Backend now identifies as `VirtPilot/<version>` on every outbound download — fixes CentOS instantly and is good citizenship for mirror operators' },
-      { type: 'fixed', text: 'Fedora 41 was 404\'ing because the `download.fedoraproject.org` redirector geo-routes US clients to a mirror that doesn\'t carry Fedora at all (`ftp2.osuosl.org` — OSU OSL\'s real Fedora mirror moved to `fedora.osuosl.org`). The redirector is sticky per client IP, so retries hit the same broken mirror every time (5/5 probes). Most other US mirrors I tested also 404 for Fedora 41 — propagation is still incomplete. Pinned the URL to gemmei.ftp.acc.umu.se (Umeå University, Sweden — long-running academic mirror) to bypass the redirector entirely' },
+      { type: 'fixed', text: 'CentOS Stream 10 was silently 403\'ing because the backend sent no User-Agent header - `cloud.centos.org` rejects requests with no UA. Verified by `curl -H "User-Agent:"` from the production host: 403 every time, with default UA: 200 every time. Node\'s `http.get` doesn\'t send a User-Agent by default. Backend now identifies as `VirtPilot/<version>` on every outbound download - fixes CentOS instantly and is good citizenship for mirror operators' },
+      { type: 'fixed', text: 'Fedora 41 was 404\'ing because the `download.fedoraproject.org` redirector geo-routes US clients to a mirror that doesn\'t carry Fedora at all (`ftp2.osuosl.org` - OSU OSL\'s real Fedora mirror moved to `fedora.osuosl.org`). The redirector is sticky per client IP, so retries hit the same broken mirror every time (5/5 probes). Most other US mirrors I tested also 404 for Fedora 41 - propagation is still incomplete. Pinned the URL to gemmei.ftp.acc.umu.se (Umeå University, Sweden - long-running academic mirror) to bypass the redirector entirely' },
     ],
   },
   {
     version: '1.19.3',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: 'Starter template-set now retries transient failures. A v1.19.2 run finished 5 of 9 because 4 mirrors had a brief blip — all 4 URLs returned HTTP 200 from the same host moments later. Each item now gets up to 3 attempts with a 5s backoff before being marked failed; cancelled runs short-circuit retries' },
-      { type: 'fixed', text: 'Failure toast is sticky and lists each failed item with its reason (e.g. `Debian 13: HTTP 503`). Previously the toast vanished after 3.5s with no breakdown of what failed or why — easy to miss while on another tab. Backend `job.error` is now surfaced through the polling response into the orchestrator' },
-      { type: 'fixed', text: 'Starter card resurfaces whenever any item from the set is missing on disk (and not dismissed) — the orchestrator dedupe-skips already-present files, so retrying a partial run is one click. Previously the card hid as soon as any template existed, leaving no obvious retry path' },
+      { type: 'fixed', text: 'Starter template-set now retries transient failures. A v1.19.2 run finished 5 of 9 because 4 mirrors had a brief blip - all 4 URLs returned HTTP 200 from the same host moments later. Each item now gets up to 3 attempts with a 5s backoff before being marked failed; cancelled runs short-circuit retries' },
+      { type: 'fixed', text: 'Failure toast is sticky and lists each failed item with its reason (e.g. `Debian 13: HTTP 503`). Previously the toast vanished after 3.5s with no breakdown of what failed or why - easy to miss while on another tab. Backend `job.error` is now surfaced through the polling response into the orchestrator' },
+      { type: 'fixed', text: 'Starter card resurfaces whenever any item from the set is missing on disk (and not dismissed) - the orchestrator dedupe-skips already-present files, so retrying a partial run is one click. Previously the card hid as soon as any template existed, leaving no obvious retry path' },
       { type: 'changed', text: 'Backend now logs each template download to stderr (`journalctl -u virtpilot`): `[template-download] start jobId=… file=… url=…` / `done jobId=… bytes=… duration=…s` / `error jobId=… err=…`. Prior-release failures left no trail and were impossible to diagnose without re-running the bulk' },
-      { type: 'changed', text: '`streamUrl` enforces an idle-stall timeout (60s after the last byte) and a headers timeout (30s). Previously a mirror that opened a connection then went silent would hang the orchestrator forever — surfaces as `Upstream stalled — no bytes for 60s` / `Upstream did not send headers within 30s` so the per-item retry can take over' },
+      { type: 'changed', text: '`streamUrl` enforces an idle-stall timeout (60s after the last byte) and a headers timeout (30s). Previously a mirror that opened a connection then went silent would hang the orchestrator forever - surfaces as `Upstream stalled - no bytes for 60s` / `Upstream did not send headers within 30s` so the per-item retry can take over' },
     ],
   },
   {
     version: '1.19.2',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: 'Starter template-set bulk download now resumes after a full page reload, tab close, or browser restart. The v1.19.1 fix only survived SPA navigation — the in-memory store was wiped on a hard reload and the run silently halted (live repro: Rocky 9 + AlmaLinux 9 finished, page reloaded, items 3–9 never even POSTed). Fixed by persisting `templateBulk` to localStorage via zustand persist middleware and wiring `resumeTemplateSetDownloadIfNeeded()` into ProtectedRoute so any unfinished run picks back up on the next authenticated mount' },
+      { type: 'fixed', text: 'Starter template-set bulk download now resumes after a full page reload, tab close, or browser restart. The v1.19.1 fix only survived SPA navigation - the in-memory store was wiped on a hard reload and the run silently halted (live repro: Rocky 9 + AlmaLinux 9 finished, page reloaded, items 3-9 never even POSTed). Fixed by persisting `templateBulk` to localStorage via zustand persist middleware and wiring `resumeTemplateSetDownloadIfNeeded()` into ProtectedRoute so any unfinished run picks back up on the next authenticated mount' },
       { type: 'fixed', text: 'Resume is dedupe-safe. Before resuming, the orchestrator snapshots the current templates list and skips any filename already on disk (counted as succeeded). Avoids re-downloading 600 MB qcow2 files that finished right before the page died but whose state-write was lost' },
-      { type: 'fixed', text: 'Single-instance guard prevents the resume firing on ProtectedRoute mount from racing with a fresh "Download starter set" click — second caller is a no-op rather than spawning a parallel loop' },
+      { type: 'fixed', text: 'Single-instance guard prevents the resume firing on ProtectedRoute mount from racing with a fresh "Download starter set" click - second caller is a no-op rather than spawning a parallel loop' },
     ],
   },
   {
     version: '1.19.1',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: 'Starter template-set bulk download now survives page navigation. Previously the orchestration loop and progress state lived in the TemplatesPage component — clicking "Download starter set" and navigating away caused state writes to vanish into a destroyed setter, the card disappeared on return, and the cancel flag (a useRef) reset on remount. Fixed by mirroring the single-template/single-ISO pattern: bulk state hoisted into uploadProgressStore, orchestration moved to a module-level function in lib/templateSetDownloader.ts. The loop now progresses through all nine images regardless of which page the user is on, and the card re-renders live progress on remount. Side benefit: clicking Download twice is a no-op rather than starting a parallel run' },
+      { type: 'fixed', text: 'Starter template-set bulk download now survives page navigation. Previously the orchestration loop and progress state lived in the TemplatesPage component - clicking "Download starter set" and navigating away caused state writes to vanish into a destroyed setter, the card disappeared on return, and the cancel flag (a useRef) reset on remount. Fixed by mirroring the single-template/single-ISO pattern: bulk state hoisted into uploadProgressStore, orchestration moved to a module-level function in lib/templateSetDownloader.ts. The loop now progresses through all nine images regardless of which page the user is on, and the card re-renders live progress on remount. Side benefit: clicking Download twice is a no-op rather than starting a parallel run' },
     ],
   },
   {
@@ -601,37 +609,37 @@ export const releaseNotes: ReleaseEntry[] = [
     changes: [
       { type: 'added', text: 'Starter template-set card on the Templates page. A fresh install with no templates now sees a one-click "Download starter set" card that pulls nine common amd64 cloud images (Rocky 9, AlmaLinux 9, Ubuntu 24.04, Debian 13, CentOS Stream 10, openSUSE Leap 15.6, Fedora 41, Alpine 3.21, Arch) sequentially in the background. Per-file progress + a "3 of 9" counter + cancel; logos are pre-assigned as each file lands. The card has a dismiss × for users who prefer to manage templates from scratch' },
       { type: 'added', text: 'Card auto-resurrects on empty. Deleting the last template clears the dismissal flag server-side, so wiping everything brings the starter card back without digging into settings' },
-      { type: 'added', text: 'Configurable starter set. The list lives in `src/data/templateSets.ts` — edit the array, rebuild, ship. Each entry is `{ url, filename, name, logo }`; all bundled URLs validated against their mirrors before inclusion. Dead links at runtime are skipped per-item rather than aborting the whole set' },
-      { type: 'changed', text: '`POST /api/templates/download` now accepts `.qcow2`, `.img`, `.raw`, `.iso`, and `.iso.gz` filenames. Previously anything outside `.qcow2|.img` got `.qcow2` silently appended — affects both the manual "From URL" dialog and the starter-set flow' },
+      { type: 'added', text: 'Configurable starter set. The list lives in `src/data/templateSets.ts` - edit the array, rebuild, ship. Each entry is `{ url, filename, name, logo }`; all bundled URLs validated against their mirrors before inclusion. Dead links at runtime are skipped per-item rather than aborting the whole set' },
+      { type: 'changed', text: '`POST /api/templates/download` now accepts `.qcow2`, `.img`, `.raw`, `.iso`, and `.iso.gz` filenames. Previously anything outside `.qcow2|.img` got `.qcow2` silently appended - affects both the manual "From URL" dialog and the starter-set flow' },
     ],
   },
   {
     version: '1.18.2',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: 'Cloud-init network-config now applies on RHEL-family guests (AlmaLinux/Rocky/CentOS). Default routes were emitted as `to: default`, which is a netplan shorthand. Debian/Ubuntu cloud-init forwards the config straight to `netplan` (which understands it); RHEL-family cloud-init parses v2 internally and blew up with `ValueError: Address default is not a valid ip address`, aborting the whole network apply. Result: a fresh Alma 10 VM came up with `eth0` link-up but no IPv4 — the host then got `EHOSTUNREACH` when the in-dashboard SSH console tried to reach the configured static IP. Fixed by emitting `to: 0.0.0.0/0` instead' },
-      { type: 'fixed', text: 'Cloud-init `ssh_authorized_keys` now actually nests under the user. The keys list was indented at 2 spaces but `ssh_authorized_keys:` lives at 4 spaces inside the `- name:` user dict, so the keys were parsed as sibling list items in `users:` rather than as the user\'s keys. YAML-valid but semantically wrong — cloud-init failed schema validation, no SSH keys were ever installed on any VM, and `lock_passwd: false` was silently dropped along with the rest of the user dict. Existing VMs are unaffected (they won\'t re-run cloud-init) but every VM created after this release gets working key auth' },
+      { type: 'fixed', text: 'Cloud-init network-config now applies on RHEL-family guests (AlmaLinux/Rocky/CentOS). Default routes were emitted as `to: default`, which is a netplan shorthand. Debian/Ubuntu cloud-init forwards the config straight to `netplan` (which understands it); RHEL-family cloud-init parses v2 internally and blew up with `ValueError: Address default is not a valid ip address`, aborting the whole network apply. Result: a fresh Alma 10 VM came up with `eth0` link-up but no IPv4 - the host then got `EHOSTUNREACH` when the in-dashboard SSH console tried to reach the configured static IP. Fixed by emitting `to: 0.0.0.0/0` instead' },
+      { type: 'fixed', text: 'Cloud-init `ssh_authorized_keys` now actually nests under the user. The keys list was indented at 2 spaces but `ssh_authorized_keys:` lives at 4 spaces inside the `- name:` user dict, so the keys were parsed as sibling list items in `users:` rather than as the user\'s keys. YAML-valid but semantically wrong - cloud-init failed schema validation, no SSH keys were ever installed on any VM, and `lock_passwd: false` was silently dropped along with the rest of the user dict. Existing VMs are unaffected (they won\'t re-run cloud-init) but every VM created after this release gets working key auth' },
     ],
   },
   {
     version: '1.18.1',
     date: '2026-05-03',
     changes: [
-      { type: 'changed', text: 'Default cloud-init username is now `virtpilot` (previously `ubuntu`). The VM Create form pre-fills `virtpilot`, so newly-created VMs get an SSH login of `virtpilot@<ip>` by default. The field is still editable on a per-VM basis. Existing VMs are unaffected — their username is persisted in VM metadata and inside the seed.iso, so they keep working as before' },
+      { type: 'changed', text: 'Default cloud-init username is now `virtpilot` (previously `ubuntu`). The VM Create form pre-fills `virtpilot`, so newly-created VMs get an SSH login of `virtpilot@<ip>` by default. The field is still editable on a per-VM basis. Existing VMs are unaffected - their username is persisted in VM metadata and inside the seed.iso, so they keep working as before' },
     ],
   },
   {
     version: '1.18.0',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: '24h metrics charts (host and per-VM) actually bucket. The 5-minute aggregation SQL was `(ts / ?) * ?` with the bucket size bound as a JS Number, which SQLite evaluated as real-number division — so every raw 30-second sample got its own `bucket_ts` and `GROUP BY` was a no-op. Result: ~2880 points per chart instead of ~288, and the 24h range was effectively the same data as 1h until the table accumulated more than an hour\'s worth of rows. Casting to INTEGER inside the division forces the floor we want' },
-      { type: 'fixed', text: 'VM delete now cleans up after itself. (1) `?deleteStorage` defaults to `true` so the qcow2 disk dir doesn\'t leak — pass `?deleteStorage=false` to keep it. Previously the default was `false` and recreating a VM with the same name 400-d with a "Storage directory already exists, remove manually" error. (2) Cloud-init artefacts (`{cloudInitDir}/{name}/`, `{name}-seed.iso`, `{name}-domain.xml`) are now removed unconditionally on delete — they\'re internal scaffolding and were never user data, but the previous delete left them behind and they accumulated as zombies for every test VM ever created' },
-      { type: 'fixed', text: 'IP allowlist input validation actually validates. Before, `999.999.999.999` was accepted (regex didn\'t enforce 0–255 octets) and any string containing `:` was treated as a valid IPv6 address. Now both forms are checked properly: octet ranges for IPv4, RFC-4291-shaped groups + correct `::` compression handling for IPv6, optional CIDR prefix bounds (0–32 v4, 0–128 v6), and IPv4-mapped forms like `::ffff:1.2.3.4`' },
+      { type: 'fixed', text: '24h metrics charts (host and per-VM) actually bucket. The 5-minute aggregation SQL was `(ts / ?) * ?` with the bucket size bound as a JS Number, which SQLite evaluated as real-number division - so every raw 30-second sample got its own `bucket_ts` and `GROUP BY` was a no-op. Result: ~2880 points per chart instead of ~288, and the 24h range was effectively the same data as 1h until the table accumulated more than an hour\'s worth of rows. Casting to INTEGER inside the division forces the floor we want' },
+      { type: 'fixed', text: 'VM delete now cleans up after itself. (1) `?deleteStorage` defaults to `true` so the qcow2 disk dir doesn\'t leak - pass `?deleteStorage=false` to keep it. Previously the default was `false` and recreating a VM with the same name 400-d with a "Storage directory already exists, remove manually" error. (2) Cloud-init artefacts (`{cloudInitDir}/{name}/`, `{name}-seed.iso`, `{name}-domain.xml`) are now removed unconditionally on delete - they\'re internal scaffolding and were never user data, but the previous delete left them behind and they accumulated as zombies for every test VM ever created' },
+      { type: 'fixed', text: 'IP allowlist input validation actually validates. Before, `999.999.999.999` was accepted (regex didn\'t enforce 0-255 octets) and any string containing `:` was treated as a valid IPv6 address. Now both forms are checked properly: octet ranges for IPv4, RFC-4291-shaped groups + correct `::` compression handling for IPv6, optional CIDR prefix bounds (0-32 v4, 0-128 v6), and IPv4-mapped forms like `::ffff:1.2.3.4`' },
       { type: 'fixed', text: 'Self-lockout guard on `PUT /api/settings`: if a non-empty `ipWhitelist` is being applied that would exclude the caller\'s own IP, the request 400s with `Refusing to apply allowlist that excludes your own IP (X)` instead of cheerfully writing the file and locking the user out on the next request' },
       { type: 'fixed', text: 'SSH-key add now rejects malformed keys. Previously `publicKey: "this is not a key"` returned 201 OK and the bad key would later silently fail in cloud-init on the guest. New validation gates on the well-known OpenSSH type prefix (`ssh-rsa`, `ssh-ed25519`, `ecdsa-sha2-nistp{256,384,521}`, etc.) and the base64 charset of the blob' },
       { type: 'fixed', text: 'Boot-order PUT now rejects unknown disk targets with a clear `Unknown disk targets in bootOrder: hd, cdrom. Valid targets are: vda, sda, sdb`. Previously sending logical names like `["hd","cdrom"]` 200-d but silently no-op-ed (the underlying XML rewrite only matches `<target dev="...">` entries), so the GET kept returning `[]` after a "successful" PUT' },
-      { type: 'fixed', text: 'Snapshot delete after a revert produces an actionable error. The chain-divergence check used to recommend "delete newer snapshots first" even when there were no newer snapshots — only the revert overlay sitting on top. The error now distinguishes that case and points at the new `?metadataOnly=true` escape hatch' },
-      { type: 'added', text: '`DELETE /api/vms/{name}/snapshots/{snapshot}?metadataOnly=true` drops just the libvirt snapshot record without merging the overlay back into its backing — the escape hatch for VMs whose chain has diverged from the snapshot' },
+      { type: 'fixed', text: 'Snapshot delete after a revert produces an actionable error. The chain-divergence check used to recommend "delete newer snapshots first" even when there were no newer snapshots - only the revert overlay sitting on top. The error now distinguishes that case and points at the new `?metadataOnly=true` escape hatch' },
+      { type: 'added', text: '`DELETE /api/vms/{name}/snapshots/{snapshot}?metadataOnly=true` drops just the libvirt snapshot record without merging the overlay back into its backing - the escape hatch for VMs whose chain has diverged from the snapshot' },
       { type: 'added', text: '`POST /api/vms/{name}/{stop,reboot}` now accepts `force` from either the JSON body (`{"force": true}`) or the query string (`?force=true`). Previously only the query string worked and bodies were silently ignored' },
       { type: 'added', text: 'Backup summaries now expose `vmExists` so the UI can mark orphan rows for VMs that have been deleted but whose backup metadata remains' },
     ],
@@ -648,14 +656,14 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.17.1',
     date: '2026-05-03',
     changes: [
-      { type: 'fixed', text: 'Self-update modal no longer hangs on "Restarting service…". The polling loop that waits for the new backend to come back up listed `invalidateVersion` (returned by `useInvalidateVersion()`) in its `useEffect` deps. The hook returned a fresh function reference on every render, so every 2 s — when the dashboard re-rendered because of `useSystemStats` polling — the effect re-ran: the previous polling tick was cancelled mid-flight, and the 90 s timeout deadline was reset. Two fixes applied: `useInvalidateVersion` and `useInvalidateApt` are now wrapped in `useCallback` so they return stable refs across renders, and the redundant `invalidateVersion()` call right before `window.location.reload()` was removed — the reload throws away the cache anyway. Existing stuck modals can be unstuck by reloading the page; the new backend was already running' },
+      { type: 'fixed', text: 'Self-update modal no longer hangs on "Restarting service…". The polling loop that waits for the new backend to come back up listed `invalidateVersion` (returned by `useInvalidateVersion()`) in its `useEffect` deps. The hook returned a fresh function reference on every render, so every 2 s - when the dashboard re-rendered because of `useSystemStats` polling - the effect re-ran: the previous polling tick was cancelled mid-flight, and the 90 s timeout deadline was reset. Two fixes applied: `useInvalidateVersion` and `useInvalidateApt` are now wrapped in `useCallback` so they return stable refs across renders, and the redundant `invalidateVersion()` call right before `window.location.reload()` was removed - the reload throws away the cache anyway. Existing stuck modals can be unstuck by reloading the page; the new backend was already running' },
     ],
   },
   {
     version: '1.17.0',
     date: '2026-05-03',
     changes: [
-      { type: 'changed', text: 'Dashboard "Live Metrics" section restyled to match the per-VM Metrics tab. Renamed to "Host Metrics" and given a Live / 1h / 24h range selector in the section header. The 2×2 grid of cards (each with a sparkline area chart) is replaced by a single column of full-width cards stacked one per row — CPU Usage, Memory, Disk I/O, Network. Each chart now uses the same `MetricChart` component as the per-VM tab: labelled Y axis (5 ticks: 0/25/50/75/100 % for CPU and Memory; auto-scaled byte values for Disk and Network), labelled X axis with timestamps, dashed horizontal grid lines, and a "nice" round Y-max so small spikes don\'t flatten the baseline. Card chrome (coloured top stripe, glowing icon badge, accent typography) is preserved' },
+      { type: 'changed', text: 'Dashboard "Live Metrics" section restyled to match the per-VM Metrics tab. Renamed to "Host Metrics" and given a Live / 1h / 24h range selector in the section header. The 2×2 grid of cards (each with a sparkline area chart) is replaced by a single column of full-width cards stacked one per row - CPU Usage, Memory, Disk I/O, Network. Each chart now uses the same `MetricChart` component as the per-VM tab: labelled Y axis (5 ticks: 0/25/50/75/100 % for CPU and Memory; auto-scaled byte values for Disk and Network), labelled X axis with timestamps, dashed horizontal grid lines, and a "nice" round Y-max so small spikes don\'t flatten the baseline. Card chrome (coloured top stripe, glowing icon badge, accent typography) is preserved' },
       { type: 'added', text: 'Persistent host metrics storage. A new SQLite table `system_metrics` (migration v2) records one host sample every 30 s with CPU %, memory, disk and network throughput. 24-hour retention. Persistence is wired into the existing 2-second `statsService.takeSample()` and gated by a 30 s minimum interval, so no new sampler runs. New `GET /api/system/metrics?range=1h|24h` endpoint returns 30 s points for `1h` and 5-minute aggregated buckets for `24h`' },
       { type: 'removed', text: 'Internal: deleted the `AreaChart` component. It was only used by the dashboard\'s old chart-bearing card; everything now goes through the per-VM `MetricChart`' },
     ],
@@ -664,7 +672,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.16.0',
     date: '2026-05-03',
     changes: [
-      { type: 'added', text: 'Bigger OS-logo selection on the Templates and ISOs pages — 17 entries grew to 43, organised into Linux / BSD / Privacy & Security / Appliances / Other sections. New Linux distros: Red Hat, SUSE, Pop!_OS, elementary OS, Zorin, Artix, EndeavourOS, Garuda, Void, Deepin, Solus, generic Tux. New BSDs: OpenBSD, NetBSD. Privacy: Qubes OS, Tails. Turnkey appliances commonly run as KVM guests: pfSense, OPNsense, OpenWrt, MikroTik, TrueNAS, openmediavault, Home Assistant, Pi-hole, AdGuard, Talos. All icons ship in the existing `simple-icons` dependency, no new packages' },
+      { type: 'added', text: 'Bigger OS-logo selection on the Templates and ISOs pages - 17 entries grew to 43, organised into Linux / BSD / Privacy & Security / Appliances / Other sections. New Linux distros: Red Hat, SUSE, Pop!_OS, elementary OS, Zorin, Artix, EndeavourOS, Garuda, Void, Deepin, Solus, generic Tux. New BSDs: OpenBSD, NetBSD. Privacy: Qubes OS, Tails. Turnkey appliances commonly run as KVM guests: pfSense, OPNsense, OpenWrt, MikroTik, TrueNAS, openmediavault, Home Assistant, Pi-hole, AdGuard, Talos. All icons ship in the existing `simple-icons` dependency, no new packages' },
       { type: 'added', text: 'Search box and category headings in the OS-logo picker. The dropdown opens with a focused search input at the top, groups results under section headings, and the body scrolls when there are more entries than fit. Empty-state placeholder when no logos match the query' },
       { type: 'changed', text: 'Logos with very dark brand colours (pfSense, MikroTik, SUSE, …) now render readably in both light and dark themes. Tiles for those logos use a foreground-tinted background and render the icon in the foreground colour instead of vanishing against the brand-tinted tile. Bright brand colours unchanged' },
     ],
@@ -680,7 +688,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.15.1',
     date: '2026-05-02',
     changes: [
-      { type: 'fixed', text: 'Self-update no longer aborts when `package-lock.json` has been mutated by a previous `npm install` on the host. The first `npm install` after a fresh checkout regenerates the lockfile with host-specific binary entries (e.g. linux-x64) that aren\'t in the macOS-generated lockfile committed upstream — leaving the working tree dirty and causing the next `git pull --ff-only` to abort. `update.sh` now discards lockfile drift before pulling. Existing stuck installs need a one-time manual unblock: `git checkout -- package-lock.json && bash update.sh` in the install directory' },
+      { type: 'fixed', text: 'Self-update no longer aborts when `package-lock.json` has been mutated by a previous `npm install` on the host. The first `npm install` after a fresh checkout regenerates the lockfile with host-specific binary entries (e.g. linux-x64) that aren\'t in the macOS-generated lockfile committed upstream - leaving the working tree dirty and causing the next `git pull --ff-only` to abort. `update.sh` now discards lockfile drift before pulling. Existing stuck installs need a one-time manual unblock: `git checkout -- package-lock.json && bash update.sh` in the install directory' },
     ],
   },
   {
@@ -694,7 +702,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.14.0',
     date: '2026-05-02',
     changes: [
-      { type: 'added', text: 'ISO uploads and URL downloads now accept compressed `.iso.gz` and `.iso.tar.gz` files (also `.gz` and `.tgz`). The server detects the format via gzip magic bytes plus the file extension, decompresses streamingly, and writes a plain `.iso` to the storage directory — no need to gunzip locally before uploading a pfSense or similar release. For tar.gz archives the first `.iso` entry is extracted (others are ignored). The ISOs page subtitle, empty state, upload dialog and URL download dialog all explain the supported formats. URL downloads now show a "Decompressing" status while the post-download decompression runs' },
+      { type: 'added', text: 'ISO uploads and URL downloads now accept compressed `.iso.gz` and `.iso.tar.gz` files (also `.gz` and `.tgz`). The server detects the format via gzip magic bytes plus the file extension, decompresses streamingly, and writes a plain `.iso` to the storage directory - no need to gunzip locally before uploading a pfSense or similar release. For tar.gz archives the first `.iso` entry is extracted (others are ignored). The ISOs page subtitle, empty state, upload dialog and URL download dialog all explain the supported formats. URL downloads now show a "Decompressing" status while the post-download decompression runs' },
     ],
   },
   {
@@ -717,28 +725,28 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.13.7',
     date: '2026-05-02',
     changes: [
-      { type: 'changed', text: 'Redesigned every tile on the Dashboard around the visual language of the "Update available" card — Host identity, the four stat tiles (VMs, Disk, Memory, System Updates), and the four Live Metrics cards (CPU, Memory, Disk I/O, Network) all now share rounded-2xl shells with layered radial gradients, blurred colour orbs, a coloured top accent stripe, a glowing icon badge with gradient fill and ring, and accent-coloured labels and big values. One palette config drives every tile so colours stay perfectly consistent' },
+      { type: 'changed', text: 'Redesigned every tile on the Dashboard around the visual language of the "Update available" card - Host identity, the four stat tiles (VMs, Disk, Memory, System Updates), and the four Live Metrics cards (CPU, Memory, Disk I/O, Network) all now share rounded-2xl shells with layered radial gradients, blurred colour orbs, a coloured top accent stripe, a glowing icon badge with gradient fill and ring, and accent-coloured labels and big values. One palette config drives every tile so colours stay perfectly consistent' },
     ],
   },
   {
     version: '1.13.6',
     date: '2026-05-02',
     changes: [
-      { type: 'fixed', text: 'Login page no longer says "Invalid password" when the real reason is the IP allowlist. Backend now returns a distinct 403 with the client\'s IP, and the login form shows "Access denied — your IP address X.X.X.X is not on the allowlist. Contact your administrator." Same handling on the TOTP step' },
+      { type: 'fixed', text: 'Login page no longer says "Invalid password" when the real reason is the IP allowlist. Backend now returns a distinct 403 with the client\'s IP, and the login form shows "Access denied - your IP address X.X.X.X is not on the allowlist. Contact your administrator." Same handling on the TOTP step' },
     ],
   },
   {
     version: '1.13.5',
     date: '2026-05-02',
     changes: [
-      { type: 'fixed', text: 'Improved readability of the VirtPilot version cards — dropped the gradient-clipped text on version numbers (low contrast against tinted backgrounds), now using solid theme-aware colours. Old version is struck through. Background gradient opacities cut by ~40% so text wins. Small uppercase labels brightened with explicit dark-mode variants' },
+      { type: 'fixed', text: 'Improved readability of the VirtPilot version cards - dropped the gradient-clipped text on version numbers (low contrast against tinted backgrounds), now using solid theme-aware colours. Old version is struck through. Background gradient opacities cut by ~40% so text wins. Small uppercase labels brightened with explicit dark-mode variants' },
     ],
   },
   {
     version: '1.13.4',
     date: '2026-05-02',
     changes: [
-      { type: 'changed', text: 'Up-to-date variant of the VirtPilot version card now matches the visual weight of the Update-available variant — same rounded card with layered radial gradients, same glowing icon badge, same big monospace version display with gradient-clipped text. Just emerald instead of blue/violet, and a "View latest release" link instead of an Update CTA' },
+      { type: 'changed', text: 'Up-to-date variant of the VirtPilot version card now matches the visual weight of the Update-available variant - same rounded card with layered radial gradients, same glowing icon badge, same big monospace version display with gradient-clipped text. Just emerald instead of blue/violet, and a "View latest release" link instead of an Update CTA' },
     ],
   },
   {
@@ -752,54 +760,54 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.13.2',
     date: '2026-05-02',
     changes: [
-      { type: 'changed', text: 'Redesigned the "Update available" card on the Dashboard — bigger, layered blue-to-violet gradient background, large monospace version transition with gradient text on the new version, glowing sparkle badge, and a custom gradient "Update now" button with hover shimmer. The inline release-notes preview is gone in favour of a single "View release notes" link to the GitHub release page' },
+      { type: 'changed', text: 'Redesigned the "Update available" card on the Dashboard - bigger, layered blue-to-violet gradient background, large monospace version transition with gradient text on the new version, glowing sparkle badge, and a custom gradient "Update now" button with hover shimmer. The inline release-notes preview is gone in favour of a single "View release notes" link to the GitHub release page' },
     ],
   },
   {
     version: '1.13.1',
     date: '2026-05-02',
     changes: [
-      { type: 'changed', text: 'VirtPilot version card on the Dashboard is now always visible — when up to date it shows a compact green strip with the current version and a link to the latest release. Previously it was hidden entirely until an update was available, which made it look like the feature wasn\'t there' },
+      { type: 'changed', text: 'VirtPilot version card on the Dashboard is now always visible - when up to date it shows a compact green strip with the current version and a link to the latest release. Previously it was hidden entirely until an update was available, which made it look like the feature wasn\'t there' },
     ],
   },
   {
     version: '1.13.0',
     date: '2026-05-01',
     changes: [
-      { type: 'added', text: 'In-dashboard self-upgrade — a new card under Overview on the Dashboard surfaces when a newer VirtPilot version is published on GitHub Releases. One click runs update.sh inside a transient systemd unit, streams live build output into a terminal modal, and reloads when the new version is up' },
-      { type: 'added', text: 'bootstrap.sh one-liner installer — `curl -fsSL https://raw.githubusercontent.com/ptmplop/virtPilot/main/bootstrap.sh | sudo bash` clones to /usr/local/virtpilot and runs the installer' },
+      { type: 'added', text: 'In-dashboard self-upgrade - a new card under Overview on the Dashboard surfaces when a newer VirtPilot version is published on GitHub Releases. One click runs update.sh inside a transient systemd unit, streams live build output into a terminal modal, and reloads when the new version is up' },
+      { type: 'added', text: 'bootstrap.sh one-liner installer - `curl -fsSL https://raw.githubusercontent.com/ptmplop/virtPilot/main/bootstrap.sh | sudo bash` clones to /usr/local/virtpilot and runs the installer' },
       { type: 'changed', text: 'install.sh now requires a git clone (in-app upgrades depend on it) and writes VIRTPILOT_REPO_DIR into .env so the backend has an explicit repo path' },
-      { type: 'fixed', text: 'Backend VERSION constant is now read from package.json at startup instead of being hardcoded — backup metadata had been stamping every backup as v1.7.0 since the constant was last manually updated' },
+      { type: 'fixed', text: 'Backend VERSION constant is now read from package.json at startup instead of being hardcoded - backup metadata had been stamping every backup as v1.7.0 since the constant was last manually updated' },
     ],
   },
   {
     version: '1.12.1',
     date: '2026-05-01',
     changes: [
-      { type: 'changed', text: 'Friendlier labels in the Snapshots tab "VM State" column — `disk-snapshot` → Disk only, `running` → Live (with RAM), `shutoff` → Offline. The column describes what the snapshot captured, not the VM\'s live state' },
+      { type: 'changed', text: 'Friendlier labels in the Snapshots tab "VM State" column - `disk-snapshot` → Disk only, `running` → Live (with RAM), `shutoff` → Offline. The column describes what the snapshot captured, not the VM\'s live state' },
     ],
   },
   {
     version: '1.12.0',
     date: '2026-05-01',
     changes: [
-      { type: 'added', text: 'Snapshot size column on the VM Snapshots tab — see the on-disk cost of each snapshot alongside Created and VM State. External snapshots sum their overlay files; internal snapshots report saved RAM (vm-state-size) from qemu-img info' },
+      { type: 'added', text: 'Snapshot size column on the VM Snapshots tab - see the on-disk cost of each snapshot alongside Created and VM State. External snapshots sum their overlay files; internal snapshots report saved RAM (vm-state-size) from qemu-img info' },
     ],
   },
   {
     version: '1.11.0',
     date: '2026-05-01',
     changes: [
-      { type: 'added', text: 'Per-VM metrics history — the VM detail Metrics tab now has a Live / 1h / 24h range selector backed by a SQLite ring buffer, so CPU, memory, disk and network charts survive restarts and reach back beyond the last 30 seconds' },
+      { type: 'added', text: 'Per-VM metrics history - the VM detail Metrics tab now has a Live / 1h / 24h range selector backed by a SQLite ring buffer, so CPU, memory, disk and network charts survive restarts and reach back beyond the last 30 seconds' },
       { type: 'added', text: 'Background sampler writes a metrics row every 30s for every running VM; 24h range aggregates into 5-minute buckets via SQL AVG so the chart stays readable. Rows are pruned after 24 hours' },
-      { type: 'added', text: 'New embedded SQLite layer (`$STORAGE_ROOT/virtpilot.db`) for state libvirt doesn’t track itself — schema, migrations, and per-VM cleanup hooks documented in DATABASE.md so future features can reuse it' },
+      { type: 'added', text: 'New embedded SQLite layer (`$STORAGE_ROOT/virtpilot.db`) for state libvirt doesn’t track itself - schema, migrations, and per-VM cleanup hooks documented in DATABASE.md so future features can reuse it' },
     ],
   },
   {
     version: '1.10.0',
     date: '2026-05-01',
     changes: [
-      { type: 'added', text: 'Per-NIC bandwidth shaping — set inbound and outbound rate limits in MB/s on each network interface; values apply live (no shutdown needed) via libvirt’s tc-based shaper and persist across reboots' },
+      { type: 'added', text: 'Per-NIC bandwidth shaping - set inbound and outbound rate limits in MB/s on each network interface; values apply live (no shutdown needed) via libvirt’s tc-based shaper and persist across reboots' },
       { type: 'added', text: 'Rate Limit column on the VM Network tab shows the current cap per NIC; pencil/gauge button opens an inline editor; the same fields are available when adding a new NIC' },
     ],
   },
@@ -814,21 +822,21 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.9.2',
     date: '2026-05-01',
     changes: [
-      { type: 'fixed', text: 'Deleting a snapshot on a running VM cloned from a shared template no longer fails with "Failed to get write lock" — blockcommit was walking the whole backing chain down to the template; now pinned to the overlay → immediate backing only' },
+      { type: 'fixed', text: 'Deleting a snapshot on a running VM cloned from a shared template no longer fails with "Failed to get write lock" - blockcommit was walking the whole backing chain down to the template; now pinned to the overlay → immediate backing only' },
     ],
   },
   {
     version: '1.9.1',
     date: '2026-05-01',
     changes: [
-      { type: 'fixed', text: 'Cancel button (X) on ISO and template upload progress bars now actually aborts the upload — the abort callback was being stored as a thunk that returned the abort function instead of calling it' },
+      { type: 'fixed', text: 'Cancel button (X) on ISO and template upload progress bars now actually aborts the upload - the abort callback was being stored as a thunk that returned the abort function instead of calling it' },
     ],
   },
   {
     version: '1.9.0',
     date: '2026-05-01',
     changes: [
-      { type: 'added', text: 'Snapshots now work on UEFI VMs — switches automatically to external --disk-only snapshots (per-disk qcow2 overlay) when QEMU cannot store internal snapshots alongside pflash firmware' },
+      { type: 'added', text: 'Snapshots now work on UEFI VMs - switches automatically to external --disk-only snapshots (per-disk qcow2 overlay) when QEMU cannot store internal snapshots alongside pflash firmware' },
       { type: 'added', text: 'External snapshot revert restores the saved domain XML and caps the sealed disk with a fresh overlay, so reverting to the same snapshot multiple times still works' },
       { type: 'added', text: 'External snapshot delete merges the overlay back into its backing via blockcommit --active --pivot (running) or qemu-img commit (offline)' },
       { type: 'fixed', text: 'No more "internal snapshots of a VM with pflash based firmware are not supported" error on modern UEFI guests' },
@@ -847,14 +855,14 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.8.4',
     date: '2026-05-01',
     changes: [
-      { type: 'changed', text: 'Settings page sections redesigned to match the Dashboard layout — space-y-8 between sections, small uppercase tracking label with primary left accent bar replacing plain headings' },
+      { type: 'changed', text: 'Settings page sections redesigned to match the Dashboard layout - space-y-8 between sections, small uppercase tracking label with primary left accent bar replacing plain headings' },
     ],
   },
   {
     version: '1.8.3',
     date: '2026-05-01',
     changes: [
-      { type: 'changed', text: 'Settings — Host Configuration section now shows a tip explaining that BACKUP_ROOT can point to a mounted second disk or NAS share (NFS, SMB, iSCSI) to keep backups off the primary storage pool' },
+      { type: 'changed', text: 'Settings - Host Configuration section now shows a tip explaining that BACKUP_ROOT can point to a mounted second disk or NAS share (NFS, SMB, iSCSI) to keep backups off the primary storage pool' },
     ],
   },
   {
@@ -871,7 +879,7 @@ export const releaseNotes: ReleaseEntry[] = [
     date: '2026-05-01',
     changes: [
       { type: 'changed', text: 'UI consistency pass: standardised card shadows, empty-state layout, table header and row styles across all pages' },
-      { type: 'changed', text: 'Spinner component used consistently — replaced ad-hoc Loader2 usage in VmConsole and Login' },
+      { type: 'changed', text: 'Spinner component used consistently - replaced ad-hoc Loader2 usage in VmConsole and Login' },
       { type: 'changed', text: 'Physical NIC picker in Create Network dialog uses the Select component' },
       { type: 'changed', text: '"History →" link in the Backups table uses the Button ghost variant' },
     ],
@@ -880,22 +888,22 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.8.0',
     date: '2026-05-01',
     changes: [
-      { type: 'added', text: 'Backup progress indicator — a live in-progress row appears at the top of the per-VM backup table while a backup is running (manual or scheduled), with spinner and animated progress bar; the backup list also shows a progress bar under the VM name and "Backing up…" in the Last Backup column; indicator persists on page navigation via a polled backend endpoint' },
-      { type: 'fixed', text: 'Large backup and restore operations no longer time out — Axios timeout disabled for create-backup and restore calls which can take many minutes on large disks' },
+      { type: 'added', text: 'Backup progress indicator - a live in-progress row appears at the top of the per-VM backup table while a backup is running (manual or scheduled), with spinner and animated progress bar; the backup list also shows a progress bar under the VM name and "Backing up…" in the Last Backup column; indicator persists on page navigation via a polled backend endpoint' },
+      { type: 'fixed', text: 'Large backup and restore operations no longer time out - Axios timeout disabled for create-backup and restore calls which can take many minutes on large disks' },
     ],
   },
   {
     version: '1.7.0',
     date: '2026-04-30',
     changes: [
-      { type: 'added', text: 'Two-factor authentication — enable TOTP-based 2FA in Settings; when active, login requires a 6-digit code from an authenticator app after the password; 2FA can be removed at any time from Settings' },
+      { type: 'added', text: 'Two-factor authentication - enable TOTP-based 2FA in Settings; when active, login requires a 6-digit code from an authenticator app after the password; 2FA can be removed at any time from Settings' },
     ],
   },
   {
     version: '1.6.0',
     date: '2026-04-30',
     changes: [
-      { type: 'added', text: 'IP Access Control — whitelist specific IPs or CIDR ranges in Settings; when the list is non-empty only those addresses can log in or call the API/WebSocket; empty list preserves existing open-access behaviour' },
+      { type: 'added', text: 'IP Access Control - whitelist specific IPs or CIDR ranges in Settings; when the list is non-empty only those addresses can log in or call the API/WebSocket; empty list preserves existing open-access behaviour' },
     ],
   },
   {
@@ -903,7 +911,7 @@ export const releaseNotes: ReleaseEntry[] = [
     date: '2026-04-30',
     changes: [
       { type: 'changed', text: 'VM Overview resource cards now have colour-coded icon accents (blue/violet/amber/teal) and larger value numerals' },
-      { type: 'added', text: 'Copy-to-clipboard buttons on VM Overview for IP address, username, password, SSH command, and UUID — icon flips to a green check on success' },
+      { type: 'added', text: 'Copy-to-clipboard buttons on VM Overview for IP address, username, password, SSH command, and UUID - icon flips to a green check on success' },
       { type: 'changed', text: 'VM Overview section headings changed to compact uppercase tracking style' },
     ],
   },
@@ -911,14 +919,14 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.5.0',
     date: '2026-04-30',
     changes: [
-      { type: 'added', text: 'VM rename — pencil icon next to the VM name on the detail page (stopped VMs only); renames the libvirt domain and updates all associated metadata, port forwards, DHCP reservations, and firewall config' },
+      { type: 'added', text: 'VM rename - pencil icon next to the VM name on the detail page (stopped VMs only); renames the libvirt domain and updates all associated metadata, port forwards, DHCP reservations, and firewall config' },
     ],
   },
   {
     version: '1.4.3',
     date: '2026-04-30',
     changes: [
-      { type: 'changed', text: 'Sidebar collapse toggle moved into the brand bar — to the right of the logo when expanded, below it when collapsed' },
+      { type: 'changed', text: 'Sidebar collapse toggle moved into the brand bar - to the right of the logo when expanded, below it when collapsed' },
       { type: 'changed', text: 'Sign out is now a full-width labelled button with a red hover state, replacing the small unlabelled icon in the footer' },
     ],
   },
@@ -926,7 +934,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.4.2',
     date: '2026-04-30',
     changes: [
-      { type: 'fixed', text: 'APT upgrade terminal no longer colours stderr red — apt-get uses stderr for normal progress output; failure is indicated by the footer exit-code status instead' },
+      { type: 'fixed', text: 'APT upgrade terminal no longer colours stderr red - apt-get uses stderr for normal progress output; failure is indicated by the footer exit-code status instead' },
     ],
   },
   {
@@ -940,7 +948,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.4.0',
     date: '2026-04-30',
     changes: [
-      { type: 'changed', text: 'Dashboard redesigned — host identity card + 2×2 stat grid replaces the five-tile row; four metric sections collapsed into a 2×2 live metrics grid' },
+      { type: 'changed', text: 'Dashboard redesigned - host identity card + 2×2 stat grid replaces the five-tile row; four metric sections collapsed into a 2×2 live metrics grid' },
       { type: 'added',   text: 'Host card shows hostname, CPU model and core count, colour-coded load averages, and live network RX/TX from a new /api/system/info endpoint' },
       { type: 'added',   text: 'Progress bars on Disk Space and Memory tiles; VM status dots on the Virtual Machines tile' },
       { type: 'changed', text: 'About section removed from the dashboard' },
@@ -950,7 +958,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.3.0',
     date: '2026-04-30',
     changes: [
-      { type: 'added', text: 'SSH Keys page — save public keys with a friendly name and select them during VM provisioning' },
+      { type: 'added', text: 'SSH Keys page - save public keys with a friendly name and select them during VM provisioning' },
       { type: 'added', text: 'VM creation wizard now shows a checkbox picker for saved SSH keys instead of a free-form textarea' },
     ],
   },
@@ -958,7 +966,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.2.6',
     date: '2026-04-30',
     changes: [
-      { type: 'fixed', text: 'Deleting a VM with UEFI/Secure Boot or vTPM no longer fails — virsh undefine now includes --nvram and --tpm to clean up associated state files' },
+      { type: 'fixed', text: 'Deleting a VM with UEFI/Secure Boot or vTPM no longer fails - virsh undefine now includes --nvram and --tpm to clean up associated state files' },
     ],
   },
   {
@@ -972,59 +980,59 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.2.4',
     date: '2026-04-30',
     changes: [
-      { type: 'fixed', text: 'Secure Boot VMs now boot with Microsoft keys pre-enrolled (OVMF_VARS.ms.fd template) — previously the firmware started in Setup Mode so Secure Boot was always disabled inside the guest' },
+      { type: 'fixed', text: 'Secure Boot VMs now boot with Microsoft keys pre-enrolled (OVMF_VARS.ms.fd template) - previously the firmware started in Setup Mode so Secure Boot was always disabled inside the guest' },
     ],
   },
   {
     version: '1.2.3',
     date: '2026-04-30',
     changes: [
-      { type: 'changed', text: 'Resource Edit button is now always visible on the Overview tab — disabled with a tooltip when the VM is running, rather than hidden' },
+      { type: 'changed', text: 'Resource Edit button is now always visible on the Overview tab - disabled with a tooltip when the VM is running, rather than hidden' },
     ],
   },
   {
     version: '1.2.2',
     date: '2026-04-30',
     changes: [
-      { type: 'added', text: 'Virtual TPM 2.0 — enables full Windows 11 compatibility; emulated via libvirt\'s TPM backend' },
+      { type: 'added', text: 'Virtual TPM 2.0 - enables full Windows 11 compatibility; emulated via libvirt\'s TPM backend' },
     ],
   },
   {
     version: '1.2.1',
     date: '2026-04-30',
     changes: [
-      { type: 'added', text: 'UEFI/OVMF firmware support with optional Secure Boot — selectable at VM creation time' },
+      { type: 'added', text: 'UEFI/OVMF firmware support with optional Secure Boot - selectable at VM creation time' },
     ],
   },
   {
     version: '1.2.0',
     date: '2026-04-30',
     changes: [
-      { type: 'added', text: 'VM autostart — toggle in the Overview tab configures whether a VM starts automatically when the host boots (virsh autostart)' },
-      { type: 'added', text: 'Disk resize — grow any attached disk from the Disks tab; the hypervisor is notified immediately if the VM is running (guest still needs to resize partition/filesystem internally)' },
-      { type: 'added', text: 'Resource editing — edit vCPU count and memory while the VM is stopped; changes are applied to the domain definition and take effect on next boot' },
-      { type: 'added', text: 'Per-VM metrics — new Metrics tab shows live CPU%, memory, disk I/O, and network I/O for running VMs using virsh domstats, with rolling area charts' },
+      { type: 'added', text: 'VM autostart - toggle in the Overview tab configures whether a VM starts automatically when the host boots (virsh autostart)' },
+      { type: 'added', text: 'Disk resize - grow any attached disk from the Disks tab; the hypervisor is notified immediately if the VM is running (guest still needs to resize partition/filesystem internally)' },
+      { type: 'added', text: 'Resource editing - edit vCPU count and memory while the VM is stopped; changes are applied to the domain definition and take effect on next boot' },
+      { type: 'added', text: 'Per-VM metrics - new Metrics tab shows live CPU%, memory, disk I/O, and network I/O for running VMs using virsh domstats, with rolling area charts' },
     ],
   },
   {
     version: '1.1.8',
     date: '2026-04-30',
     changes: [
-      { type: 'changed', text: 'PCI device list uses an allowlist — only legitimate passthrough targets (Storage, Network, Display, Multimedia, Input, Serial Bus, Wireless, Encryption, Signal Processing) are shown; processor sub-functions, bridges, memory controllers, and system peripherals are hidden' },
+      { type: 'changed', text: 'PCI device list uses an allowlist - only legitimate passthrough targets (Storage, Network, Display, Multimedia, Input, Serial Bus, Wireless, Encryption, Signal Processing) are shown; processor sub-functions, bridges, memory controllers, and system peripherals are hidden' },
     ],
   },
   {
     version: '1.1.7',
     date: '2026-04-30',
     changes: [
-      { type: 'changed', text: 'Available PCI devices whose kernel driver is not vfio-pci now show an amber warning icon next to the driver name — tooltip warns that attaching will unbind the device from the host' },
+      { type: 'changed', text: 'Available PCI devices whose kernel driver is not vfio-pci now show an amber warning icon next to the driver name - tooltip warns that attaching will unbind the device from the host' },
     ],
   },
   {
     version: '1.1.6',
     date: '2026-04-30',
     changes: [
-      { type: 'added', text: 'PCI and USB device passthrough — new Devices tab on VM detail page lets you attach and detach host devices to VMs; devices in use by another VM are shown but cannot be claimed' },
+      { type: 'added', text: 'PCI and USB device passthrough - new Devices tab on VM detail page lets you attach and detach host devices to VMs; devices in use by another VM are shown but cannot be claimed' },
       { type: 'added', text: 'PCI devices show address (DDDD:BB:SS.F), class, IOMMU group, and current driver; USB devices show bus and device number' },
     ],
   },
@@ -1032,23 +1040,23 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.1.5',
     date: '2026-04-29',
     changes: [
-      { type: 'changed', text: '"Add NIC" messaging is now OS-neutral — snippet is labelled as an Ubuntu/Debian (netplan) example with a note to adapt for other distributions or Windows' },
+      { type: 'changed', text: '"Add NIC" messaging is now OS-neutral - snippet is labelled as an Ubuntu/Debian (netplan) example with a note to adapt for other distributions or Windows' },
     ],
   },
   {
     version: '1.1.4',
     date: '2026-04-29',
     changes: [
-      { type: 'fixed', text: 'Existing-bridge networks now labelled "OS Bridge DHCP" / "OS Bridge Static" in VM creation and VM detail — previously indistinguishable from VirtPilot-managed bridges' },
+      { type: 'fixed', text: 'Existing-bridge networks now labelled "OS Bridge DHCP" / "OS Bridge Static" in VM creation and VM detail - previously indistinguishable from VirtPilot-managed bridges' },
     ],
   },
   {
     version: '1.1.3',
     date: '2026-04-29',
     changes: [
-      { type: 'fixed', text: '"Add NIC" now records the new interface in VM metadata — network tab shows correct network name and IP on reload' },
+      { type: 'fixed', text: '"Add NIC" now records the new interface in VM metadata - network tab shows correct network name and IP on reload' },
       { type: 'fixed', text: 'Removing a NIC now removes its metadata entry and releases any static IP allocation back to the pool' },
-      { type: 'fixed', text: '"DHCP · unresolved" now shown correctly for existing-bridge DHCP NICs instead of "—"' },
+      { type: 'fixed', text: '"DHCP · unresolved" now shown correctly for existing-bridge DHCP NICs instead of a dash' },
       { type: 'changed', text: 'Backend pins the MAC via --mac flag when attaching; allocated MAC matches what is stored in metadata' },
       { type: 'changed', text: '"Add NIC" dialog shows an IP picker for static networks and requires a selection before confirming' },
       { type: 'changed', text: 'After adding a NIC, a ready-to-paste netplan snippet is shown with the correct MAC and IP configuration' },
@@ -1058,7 +1066,7 @@ export const releaseNotes: ReleaseEntry[] = [
     version: '1.1.2',
     date: '2026-04-29',
     changes: [
-      { type: 'changed', text: '"Allow established & related" checkboxes are disabled when the default policy is "Allow all" — redundant in that state' },
+      { type: 'changed', text: '"Allow established & related" checkboxes are disabled when the default policy is "Allow all" - redundant in that state' },
       { type: 'changed', text: 'Switching default policy to "Drop all" auto-enables the established & related checkbox; switching back to "Allow all" clears it' },
     ],
   },
@@ -1074,9 +1082,9 @@ export const releaseNotes: ReleaseEntry[] = [
     date: '2026-04-29',
     changes: [
       { type: 'added', text: 'Firewall rule reordering with up/down buttons on each row' },
-      { type: 'added', text: 'Multi-port firewall rules — comma-separated ports and ranges (e.g. 80,443 or 80,8000-9000)' },
-      { type: 'added', text: 'ICMP type filtering — select specific ICMP types (echo-request, echo-reply, etc.)' },
-      { type: 'added', text: 'Stateful connection tracking — allow established & related connections per direction' },
+      { type: 'added', text: 'Multi-port firewall rules - comma-separated ports and ranges (e.g. 80,443 or 80,8000-9000)' },
+      { type: 'added', text: 'ICMP type filtering - select specific ICMP types (echo-request, echo-reply, etc.)' },
+      { type: 'added', text: 'Stateful connection tracking - allow established & related connections per direction' },
       { type: 'changed', text: 'Port field shows "any" in rules table when no port restriction is set' },
     ],
   },

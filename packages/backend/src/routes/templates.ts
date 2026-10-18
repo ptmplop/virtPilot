@@ -166,7 +166,7 @@ function streamUrl(url: string, destPath: string, job: DownloadJob): Promise<voi
           const armStall = () => {
             clearStall();
             stallTimer = setTimeout(() => {
-              const err = new Error(`Upstream stalled — no bytes for ${STALL_TIMEOUT_MS / 1000}s`);
+              const err = new Error(`Upstream stalled - no bytes for ${STALL_TIMEOUT_MS / 1000}s`);
               activeReq?.destroy(err);
               reject(err);
             }, STALL_TIMEOUT_MS);

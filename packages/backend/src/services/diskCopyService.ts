@@ -159,7 +159,7 @@ export async function copyVmDisks(opts: DiskCopyOptions): Promise<DiskCopyResult
   // ── Tier 4: VM is off ──────────────────────────────────────────────────────
   if (!opts.running) {
     if (opts.incrementalFrom) {
-      throw new Error('Incremental backups require the VM to be running — libvirt cannot read dirty bitmaps from a stopped domain');
+      throw new Error('Incremental backups require the VM to be running - libvirt cannot read dirty bitmaps from a stopped domain');
     }
     for (const d of opts.disks) {
       await qemuImg(convertArgs(d.sourcePath, d.destPath, { compress }), { timeout: timeoutMs, trace: opts.trace });
@@ -207,7 +207,7 @@ export async function copyVmDisks(opts: DiskCopyOptions): Promise<DiskCopyResult
         for (const d of opts.disks) await compressInPlace(d.destPath, timeoutMs, opts.trace);
       }
       if (!frozen) {
-        notes.push('Guest agent unavailable — the copy is crash-consistent rather than application-consistent.');
+        notes.push('Guest agent unavailable - the copy is crash-consistent rather than application-consistent.');
       }
       // Ask libvirt whether the checkpoint is really there rather than assuming
       // it because we passed the argument. The manifest's `checkpointName` is
@@ -267,7 +267,7 @@ export async function copyVmDisks(opts: DiskCopyOptions): Promise<DiskCopyResult
       await vmService.commitTransientDiskSnapshot(uuid, snapshot, opts.trace);
     }
     if (!snapshot.quiesced) {
-      notes.push('Guest agent unavailable — the copy is crash-consistent rather than application-consistent.');
+      notes.push('Guest agent unavailable - the copy is crash-consistent rather than application-consistent.');
     }
     return {
       method: 'snapshot-convert',
@@ -288,6 +288,6 @@ export async function copyVmDisks(opts: DiskCopyOptions): Promise<DiskCopyResult
       trace: opts.trace,
     });
   }
-  notes.push('The guest was writing during the copy — restore may need a filesystem check.');
+  notes.push('The guest was writing during the copy - restore may need a filesystem check.');
   return { method: 'direct-convert', consistent: false, checkpointCreated: false, compressed: compress, notes };
 }

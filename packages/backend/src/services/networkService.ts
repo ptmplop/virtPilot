@@ -255,11 +255,11 @@ export async function createBridgeNetwork(opts: {
     // Fail closed: if we can't read the NIC's addresses we don't know whether
     // enslaving it would cut the host off, so refuse rather than guess.
     if (addrOut === null) {
-      throw new Error(`Could not inspect ${nic} — refusing to enslave a NIC whose IP configuration is unknown.`);
+      throw new Error(`Could not inspect ${nic} - refusing to enslave a NIC whose IP configuration is unknown.`);
     }
     if (/inet /.test(addrOut)) {
       throw new Error(
-        `${nic} has active IP addresses — enslaving it would drop host connectivity. ` +
+        `${nic} has active IP addresses - enslaving it would drop host connectivity. ` +
         `Configure the bridge at the OS level first (netplan / /etc/network/interfaces), ` +
         `then attach it here using "Existing OS bridge".`
       );
@@ -350,7 +350,7 @@ export async function deleteNetwork(id: string): Promise<void> {
 
   const allocations = await readAllocations();
   if (allocations.some((a) => a.networkId === id)) {
-    throw new Error('Network has active IP allocations — delete the associated VMs first');
+    throw new Error('Network has active IP allocations - delete the associated VMs first');
   }
 
   // NAT networks never create IP allocations, so the check above doesn't cover
