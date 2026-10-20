@@ -1,12 +1,15 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Tooltip } from '@/components/ui/Tooltip';
 
 export interface MenuItem {
   label: string;
-  /** Quiet words after the label: how the command acts ("ACPI", "immediate"). */
-  hint?: string;
+  /** Tells apart items that share a label. */
+  key?: string;
+  /** Quiet words (or a small mark) after the label: how the command acts ("ACPI", "immediate"). */
+  hint?: ReactNode;
   icon?: ReactNode;
   onSelect: () => void;
   /** Destructive commands are red, as on the buttons they stand in for. */
@@ -14,16 +17,19 @@ export interface MenuItem {
   disabled?: boolean;
   /** Draw a rule above this item, to set a group of commands apart. */
   separated?: boolean;
+  /** One of a set of options: the chosen one carries a tick (a radio item). */
+  checked?: boolean;
 }
 
-// A small command menu behind one icon button — a row's power actions, say. It is drawn
+// A small command menu behind one button — a row's power actions, say. It is drawn
 // in a portal, so a panel's rounded clipping can't cut it, and flips above its button
 // when there is no room below. Keyboard as in any menu: Enter, Space or ↓ opens it on
-// the first command, ↑/↓ move, Home/End jump, Escape closes it and returns to the
-// button, Tab closes it and moves on. Scrolling or resizing closes it rather than
-// leaving it floating away from its row.
+// the first command (the chosen one, in a list of options), ↑/↓ move, Home/End jump,
+// Escape closes it and returns to the button, Tab closes it and moves on. Scrolling
+// what holds the button, or resizing, closes it rather than leaving it floating away
+// from its row.
 export function Menu({
-  label, tooltip, icon, items, buttonClassName, disabled,
+  label, tooltip, icon, items, buttonClassName, disabled, trigger, align = 'end', heading, menuClassName, shortcut,
 }: {
   /** The button's accessible name. */
   label: string;
@@ -31,19 +37,30 @@ export function Menu({
       portal as inside its parent, so focus moving into the open menu would re-show a
       tooltip wrapped around the whole component. */
   tooltip?: string;
-  icon: ReactNode;
+  /** A keyboard shortcut shown in the tooltip. */
+  shortcut?: string;
+  icon?: ReactNode;
+  /** The button's content when it is more than an icon (words, a chevron). */
+  trigger?: ReactNode;
   items: MenuItem[];
   buttonClassName?: string;
   disabled?: boolean;
+  /** Which edge of the button the menu lines up with. */
+  align?: 'start' | 'end';
+  /** A quiet line above the items saying what they do. */
+  heading?: string;
+  menuClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const radio = items.some((item) => item.checked !== undefined);
+  const itemRole = radio ? 'menuitemradio' : 'menuitem';
 
   const itemEls = () =>
-    Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? []);
+    Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>(`[role="${itemRole}"]:not(:disabled)`) ?? []);
 
   const close = (refocus: boolean) => {
     setOpen(false);
@@ -51,20 +68,24 @@ export function Menu({
     if (refocus) buttonRef.current?.focus();
   };
 
-  // Place it under the button's right edge (above, if it would run off the bottom),
-  // measured once it exists so its real size is known; then move focus into it.
+  // Place it under the button (above, if it would run off the bottom), measured once it
+  // exists so its real size is known; then move focus into it.
   useLayoutEffect(() => {
     if (!open || !buttonRef.current || !listRef.current) return;
     const b = buttonRef.current.getBoundingClientRect();
     const { offsetWidth: w, offsetHeight: h } = listRef.current;
     const below = b.bottom + 6;
     const top = below + h > window.innerHeight - 8 && b.top - 6 - h >= 8 ? b.top - 6 - h : below;
-    const left = Math.min(Math.max(8, b.right - w), window.innerWidth - w - 8);
+    const edge = align === 'end' ? b.right - w : b.left;
+    const left = Math.min(Math.max(8, edge), window.innerWidth - w - 8);
     setPos({ top, left });
-  }, [open]);
+  }, [open, align]);
 
   useEffect(() => {
-    if (open && pos) itemEls()[0]?.focus();
+    if (!open || !pos) return;
+    const els = itemEls();
+    (els.find((el) => el.getAttribute('aria-checked') === 'true') ?? els[0])?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, pos]);
 
   useEffect(() => {
@@ -74,14 +95,20 @@ export function Menu({
       if (listRef.current?.contains(t) || buttonRef.current?.contains(t)) return;
       close(false);
     };
-    const onViewportChange = () => close(false);
+    // Only a scroll that moves the button closes the menu: a terminal printing
+    // underneath (its viewport scrolls with every line) must not.
+    const onScroll = (e: Event) => {
+      const t = e.target;
+      if (t === document || (t instanceof Node && buttonRef.current && t.contains(buttonRef.current))) close(false);
+    };
+    const onResize = () => close(false);
     document.addEventListener('pointerdown', onPointerDown, true);
-    window.addEventListener('scroll', onViewportChange, true);
-    window.addEventListener('resize', onViewportChange);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown, true);
-      window.removeEventListener('scroll', onViewportChange, true);
-      window.removeEventListener('resize', onViewportChange);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
     };
   }, [open]);
 
@@ -118,13 +145,13 @@ export function Menu({
         buttonClassName,
       )}
     >
-      {icon}
+      {trigger ?? icon}
     </button>
   );
 
   return (
     <>
-      {tooltip ? <Tooltip label={tooltip}>{button}</Tooltip> : button}
+      {tooltip ? <Tooltip label={tooltip} shortcut={shortcut} disabled={open}>{button}</Tooltip> : button}
       {open && createPortal(
         <div
           ref={listRef}
@@ -133,30 +160,42 @@ export function Menu({
           aria-label={label}
           onKeyDown={onListKey}
           style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? 'visible' : 'hidden' }}
-          className="fixed z-[60] min-w-[12.5rem] animate-fade-in rounded-lg border border-border bg-card py-1 shadow-pop"
+          className={cn(
+            'fixed z-[60] max-h-[calc(100vh-16px)] min-w-[12.5rem] animate-fade-in overflow-y-auto overscroll-contain rounded-lg border border-border bg-card p-1 shadow-pop',
+            menuClassName,
+          )}
         >
+          {heading && (
+            <div role="presentation" className="px-3 pb-1.5 pt-1 text-[12px] font-medium text-muted-foreground">
+              {heading}
+            </div>
+          )}
           {items.map((item) => (
-            <Fragment key={item.label}>
-              {item.separated && <div role="separator" className="my-1 h-px bg-border" />}
+            <Fragment key={item.key ?? item.label}>
+              {item.separated && <div role="separator" className="-mx-1 my-1 h-px bg-border" />}
               <button
                 type="button"
-                role="menuitem"
+                role={itemRole}
+                aria-checked={radio ? !!item.checked : undefined}
                 tabIndex={-1}
                 disabled={item.disabled}
                 onClick={() => { close(true); item.onSelect(); }}
                 className={cn(
-                  'flex h-9 w-full items-center gap-2.5 px-3 text-left text-[13px] transition-colors',
+                  'flex h-9 w-full items-center gap-2.5 rounded-[4px] px-3 text-left text-[13px] transition-colors',
                   'hover:bg-muted focus-visible:bg-muted focus-visible:outline-offset-[-2px] disabled:opacity-45',
                   item.danger ? 'text-destructive' : 'text-foreground',
                 )}
               >
+                {radio && (
+                  <Check aria-hidden size={14} className={cn('shrink-0 text-primary', !item.checked && 'invisible')} />
+                )}
                 {item.icon && (
                   <span className={cn('flex h-4 w-4 shrink-0 items-center justify-center', item.danger ? 'text-destructive' : 'text-muted-foreground')}>
                     {item.icon}
                   </span>
                 )}
-                <span className="flex-1">{item.label}</span>
-                {item.hint && <span className="text-[12px] text-muted-foreground">{item.hint}</span>}
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {item.hint && <span className="shrink-0 text-[12px] text-muted-foreground">{item.hint}</span>}
               </button>
             </Fragment>
           ))}

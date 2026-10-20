@@ -13,6 +13,20 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.14.0',
+    date: '2026-10-20',
+    changes: [
+      { type: 'added', text: 'Tabs in the console window: each tab is on a VM (the same one again or any other, from the menu beside +) and can be the serial console, SSH or VNC. Background tabs keep running, new output shows in a tab’s label, tabs rename with a double-click or F2, close with Delete or a middle click, step with Ctrl+Shift+PageUp/PageDown, and come back after a reload.' },
+      { type: 'added', text: 'Split panes: up to four sessions side by side in a tab, with dividers you can drag or move from the keyboard.' },
+      { type: 'added', text: 'One window for every Console button: once the console window is open, Console adds a tab to it (or brings that VM’s tab forward) instead of opening or reloading a window.' },
+      { type: 'added', text: 'For the VNC display: Ctrl+Alt+Delete, Ctrl+Alt+F1, F2 and Backspace, and "Type the clipboard" as keystrokes. Find in the scrollback is a find bar (Ctrl+Shift+F).' },
+      { type: 'changed', text: 'The serial console is shared, so tabs and windows on one VM no longer knock each other off; a late tab sees the recent output and a network blip loses nothing.' },
+      { type: 'changed', text: 'An ended session says why, with Reconnect or Power on. Powering on from the console shows the boot from its first line, sessions come back when a stopped VM starts again, and SSH to a VM that has just started waits for its address and for SSH to come up.' },
+      { type: 'changed', text: 'A clearer console window: the active VM with its state and power, the session type and the connection in the header ("Not connected" while a stopped VM is waited for), JetBrains Mono in the terminal, and a keyboard-friendly theme menu.' },
+      { type: 'fixed', text: 'Full-screen programs (nano, vi, htop, tmux) drew a column too wide or in the wrong place; an SSH session could open at the wrong size; Ctrl+Shift+V pasted twice on Windows and Linux; Ctrl+Shift+C could open the developer tools; a silently dead connection, or SSH to a VM that was forced off, kept saying Connected; menus closed when a terminal printed beneath them; the console’s own messages were too faint in most themes.' },
+    ],
+  },
+  {
     version: '2.13.2',
     date: '2026-10-18',
     changes: [

@@ -60,7 +60,10 @@ usermod -aG libvirt $USER
 
 - VM/network state is derived live from libvirt via `virsh` commands — no DB caching
 - A small embedded SQLite database (`$STORAGE_ROOT/virtpilot.db`) holds state libvirt doesn't track itself (currently: per-VM metrics history). See [DATABASE.md](DATABASE.md) for schema, migrations, and how to add new tables. Driver: `better-sqlite3` (synchronous, prebuilt for Node 20). When a feature needs persistent state across restarts that doesn't fit the live-from-libvirt model, add a migration in `services/db.ts` rather than inventing a new JSON file
-- Console: WebSocket at `/ws/console?vm=<name>` → node-pty → `virsh console`
+- Console: WebSocket at `/ws/console?vm=<uuid>` → ONE shared node-pty `virsh console --force` per VM
+  (a second `--force` kicks the first, so sockets share it; backlog replay, banner filter and exit reasons in
+  `lib/serialConsole.ts`). `/ws/ssh` → ssh2, `/ws/vnc` → QEMU's VNC socket (QEMU shares it between viewers).
+  The console window is `packages/frontend/src/components/console/` (tabs, split panes, sessions)
 - Storage layout: `$STORAGE_ROOT/{templates,isos,vms,cloud-init}`
 - VM creation: creates qcow2 overlay from template, generates cloud-init ISO, defines libvirt domain XML, calls `virsh define`
 - Networking: bridged only; bridge must pre-exist on host

@@ -1,9 +1,7 @@
 import { toast } from 'sonner';
 
-// 1200×760 lands at roughly 150 cols × 48 rows for the default xterm font. The
-// previous 960×600 squashed the header (tab switcher + connection state + VM
-// action buttons + theme picker fit but visibly cramped). 1200 leaves the
-// header airy without losing the "popup, not a full browser window" feel.
+// 1200×760 lands at roughly 150 cols × 44 rows: room for the header and tab strip
+// without losing the "a console window, not a browser" feel.
 const POPUP_WIDTH = 1200;
 const POPUP_HEIGHT = 760;
 
@@ -23,18 +21,23 @@ const POPUP_FEATURES = [
   'status=no',
 ].join(',');
 
+// One console window per dashboard tab: every VM's console opens as a tab inside it.
+const CONSOLE_WINDOW = 'virtpilot-console';
+
+/** The fragment a console window reads as "open a tab for this VM". */
+export const CONSOLE_OPEN_HASH = 'open';
+
+const CONSOLE_PATH = /^\/vms\/[^/]+\/console$/;
+
 /**
- * Open the VM console (Console / SSH / VNC tabs) for a VM, either as a popup
- * or via in-app navigation depending on user preference. If a popup is
- * requested but blocked by the browser, we fall back to in-app navigation and
- * toast a hint so the user can either allow popups or flip the preference off.
+ * Open a VM's console, in the console window or in this tab, as the user prefers. A
+ * blocked popup falls back to this tab with a hint.
  *
- * The window name `vp-console-${uuid}` is the browser's hint to *reuse* the
- * existing popup for the same VM instead of spawning a duplicate — re-clicking
- * navigates the existing window. `w.focus()` brings it to front on most
- * browsers, but isn't a guarantee (Firefox in particular often ignores focus
- * calls when the popup was opened from a separate tab; the user may need to
- * alt-tab).
+ * The console window is found by name with an EMPTY url: that hands back an existing
+ * window untouched (or opens a fresh about:blank one). Passing the url would navigate an
+ * existing window to it, which is a reload: every tab in it would close and every session
+ * end. A window already showing consoles is asked for the VM through its address's
+ * fragment instead, which it answers by opening a tab (or bringing the VM's tab forward).
  */
 export function openVmConsole(
   uuid: string,
@@ -47,11 +50,22 @@ export function openVmConsole(
     return;
   }
 
-  const w = window.open(url, `vp-console-${uuid}`, POPUP_FEATURES);
+  const w = window.open('', CONSOLE_WINDOW, POPUP_FEATURES);
   if (!w) {
     toast.error('Popup blocked - opening in this tab. Allow popups for this site, or turn off popup mode on the VMs page.');
     navigate(url);
     return;
+  }
+  try {
+    if (CONSOLE_PATH.test(w.location.pathname)) {
+      // The time makes each request a new fragment, so the window hears it even when it
+      // is the same VM as last time.
+      w.location.replace(`${w.location.pathname}${w.location.search}#${CONSOLE_OPEN_HASH}=${uuid}.${Date.now()}`);
+    } else {
+      w.location.href = url;
+    }
+  } catch {
+    // The window is showing another origin (a sign-in page, say): leave it and bring it forward.
   }
   w.focus();
 }

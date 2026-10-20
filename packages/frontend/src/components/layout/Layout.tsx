@@ -31,7 +31,7 @@ import { useHostName } from '@/hooks/useSystemStats';
 
 // The version the operator sees. scripts/check-versions.sh checks this literal, and the
 // login screen imports it so the two can never disagree again.
-export const APP_VERSION = 'v2.13.2';
+export const APP_VERSION = 'v2.14.0';
 
 interface LayoutProps {
   children?: ReactNode;

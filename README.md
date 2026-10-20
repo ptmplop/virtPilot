@@ -13,7 +13,7 @@ VirtPilot does not run a control plane, an agent, or a database of truth. VM sta
 
 ## Features
 
-- **VMs** - create from cloud images with cloud-init, BIOS or UEFI (OVMF + swtpm), live console via `xterm.js` over a WebSocket-backed `virsh console`; clone any VM into an independent copy without shutting it down
+- **VMs** - create from cloud images with cloud-init, BIOS or UEFI (OVMF + swtpm), a console window with tabs and split panes (serial console, SSH and the VNC display, on the same VM or any other) over WebSockets; clone any VM into an independent copy without shutting it down
 - **Templates & ISOs** - qcow2 backing chain (overlay per VM), upload custom ISOs, convert a running snapshot back into a template
 - **Networking** - bridged interfaces (host bridge required) and managed NAT bridges (`vp0`, `vp1`, …); per-NIC bandwidth shaping via Linux `tc`; per-VM iptables firewall chains
 - **Snapshots** - internal and external (disk-only and live with RAM); size column shows on-disk cost
@@ -194,7 +194,7 @@ packages/frontend/  Vite + React 18 + TypeScript + Tailwind CSS
 
 - **Live state from libvirt.** `virsh` is the source of truth for VMs, networks, and snapshots. There is no shadow database to fall out of sync.
 - **One small SQLite file** at `${STORAGE_ROOT}/virtpilot.db` for state libvirt doesn't track itself - currently per-VM metrics history. See [DATABASE.md](DATABASE.md) for the schema and migration pattern.
-- **Console** - `/ws/console?vm=<name>` over WebSocket → `node-pty` → `virsh console`.
+- **Console** - `/ws/console?vm=<uuid>` over WebSocket → one shared `virsh console` per VM through `node-pty` (a VM's serial port takes one reader, so every viewer shares it); `/ws/ssh` → `ssh2` into the guest; `/ws/vnc` → QEMU's VNC socket for noVNC.
 - **Cloud-init** - `meta-data` and `user-data` written under `cloud-init/<vm>/`, packed into `seed.iso` with `genisoimage`, attached as a virtual CD on first boot.
 
 ---

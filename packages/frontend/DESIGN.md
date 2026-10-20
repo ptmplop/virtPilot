@@ -120,6 +120,29 @@ Newness comes from structure and type; colour stays quiet.
   runs (the allocation as sub-lines; the allocation itself once stopped), and every power state has a
   control (Force off for paused or crashed).
 
+## The console window
+
+- **One window** (`virtpilot-console`) for every Console button. A click for a VM the window already shows
+  brings its tab forward; any other VM opens a tab. The request travels in the fragment (`#open=<uuid>.<time>`),
+  a same-document navigation: navigating the window to a URL would reload it and end every session in it.
+- **Always dark.** The document takes `.dark` while the console is open, so portalled menus, tooltips and
+  toasts match; the app's theme comes back on the way out.
+- **Header (48px)** speaks for the active tab: its VM (a back link outside a popup; the OS mark from 640px),
+  the VM's state, the focused pane's kind (`.segmented` Console / SSH / VNC: choosing another starts that
+  kind of session in its place), the connection word (coloured only when something is wrong; "Not connected"
+  while a stopped VM is waited for), then Send keys (VNC only, once connected), power (Power on, or the
+  power `<Menu>`) and the theme menu (radio items with swatches).
+- **Tab strip (40px)** on the canvas. The selected tab takes the terminal theme's ground and runs into the
+  pane, as a desktop terminal's does. A tab carries its kind's icon, amber or red when its session is in
+  trouble; new output in a background tab turns its label ink and semibold. Never a dot. `+` opens the same
+  VM and kind; the chevron menu opens any VM ("Open SSH on"). Two tabs that would read the same are numbered.
+  Splits (right, down, up to four panes) sit at the strip's right and are hidden on phones.
+- **A pane that can't run says so in a floating bar** at its top: "Session ended" or "Couldn't connect" with
+  the reason and Reconnect, or "web-01 is stopped" with Power on. Never a whole-page panel: the scrollback
+  stays readable and selectable around the bar.
+- **Terminal**: JetBrains Mono 13px; the margin is padding on xterm's own `.xterm` element and the fit takes
+  it off before counting cells; columns are `floor()`ed from the measured cell.
+
 ## Numbers and words
 
 - One set of formatters in `lib/format.ts` — `formatBytes`, `formatMemory`, `formatRate`, `formatDuration`,
@@ -183,3 +206,10 @@ dashes in user-facing text. Type, rules and alignment do that work.
   inside the wrapper): give the popover's trigger its own tooltip, as `<Menu tooltip>` does.
 - A scrolling tab bar clips a tab's `-mb-px` underline over a real border: draw the bar's hairline as
   an inset shadow.
+- The serial console is one reader per VM: a second `virsh console --force` kicks the first ("stream had I/O
+  failure"). The backend shares one per VM (`console.ts`); never spawn one per socket.
+- A pane in a hidden tab measures 0×0. Fitting then squeezes the pty to two columns and reflows the guest's
+  screen: skip the fit, the ResizeObserver fires again when the tab shows.
+- A menu over a terminal must not close on any scroll: the terminal's viewport scrolls with every line it
+  prints. `<Menu>` closes only on a scroll that moves its button.
+- noVNC reports no close reason, so a VNC pane can only say "Session ended" or "Couldn't connect".

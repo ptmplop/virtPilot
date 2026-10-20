@@ -32,9 +32,10 @@ export function createVncWss(): WebSocketServer {
   });
 
   // ws disables the socket timeout, so a client that disappears without a FIN
-  // (laptop lid, dropped Wi-Fi, NAT timeout) would hold the QEMU VNC socket
-  // open forever — and QEMU only allows one. Ping every 30s and drop anyone
-  // who misses a pong.
+  // (laptop lid, dropped Wi-Fi, NAT timeout) would hold a QEMU VNC socket open
+  // forever. (QEMU shares the display between clients that ask to share, as
+  // noVNC does by default, so several viewers of one VM coexist; measured on
+  // the rig.) Ping every 30s and drop anyone who misses a pong.
   const heartbeat = setInterval(() => {
     for (const socket of wss.clients) {
       const client = socket as AliveSocket;

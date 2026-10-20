@@ -3,6 +3,32 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.14.0] - 2026-10-20
+
+### Added
+
+- **Tabs in the console window.** One console window now holds every session you open. Each tab is on a VM - the same one again, or any other, picked from the menu beside the new-tab button - and each can be the serial console, SSH or the VNC display. Tabs keep running in the background, so switching never drops a session or its scrollback, and a tab with new output says so in its label. Double-click a tab (or press F2) to rename it; close it with its button, a middle click or Delete; step through tabs with Ctrl+Shift+PageUp and PageDown, and open one with Ctrl+Shift+\`. A reload brings the tabs back.
+- **Split panes.** Split a tab right or down, up to four sessions side by side: the serial console beside an SSH session, say. Drag the divider (or focus it and use the arrow keys) to resize it, and double-click it to even the split.
+- **One window for every Console button.** With popups on, the dashboard's Console buttons open the console window, and once it is open they add a tab to it, or bring that VM's tab forward, instead of opening another window or reloading the one you have.
+- **Keys the browser keeps for itself, for the VNC display:** Ctrl+Alt+Delete, Ctrl+Alt+F1, F2 and Backspace, and "Type the clipboard", which types copied text into the guest as keystrokes for installers and login screens that have no clipboard.
+- **Find in the scrollback** (Ctrl+Shift+F) is a small find bar with next and previous, instead of the browser's prompt.
+
+### Changed
+
+- **The serial console is shared.** A VM's serial port takes one reader, so two tabs or windows on the same VM's console used to knock each other off. Now they share it, a tab that joins late is shown what the console printed before it arrived, and a network blip no longer loses the output printed while you were away.
+- **A session that ends says why and offers the way back:** "Session ended" with the reason and Reconnect, or, when the VM is off, that it is stopped and Power on. Powering a VM on from the console attaches its serial console at once, so the boot is on screen from the first line, and a session that ended because the VM stopped comes back by itself when the VM starts again. SSH to a VM that has only just started waits for it to get an address and start SSH, instead of failing.
+- **A clearer console window.** The header names the active tab's VM with its state and power controls, the session type (Console, SSH, VNC) and how the connection is doing; while a stopped VM is waited for it says "Not connected" rather than "Connecting…". The terminal uses JetBrains Mono, the app's own face for identifiers, and the theme picker is a menu that works from the keyboard.
+
+### Fixed
+
+- Full-screen programs (nano, vi, htop, tmux) could draw a column wider than the terminal or put text in the wrong place: the terminal now counts only the columns it can show and passes the guest's line feeds through untouched.
+- An SSH session could open at the wrong size: the browser's first resize was lost while the VM's address was being looked up.
+- Ctrl+Shift+V pasted twice in browsers on Windows and Linux, and Ctrl+Shift+C with nothing selected opened the browser's developer tools.
+- A connection that died silently (a laptop asleep, a dropped VPN) kept saying Connected. It is now noticed within a minute and redialled, and a session that can't come back stops retrying after ten attempts and offers Reconnect.
+- An open menu closed by itself whenever a terminal printed a line beneath it.
+- An SSH session to a VM that was forced off kept saying Connected for many minutes; it now ends and offers Power on.
+- The console's own messages ("Reconnecting…", "Session ended") were too faint to read in most terminal themes. Faint text is now lifted to a readable contrast in every theme.
+
 ## [2.13.2] - 2026-10-18
 
 ### Changed
