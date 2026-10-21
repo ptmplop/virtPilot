@@ -129,12 +129,17 @@ if [[ "$PHASE2" == false && "$BEFORE" != "$AFTER" ]]; then
 fi
 
 # ─── APT packages ─────────────────────────────────────────────────────────────
+# Never stop to ask (see install.sh): this runs inside a transient unit with
+# no terminal at all.
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
 info "Ensuring system packages are present..."
 apt-get install -y -qq \
   ovmf \
   swtpm \
   swtpm-tools \
-  qemu-utils
+  qemu-utils \
+  pciutils
 log "System packages verified"
 
 # ─── Storage directories (idempotent) ────────────────────────────────────────
@@ -279,6 +284,21 @@ if [[ -f "${SUDOERS_FILE}" ]] && ! grep -q 'libvirt-qemu.*qemu-img' "${SUDOERS_F
   visudo -cf "${SUDOERS_FILE}" >/dev/null
   log "Sudoers rules healed"
 fi
+
+# ─── Passthrough helper ──────────────────────────────────────────────────────
+# "Keep for VMs" and SR-IOV virtual functions write to /sys, which the
+# service's own sandbox makes read-only; the backend runs this root-owned
+# helper through systemd-run instead, and the boot unit re-applies its
+# settings before libvirt autostarts any VM.
+install -m 0755 -o root -g root "${INSTALL_DIR}/scripts/virtpilot-passthrough.sh" /usr/local/sbin/virtpilot-passthrough
+install -m 0644 -o root -g root "${INSTALL_DIR}/scripts/virtpilot-passthrough.service" /etc/systemd/system/virtpilot-passthrough.service
+systemctl daemon-reload
+systemctl enable --quiet virtpilot-passthrough.service
+# vfio-pci binds nothing unless asked, but the service can't see /lib/modules
+# (ProtectKernelModules), so it can only tell a loaded module from a missing one.
+echo vfio-pci > /etc/modules-load.d/virtpilot.conf
+modprobe vfio-pci 2>/dev/null || true
+log "Passthrough helper up to date"
 
 # ─── Heal update.sh ownership (idempotent) ───────────────────────────────────
 # Installs made before this release left update.sh owned by ${SERVICE_USER},

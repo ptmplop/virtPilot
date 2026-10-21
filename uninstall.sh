@@ -77,6 +77,8 @@ echo "  • iptables VP-IN-* / VP-OUT-* chains"
 echo "  • /etc/nginx/sites-{available,enabled}/virtpilot"
 echo "  • UFW rules for ports ${PUBLIC_PORT}/${BACKEND_PORT}"
 echo "  • /etc/sudoers.d/virtpilot"
+echo "  • The passthrough helper and its boot unit; devices kept for VMs go back to"
+echo "    the host and SR-IOV virtual functions are switched off"
 echo "  • The ${SERVICE_USER} system user"
 echo "  • /var/lib/virtpilot and everything inside it (VM disks, ISOs, templates,"
 echo "    cloud-init seeds, backups, TLS cert)"
@@ -218,6 +220,17 @@ fi
 
 # ─── 7. sudoers ───────────────────────────────────────────────────────────────
 rm -f /etc/sudoers.d/virtpilot
+
+# ─── 7b. Passthrough helper ───────────────────────────────────────────────────
+# After the VMs are gone, so nothing still holds a device the host takes back.
+if [[ -x /usr/local/sbin/virtpilot-passthrough ]]; then
+  /usr/local/sbin/virtpilot-passthrough reset >/dev/null 2>&1 || warn "Some passthrough settings could not be undone; see /etc/virtpilot/passthrough.conf"
+fi
+systemctl disable --quiet virtpilot-passthrough.service 2>/dev/null || true
+rm -f /etc/systemd/system/virtpilot-passthrough.service /usr/local/sbin/virtpilot-passthrough /etc/modules-load.d/virtpilot.conf
+rmdir /etc/virtpilot 2>/dev/null || true
+systemctl daemon-reload
+log "Removed the passthrough helper"
 
 # ─── 8. Detach libvirt-qemu from the virtpilot group ──────────────────────────
 # install.sh added libvirt-qemu to the ${SERVICE_USER} group so qemu could

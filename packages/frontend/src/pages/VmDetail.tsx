@@ -33,7 +33,9 @@ import {
   useRenameVm,
 } from '@/hooks/useVms';
 import type { VmMetricsRange } from '@/types';
-import { useHostDevices, useAttachDevice, useDetachDevice } from '@/hooks/useDevices';
+import { VmDevicesTab } from '@/components/devices/VmDevicesTab';
+import { RowAction } from '@/components/ui/RowAction';
+import { apiErrorMessage } from '@/lib/api';
 import { useDownloadVmDisk } from '@/hooks/useVmDisks';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
@@ -42,7 +44,7 @@ import { formatMemory, formatDisk, formatBytes, formatDateTime, formatChartTime,
 import { cn } from '@/lib/cn';
 import { CHART } from '@/lib/chartColors';
 import { useSettings } from '@/hooks/useSettings';
-import type { DhcpReservation, FirewallConfig, FirewallRule, HostDevice, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatsSample, VmStatus } from '@/types';
+import type { DhcpReservation, FirewallConfig, FirewallRule, Network as NetworkConfig, PortForward, VmDisk, VmMeta, VmNic, VmSnapshot, VmStatsSample, VmStatus } from '@/types';
 import { useLogoStore } from '@/store/logoStore';
 import { VmLogo } from '@/components/ui/OsLogoPicker';
 import { DeleteVmDialog } from '@/components/DeleteVmDialog';
@@ -82,37 +84,6 @@ const TABS: Tab[] = ['overview', 'disks', 'network', 'snapshots', 'firewall', 'd
 
 // ─── Local building blocks ────────────────────────────────────────────────────
 
-// A row action: a quiet icon button that names itself twice — aria-label for assistive
-// tech, a tooltip for the pointer. `tooltip` may differ from the label (e.g. to say why
-// the action is unavailable); the label always says what the button does.
-function RowAction({
-  label, tooltip, onClick, disabled, danger, children,
-}: {
-  label: string;
-  tooltip?: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  danger?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Tooltip label={tooltip ?? label}>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        aria-label={label}
-        className={cn(
-          'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors',
-          'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground',
-          danger ? 'hover:bg-destructive/10 hover:text-destructive' : 'hover:bg-muted hover:text-foreground',
-        )}
-      >
-        {children}
-      </button>
-    </Tooltip>
-  );
-}
 
 // Smaller sibling for actions that sit inline with a value (copy, reveal).
 const inlineAction =
@@ -233,8 +204,9 @@ export function VmDetailPage() {
     try {
       await action.mutateAsync({ action: a, params: force ? { force: 'true' } : undefined });
       toast.success(`${a.charAt(0).toUpperCase() + a.slice(1)} command sent`);
-    } catch {
-      toast.error(`Failed to ${a}`);
+    } catch (err) {
+      // A start held up by a passed-through device says which and why.
+      toast.error(apiErrorMessage(err, `Failed to ${a}`), { duration: 10_000 });
     }
   };
 
@@ -478,7 +450,7 @@ export function VmDetailPage() {
           <div role="tabpanel" id="vm-panel-network" aria-labelledby="vm-tab-network" className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmUuid={uuid!} nics={vm.nics} meta={vmMeta} /></div>
           <div role="tabpanel" id="vm-panel-snapshots" aria-labelledby="vm-tab-snapshots" className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
           <div role="tabpanel" id="vm-panel-firewall" aria-labelledby="vm-tab-firewall" className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmUuid={uuid!} vmStatus={vm.status} /></div>
-          <div role="tabpanel" id="vm-panel-devices" aria-labelledby="vm-tab-devices" className={tab !== 'devices' ? 'hidden' : undefined}><DevicesTab vmUuid={uuid!} /></div>
+          <div role="tabpanel" id="vm-panel-devices" aria-labelledby="vm-tab-devices" className={tab !== 'devices' ? 'hidden' : undefined}><VmDevicesTab vmUuid={uuid!} vmName={vm.name} /></div>
           <div role="tabpanel" id="vm-panel-metrics" aria-labelledby="vm-tab-metrics" className={tab !== 'metrics' ? 'hidden' : undefined}><MetricsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
         </>
       )}
@@ -1398,7 +1370,7 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
       if (isTimeout) {
         toast.warning('Snapshot is taking longer than expected - check the list in a moment');
       } else {
-        toast.error('Failed to create snapshot');
+        toast.error(apiErrorMessage(err, 'Failed to create snapshot'), { duration: 10_000 });
       }
     } finally {
       setPendingSnapshot(null);
@@ -1411,8 +1383,8 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
       await deleteSnapshot.mutateAsync(deleteTarget);
       toast.success('Snapshot deleted');
       setDeleteTarget(null);
-    } catch {
-      toast.error('Failed to delete snapshot');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Failed to delete snapshot'), { duration: 10_000 });
     }
   };
 
@@ -1424,8 +1396,8 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
     try {
       await revertSnapshot.mutateAsync(target);
       toast.success('Snapshot restored - VM is starting');
-    } catch {
-      toast.error('Failed to restore snapshot');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Failed to restore snapshot'), { duration: 10_000 });
     } finally {
       setPendingRevert(null);
     }
@@ -2882,237 +2854,6 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
           />
         </div>
       </Dialog>
-    </div>
-  );
-}
-
-// ─── Devices ──────────────────────────────────────────────────────────────────
-
-function pciAddrStr(a: NonNullable<HostDevice['pciAddress']>): string {
-  return `${a.domain.toString(16).padStart(4, '0')}:${a.bus.toString(16).padStart(2, '0')}:${a.slot.toString(16).padStart(2, '0')}.${a.function.toString(16)}`;
-}
-
-const PCI_CLASS_NAMES: Record<string, string> = {
-  '01': 'Storage', '02': 'Network', '03': 'Display', '04': 'Multimedia',
-  '05': 'Memory', '06': 'Bridge', '07': 'Comms', '08': 'System',
-  '09': 'Input', '0a': 'Docking', '0b': 'Processor', '0c': 'Serial Bus',
-  '0d': 'Wireless', '10': 'Encryption', '11': 'Signal Proc',
-};
-
-function DeviceRow({
-  device,
-  action,
-  dimmed = false,
-  warn = false,
-}: {
-  device: HostDevice;
-  action?: React.ReactNode;
-  dimmed?: boolean;
-  warn?: boolean;
-}) {
-  // "In use by another VM" rows are quieter: muted text, never faded (faded text fails
-  // contrast, and these rows still have to be read).
-  return (
-    <tr className="table-row">
-      <td className={cn('px-5 py-3 text-[12.5px] font-medium', dimmed ? 'text-muted-foreground' : 'text-foreground')}>
-        {device.type.toUpperCase()}
-      </td>
-      <td className="px-5 py-3">
-        <div className={cn('text-[13px] font-medium', dimmed ? 'text-muted-foreground' : 'text-foreground')}>{device.product}</div>
-        <div className="mt-0.5 text-[12px] text-muted-foreground">{device.vendor}</div>
-      </td>
-      <td className="px-5 py-3 text-[12px] text-muted-foreground">
-        {device.type === 'pci' && device.pciAddress ? (
-          <div className="space-y-0.5">
-            <div className="font-mono">{pciAddrStr(device.pciAddress)}</div>
-            <div className="flex flex-wrap items-center gap-x-2.5">
-              {device.pciClass && (
-                <span>
-                  {PCI_CLASS_NAMES[device.pciClass.slice(0, 2).toLowerCase()] ?? device.pciClass}
-                </span>
-              )}
-              {device.iommuGroup !== undefined && (
-                <span className="tabular-nums">
-                  IOMMU {device.iommuGroup}
-                </span>
-              )}
-              {device.driver && (
-                warn ? (
-                  <Tooltip label="Host is currently using this device - attaching it will unbind it from the host and may disrupt host functionality">
-                    <span className="inline-flex cursor-help items-center gap-1 font-mono text-amber-700 dark:text-amber-300">
-                      <WarnGlyph />
-                      {device.driver}
-                    </span>
-                  </Tooltip>
-                ) : (
-                  <span className="font-mono">{device.driver}</span>
-                )
-              )}
-            </div>
-          </div>
-        ) : device.type === 'usb' && device.usbAddress ? (
-          <span className="font-mono">
-            Bus {String(device.usbAddress.bus).padStart(3, '0')} Dev{' '}
-            {String(device.usbAddress.device).padStart(3, '0')}
-          </span>
-        ) : null}
-      </td>
-      <td className="px-5 py-2.5 text-right">{action}</td>
-    </tr>
-  );
-}
-
-function DevicesTab({ vmUuid }: { vmUuid: string }) {
-  const { data: allDevices = [], isLoading } = useHostDevices();
-  const attach = useAttachDevice(vmUuid);
-  const detach = useDetachDevice(vmUuid);
-  const [typeFilter, setTypeFilter] = useState<'all' | 'pci' | 'usb'>('all');
-
-  const filterFn = (d: HostDevice) => typeFilter === 'all' || d.type === typeFilter;
-
-  const attached = allDevices.filter((d) => d.assignedTo === vmUuid && filterFn(d));
-  const available = allDevices.filter((d) => !d.assignedTo && filterFn(d));
-  const inUse = allDevices.filter((d) => d.assignedTo && d.assignedTo !== vmUuid && filterFn(d));
-
-  const handleAttach = async (deviceId: string) => {
-    try {
-      await attach.mutateAsync(deviceId);
-      toast.success('Device attached');
-    } catch {
-      toast.error('Failed to attach device');
-    }
-  };
-
-  const handleDetach = async (deviceId: string) => {
-    try {
-      await detach.mutateAsync(deviceId);
-      toast.success('Device detached');
-    } catch {
-      toast.error('Failed to detach device');
-    }
-  };
-
-  const deviceColumns = ['Type', 'Device', 'Details', ''];
-
-  return (
-    <div className="space-y-6">
-      {/* Type filter */}
-      <div className="segmented" role="group" aria-label="Device type">
-        {(['all', 'pci', 'usb'] as const).map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setTypeFilter(f)}
-            aria-pressed={typeFilter === f}
-          >
-            {f === 'all' ? 'All' : f.toUpperCase()}
-          </button>
-        ))}
-      </div>
-
-      {isLoading ? (
-        <div className="space-y-4">
-          <Skeleton className="h-36 rounded-lg" />
-          <Skeleton className="h-56 rounded-lg" />
-        </div>
-      ) : (
-        <>
-          {/* Attached */}
-          <Panel className="overflow-hidden">
-            <PanelHeader title="Attached to this VM" />
-            {attached.length === 0 ? (
-              <EmptyState compact>No devices attached to this VM.</EmptyState>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <TableHead columns={deviceColumns} />
-                  <tbody className="divide-y divide-border">
-                    {attached.map((d) => (
-                      <DeviceRow
-                        key={d.id}
-                        device={d}
-                        action={
-                          // Solid red is kept for the button that confirms a destructive act.
-                          <Button
-                            size="sm"
-                            variant="dangerOutline"
-                            onClick={() => handleDetach(d.id)}
-                            disabled={detach.isPending}
-                          >
-                            Detach
-                          </Button>
-                        }
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Panel>
-
-          {/* Available */}
-          <Panel className="overflow-hidden">
-            <PanelHeader title="Available devices" />
-            <p className="border-b border-border px-5 py-3 text-[12.5px] leading-5 text-muted-foreground">
-              PCI passthrough requires IOMMU support (intel_iommu=on / amd_iommu=on) and the{' '}
-              <span className="font-mono text-[12px] text-foreground">vfio-pci</span> kernel module. Devices sharing an IOMMU
-              group must all be passed through together or left entirely on the host.
-            </p>
-            {available.length === 0 ? (
-              <EmptyState compact>No devices available - all host devices are either in use or filtered out.</EmptyState>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <TableHead columns={deviceColumns} />
-                  <tbody className="divide-y divide-border">
-                    {available.map((d) => (
-                      <DeviceRow
-                        key={d.id}
-                        device={d}
-                        warn={d.type === 'pci' && !!d.driver && d.driver !== 'vfio-pci'}
-                        action={
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => handleAttach(d.id)}
-                            disabled={attach.isPending}
-                          >
-                            Attach
-                          </Button>
-                        }
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Panel>
-
-          {/* In use by other VMs */}
-          {inUse.length > 0 && (
-            <Panel className="overflow-hidden">
-              <PanelHeader title="In use by other VMs" />
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <TableHead columns={['Type', 'Device', 'Details', 'Assigned to']} right={['Assigned to']} />
-                  <tbody className="divide-y divide-border">
-                    {inUse.map((d) => (
-                      <DeviceRow
-                        key={d.id}
-                        device={d}
-                        dimmed
-                        action={
-                          <span className="font-mono text-[12px] text-muted-foreground">{d.assignedTo}</span>
-                        }
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
-          )}
-        </>
-      )}
     </div>
   );
 }

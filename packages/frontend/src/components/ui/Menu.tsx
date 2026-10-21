@@ -182,7 +182,8 @@ export function Menu({
                 onClick={() => { close(true); item.onSelect(); }}
                 className={cn(
                   'flex h-9 w-full items-center gap-2.5 rounded-[4px] px-3 text-left text-[13px] transition-colors',
-                  'hover:bg-muted focus-visible:bg-muted focus-visible:outline-offset-[-2px] disabled:opacity-45',
+                  // A disabled item keeps its hint readable: the hint is where it says why.
+                  'hover:bg-muted focus-visible:bg-muted focus-visible:outline-offset-[-2px] disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent',
                   item.danger ? 'text-destructive' : 'text-foreground',
                 )}
               >

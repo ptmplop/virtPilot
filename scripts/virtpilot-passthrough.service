@@ -1,0 +1,18 @@
+# Installed to /etc/systemd/system by install.sh and update.sh.
+[Unit]
+Description=VirtPilot passthrough: devices kept for VMs and SR-IOV virtual functions
+After=systemd-modules-load.service systemd-udev-trigger.service
+# Before libvirt autostarts any VM that expects a kept device or a virtual function.
+Before=libvirtd.service virtqemud.service libvirt-guests.service virtpilot.service
+ConditionPathExists=/etc/virtpilot/passthrough.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Never hold libvirt (and every autostart VM) back for long: a driver that won't let go of a card
+# is logged and the boot goes on. Waiting for a NIC's driver before its virtual functions takes up to 30 s.
+TimeoutStartSec=120
+ExecStart=/usr/local/sbin/virtpilot-passthrough apply
+
+[Install]
+WantedBy=multi-user.target

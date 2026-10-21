@@ -3,6 +3,38 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.15.0] - 2026-10-21
+
+### Added
+
+- **A Devices page.** A new page under Resources lists the host hardware a VM can be given directly: GPUs, network cards, storage and USB controllers, accelerators and USB devices, grouped by kind, each with the VM that has it. A check at the top says whether passthrough works on this host (hardware virtualisation, the IOMMU, interrupt remapping, the VFIO driver) and, when something is off, exactly what to change: the firmware setting to turn on, or the kernel flag to add or remove. **Copy report** puts the host's passthrough facts on the clipboard for a bug report, without addresses or VM names.
+- **Only devices that can be passed through are offered.** A two-socket server has over 200 PCI functions, nearly all of them chipset and processor plumbing: the old list showed 27 of them on our test server, the new one the 9 a VM could use. Devices the host needs are never offered: the controller holding a mounted disk, the network card carrying the host's address or a bridge VMs use, the card drawing the host's screen. Everything left out is a click away, with the reason.
+- **Whole IOMMU groups.** VFIO refuses a device while anything else in its IOMMU group is still in use by the host, so a device is now attached together with the rest of its group, and the list says so before you choose it. A group that would take something the host needs is not offered.
+- **Keep for VMs.** A device can be kept for VMs: the host's own driver stops using it from then on, including after a restart, so a GPU no longer goes back and forth between the host and the VM.
+- **SR-IOV virtual functions.** A network card that supports SR-IOV can be split into virtual functions from the Devices page. Each one is listed as a network card of its own that can go to a different VM, and the number is kept after a restart.
+- **Attach device**, on a VM's Devices tab, is one list of what this host can give away, with the reason beside anything that can't go to this VM: given to another VM, or a card too large for BIOS firmware.
+
+### Changed
+
+- **A VM's Devices tab lists what the VM has been given, read from its own configuration.** It shows a device that has left the host, and lets you detach it; a change waiting for the next start or stop says so, and a detach that is waiting can be undone.
+- **A graphics card, or a device that shares its group, is added or removed when the VM starts or stops.** Other devices change while the VM runs if the guest takes them. A device that can't join a running VM straight away (no free slot, say) joins at its next start instead of failing.
+- **Starting a VM with passed-through devices checks first**, and says in words what is in the way: a device no longer on the host, a group-mate the host still uses, a device another running VM has, not enough free memory (a VM with a PCI device passed through keeps all of its memory locked on the host), a card too large for BIOS firmware, or passthrough not working on the host. Errors that still come from libvirt are explained where they are known.
+- **A failed power action says why** on the VM page, in the VM list and in the console window, instead of "Failed to start".
+- GPUs are named as their owners know them ("NVIDIA L4" rather than lspci's "AD104GL [L4]"), and vendors without their company suffixes.
+- The installer and the update never stop to ask a question (debconf and needrestart), and install pciutils for device names.
+
+### Fixed
+
+- **A VM's own devices could not be detached.** The Devices tab compared the VM's ID with the name the server reported, so a VM's devices appeared under "In use by other VMs" with no Detach button.
+- **Snapshots of a running VM with a PCI device passed through failed** with "cannot migrate domain: VFIO migration is not supported in kernel". They are now disk-only snapshots, as UEFI VMs' already are.
+- **A VM made from a template could not start again after a snapshot.** libvirt kept a one-level copy of the disk chain in the VM's definition, and on AppArmor hosts (Ubuntu) the guest's file allowlist then left the template out, so the VM failed with "Permission denied". VirtPilot now drops that copy after every snapshot change and before every start.
+- **A clone, or a VM rebuilt from a backup, kept the original's passed-through devices**, so two VMs claimed one card. They now start with none, and the clone says so.
+- **Reverting to a snapshot no longer changes which devices a VM has.**
+- **BIOS firmware and a large GPU no longer crash the VM at start**: the pairing is refused with the reason.
+- USB root hubs were offered for passthrough, and two identical USB devices could not be told apart: one is now attached by its bus and device number, with a note saying so.
+- The device list took over a second on servers with many PCI functions; it now reads the host's own tables once.
+- The README's host requirements: the installer refuses other distributions rather than warning, and without hardware virtualisation VMs run under software emulation rather than not at all.
+
 ## [2.14.0] - 2026-10-20
 
 ### Added

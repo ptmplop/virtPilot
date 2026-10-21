@@ -13,6 +13,18 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.15.0',
+    date: '2026-10-21',
+    changes: [
+      { type: 'added', text: 'A Devices page: the host hardware a VM can be given directly, grouped by kind with the VM that has each one, and a check that says whether passthrough works on this host and what to change when it doesn’t. Copy report puts the facts on the clipboard for a bug report, without addresses or VM names.' },
+      { type: 'added', text: 'Only devices that can be passed through are offered: chipset and processor functions, and anything the host needs (its disk controller, its network card, its screen), are listed apart with the reason.' },
+      { type: 'added', text: 'Whole IOMMU groups travel together; Keep for VMs holds a card for VMs from boot; an SR-IOV network card can be split into virtual functions; Attach device on a VM’s Devices tab is one list with the reason beside anything that can’t go to that VM.' },
+      { type: 'changed', text: 'A VM’s Devices tab reads the VM’s own configuration, so a device that has left the host can be detached and a pending change says when it happens; a graphics card or a grouped device changes at the next start or stop, other devices while the VM runs.' },
+      { type: 'changed', text: 'Starting a VM with passed-through devices checks first and says what is in the way, and a failed power action shows the reason everywhere instead of “Failed to start”.' },
+      { type: 'fixed', text: 'A VM’s own devices could not be detached; snapshots of a running VM with a PCI device failed; a VM made from a template could not start again after a snapshot (AppArmor); clones and restored VMs kept the original’s devices; BIOS firmware with a large GPU crashed the VM; USB root hubs were offered and identical USB devices could not be told apart.' },
+    ],
+  },
+  {
     version: '2.14.0',
     date: '2026-10-20',
     changes: [

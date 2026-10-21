@@ -27,6 +27,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { apiErrorMessage } from '@/lib/api';
 import { Menu, type MenuItem } from '@/components/ui/Menu';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { StatusBadge, StatusGlyph } from '@/components/ui/Badge';
@@ -482,7 +483,7 @@ export function ConsoleWorkspace({ routeVm, isPopup, themeId, onThemeChange, ope
           // so a serial console shows the boot from its first line.
           if (action === 'start') setWake((w) => ({ ...w, [vmId]: (w[vmId] ?? 0) + 1 }));
         },
-        onError: (err: unknown) => toast.error(`${label} failed: ${err instanceof Error ? err.message : String(err)}`),
+        onError: (err: unknown) => toast.error(`${label} failed: ${apiErrorMessage(err, err instanceof Error ? err.message : String(err))}`, { duration: 10_000 }),
       },
     );
   };

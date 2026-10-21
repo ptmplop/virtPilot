@@ -80,6 +80,22 @@ usermod -aG libvirt $USER
 - Building a new VM from an existing one (clone, restore-into-a-new-VM) shares
   `services/vmDeriveService.ts`. Anything a host enforces uniqueness on must be re-keyed there:
   name, UUID, MAC addresses, NVRAM path, disk paths, VNC port, tap device names
+- **Device passthrough** reads the host straight from sysfs, `lspci`, `lsblk`, `ip` and the journal
+  (`services/hostScan.ts`, cached 3 s, invalidated after every change) into `lib/hostFacts.ts`; every decision
+  (what is offered, IOMMU groups, why a device is hidden, host readiness, error wording) is pure code in
+  `lib/hostDevices.ts`, `lib/hostdevXml.ts`, `lib/passthroughErrors.ts`, tested against snapshots of a real
+  server in `lib/__fixtures__`. `services/deviceService.ts` does the libvirt side: attach writes the saved config
+  first, then tries the running guest (never for a GPU or a multi-device group); a VM's devices are read from its
+  own definition, live and saved, so pending and missing devices show. `checkBeforeStart` runs before every start.
+- **Every VirtPilot start goes through `startDomain` in vmService**: it drops the cached `<backingStore>` from the
+  saved definition first (after a disk-only snapshot libvirt keeps it one level deep, and on AppArmor hosts the
+  guest's file allowlist then leaves the template out: "Permission denied" on the next boot), then the passthrough
+  pre-flight, then translates known libvirt failures. Snapshot changes refresh the chain too, for autostart at boot.
+- **Root work for passthrough goes through `/usr/local/sbin/virtpilot-passthrough`** (scripts/virtpilot-passthrough.sh,
+  installed by install.sh and update.sh with its boot unit), called via `sudo systemd-run --wait --pipe`: the service's
+  `ProtectKernelTunables` makes /sys read-only for everything it starts, plain sudo included. The helper refuses a
+  mounted disk's controller and the default-route NIC itself. libvirt's `managed='yes'` sets `driver_override` while a
+  VM runs, so "kept for VMs" is the helper's config file, never that attribute
 - **Startup side effect to know about**: `portForwardService.applyAllRules()` strips *every*
   `virtpilot-`-tagged nat PREROUTING rule on boot and re-adds only those in its own
   `port-forwards.json`. Two backends sharing a host but not a `STORAGE_ROOT` will fight over them

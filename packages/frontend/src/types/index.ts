@@ -409,31 +409,113 @@ export interface VmDiskFile {
   storageDirName: string;
 }
 
-export interface PciAddress {
-  domain: number;
-  bus: number;
-  slot: number;
-  function: number;
+// ─── Passthrough (GET /api/devices, /api/vms/:uuid/devices) ──────────────────
+
+export type DeviceKind = 'gpu' | 'network' | 'storage' | 'usb-controller' | 'audio' | 'accelerator' | 'other' | 'usb';
+
+export interface DeviceNote {
+  tone: 'info' | 'warn';
+  text: string;
 }
 
-export interface UsbAddress {
-  bus: number;
-  device: number;
+export interface GroupMember {
+  address: string;
+  name: string;
+  kindLabel: string;
+  driver?: string;
 }
 
-export interface HostDevice {
+export interface VmRef {
+  uuid: string;
+  name: string;
+  running: boolean;
+}
+
+/** A device (or IOMMU group, led by its main device) the host can give to a VM. */
+export interface PassthroughDevice {
   id: string;
   type: 'pci' | 'usb';
+  kind: DeviceKind;
+  kindLabel: string;
+  name: string;
   vendor: string;
+  address: string;
   vendorId: string;
-  product: string;
   productId: string;
   driver?: string;
   iommuGroup?: number;
-  pciClass?: string;
-  pciAddress?: PciAddress;
-  usbAddress?: UsbAddress;
-  assignedTo?: string;
+  numaNode?: number;
+  members: GroupMember[];
+  facts: string[];
+  notes: DeviceNote[];
+  usedBy: VmRef[];
+  kept: boolean;
+  sriov?: { total: number; current: number };
+  vfOf?: string;
+  largestBar?: number;
+  byAddress?: boolean;
+}
+
+export interface HiddenDevice {
+  id: string;
+  type: 'pci' | 'usb';
+  name: string;
+  vendor: string;
+  address: string;
+  category: 'host' | 'chipset' | 'bridge' | 'hub';
+  reason: string;
+}
+
+export interface HostCheck {
+  key: 'cpu' | 'iommu' | 'irq' | 'vfio';
+  label: string;
+  state: 'ok' | 'off' | 'warn' | 'na';
+  value: string;
+  fix?: string;
+}
+
+export interface PassthroughHost {
+  pciReady: boolean;
+  usbReady: boolean;
+  checks: HostCheck[];
+  blocker?: string;
+}
+
+export interface DeviceInventory {
+  host: PassthroughHost;
+  devices: PassthroughDevice[];
+  hidden: HiddenDevice[];
+  /** Keep for VMs and virtual functions need the installer's root helper. */
+  hostTools: boolean;
+}
+
+export type VmDeviceState = 'attached' | 'pending-attach' | 'pending-detach' | 'missing';
+
+export interface VmDevice {
+  key: string;
+  keys: string[];
+  type: 'pci' | 'usb';
+  name: string;
+  vendor: string;
+  kindLabel: string;
+  address: string;
+  state: VmDeviceState;
+  members: GroupMember[];
+  notes: DeviceNote[];
+  /** Detaching takes it out of the running guest now, rather than at the next stop. */
+  liveDetach: boolean;
+}
+
+export interface VmDevicesView {
+  running: boolean;
+  firmware: 'uefi' | 'bios';
+  devices: VmDevice[];
+}
+
+export interface DeviceChangeResult {
+  ok: boolean;
+  applied: 'now' | 'next-start' | 'next-stop';
+  reason?: string;
 }
 
 export interface LogEntry {

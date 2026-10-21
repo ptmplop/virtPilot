@@ -369,7 +369,7 @@ backupsRouter.post('/:vmUuid/:backupId/restore-as-new', requireUuidParam, valida
       try {
         await startVm(result.uuid);
       } catch (err: unknown) {
-        result.warnings.push(`The VM was created but would not start: ${String(err)}`);
+        result.warnings.push(`The VM was created but would not start: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 

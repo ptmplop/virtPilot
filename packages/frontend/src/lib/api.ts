@@ -21,3 +21,14 @@ api.interceptors.response.use(
     return Promise.reject(err);
   }
 );
+
+/**
+ * The server's own words for a failed request, when it sent any: a VM that
+ * won't start because of a passed-through device says which and why, and
+ * "Request failed with status code 409" helps nobody.
+ */
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  const e = err as { response?: { data?: { error?: unknown } } } | undefined;
+  const msg = e?.response?.data?.error;
+  return typeof msg === 'string' && msg.trim() ? msg.replace(/^(?:Error|DeviceError): /, '') : fallback;
+}

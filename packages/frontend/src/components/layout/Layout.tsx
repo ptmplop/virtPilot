@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type ComponentType, type RefObject } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
+  CircuitBoard,
   ArchiveIcon,
   ChevronLeft,
   ChevronRight,
@@ -31,7 +32,7 @@ import { useHostName } from '@/hooks/useSystemStats';
 
 // The version the operator sees. scripts/check-versions.sh checks this literal, and the
 // login screen imports it so the two can never disagree again.
-export const APP_VERSION = 'v2.14.0';
+export const APP_VERSION = 'v2.15.0';
 
 interface LayoutProps {
   children?: ReactNode;
@@ -278,6 +279,7 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
           <NavItem to="/templates" label="Templates" onNavigate={onNavigate} icon={HardDrive} collapsed={collapsed} />
           <NavItem to="/isos" label="ISOs" onNavigate={onNavigate} icon={Disc} collapsed={collapsed} />
           <NavItem to="/storage" label="Storage" onNavigate={onNavigate} icon={Database} collapsed={collapsed} />
+          <NavItem to="/devices" label="Devices" onNavigate={onNavigate} icon={CircuitBoard} collapsed={collapsed} />
           <NavItem to="/backups" label="Backups" onNavigate={onNavigate} icon={ArchiveIcon} collapsed={collapsed} />
         </NavGroup>
         <NavGroup label="System" collapsed={collapsed}>

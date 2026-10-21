@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { apiErrorMessage } from '@/lib/api';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
 import { SearchInput } from '@/components/ui/SearchInput';
@@ -209,8 +210,9 @@ function VmRow({ vm }: { vm: VmSummary }) {
       await action.mutateAsync({ action: a, params: force ? { force: 'true' } : undefined });
       toast.success(`${label} command sent`);
       triggerFlash('success');
-    } catch {
-      toast.error(`Failed: ${label.toLowerCase()}`);
+    } catch (err) {
+      // A start held up by a passed-through device says which and why.
+      toast.error(apiErrorMessage(err, `Failed: ${label.toLowerCase()}`), { duration: 10_000 });
       triggerFlash('error');
     }
   };

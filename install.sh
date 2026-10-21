@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# apt and needrestart must never stop to ask: the installer usually runs from
+# `curl | sudo bash`, and on Ubuntu 24.04 needrestart's restart dialog would
+# otherwise sit waiting on a terminal nobody is looking at.
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
 # ─── Colours ──────────────────────────────────────────────────────────────────
 BOLD='\033[1m'
 GREEN='\033[0;32m'
@@ -96,6 +102,7 @@ apt-get install -y -qq \
   ca-certificates \
   gnupg \
   build-essential \
+  pciutils \
   python3
 
 # ─── Node.js 20 ───────────────────────────────────────────────────────────────
@@ -541,6 +548,21 @@ EOF
 chmod 0440 "${SUDOERS_FILE}"
 visudo -cf "${SUDOERS_FILE}" >/dev/null
 log "Sudoers rules installed"
+
+# ─── Passthrough helper ──────────────────────────────────────────────────────
+# "Keep for VMs" and SR-IOV virtual functions write to /sys, which the
+# service's own sandbox makes read-only; the backend runs this root-owned
+# helper through systemd-run instead, and the boot unit re-applies its
+# settings before libvirt autostarts any VM.
+install -m 0755 -o root -g root "${INSTALL_DIR}/scripts/virtpilot-passthrough.sh" /usr/local/sbin/virtpilot-passthrough
+install -m 0644 -o root -g root "${INSTALL_DIR}/scripts/virtpilot-passthrough.service" /etc/systemd/system/virtpilot-passthrough.service
+systemctl daemon-reload
+systemctl enable --quiet virtpilot-passthrough.service
+# vfio-pci binds nothing unless asked, but the service can't see /lib/modules
+# (ProtectKernelModules), so it can only tell a loaded module from a missing one.
+echo vfio-pci > /etc/modules-load.d/virtpilot.conf
+modprobe vfio-pci 2>/dev/null || true
+log "Passthrough helper installed"
 
 # ─── Systemd service ──────────────────────────────────────────────────────────
 NODE_BIN="$(command -v node)"

@@ -38,6 +38,7 @@ Newness comes from structure and type; colour stays quiet.
 | A proportion of a whole | `<RingGauge value tone>` (the logo ring) — dashboard; or a 5px bar on `bg-gauge-track` |
 | Buttons | `<Button variant="primary\|secondary\|ghost\|danger\|dangerOutline" size="sm\|md">` — primary is **ink** (`bg-action`), not steel, and marks the one main action of a view; actions repeated down a table are `secondary`. Page-header actions are `md` (36px) everywhere; dialog footers use `sm` |
 | Several related commands behind one button (a row's power actions) | `<Menu label tooltip icon items>` — portalled, keyboard-complete; graceful commands above forceful ones (`separated`), destructive ones `danger`. Pass `tooltip` to the Menu, never wrap it in `<Tooltip>` (React counts the portal as inside the wrapper) |
+| A quiet action on a table row (detach, rename, delete) | `<RowAction label tooltip danger>` (`components/ui/RowAction.tsx`): a ghost icon button, red only on hover when `danger`; the tooltip may say when or why, the label says what |
 | Tabs/filters with 2–6 options | `.segmented` container, `aria-pressed` on the chosen `<button>` |
 | A note between fields or above a table | `<Callout tone="info\|warn" lead>` (`components/ui/Callout.tsx`); class strings `CALLOUT_INFO` / `CALLOUT_ATTENTION` for the same recipe. Never a one-off tinted box |
 | Table | panel → `.table-head` row (12px medium muted on `bg-surface`) → rows with `divide-y divide-border`, `.table-row` hover |
@@ -120,6 +121,29 @@ Newness comes from structure and type; colour stays quiet.
   runs (the allocation as sub-lines; the allocation itself once stopped), and every power state has a
   control (Force off for paused or crashed).
 
+## Devices (passthrough)
+
+- **What can't be used is not offered.** The host's Devices list and the Attach device picker show only what a VM could
+  be given; chipset plumbing, bridges, hubs and anything the host needs sit behind one muted line in the panel's foot
+  ("206 more devices aren't offered: 3 the host needs, …" + Show them), each with its reason. Identical rows (a CPU's
+  dozens of register functions) collapse into one with a count.
+- **One table, a heading row per kind** (`th scope="rowgroup"`, `bg-surface/60`, 12px medium muted): GPUs and graphics
+  cards, network cards, storage controllers, USB controllers, accelerators, audio, other, USB devices. The picker uses the
+  same rows inside one ruled box; never a box per group.
+- **A device reads the same everywhere** (`components/devices/DeviceBits.tsx`): name; kind · vendor; facts joined with
+  " · " that never break inside a fact; then its notes (attention amber with the warning glyph, information muted). A GPU
+  goes by its product ("NVIDIA L4"), lspci's chip codename is a fact, and vendors drop their company suffix; the name
+  doesn't repeat the vendor.
+- **Cells that sit side by side are two lines each**: Address over Group; Used by is the VM (a link) over its state glyph
+  and word, or "Host" over the driver in mono, or "Kept for VMs" over `vfio-pci`.
+- **A check panel with nothing to act on folds to one line** ("Ready for PCI and USB" + Show checks); anything off opens it,
+  amber, with what to change under the value.
+- **The picker is radio rows.** A row that can't go to this VM is disabled with the reason in a muted line under it (given to
+  another VM, too large for BIOS firmware); the footer note says what the choice will do, or why Attach is waiting.
+- **A VM's devices tab is quiet when settled**: no state column. A pending change or a device that left the host is a note
+  under its name; Detach is a ghost row action (unplug icon, red on hover) whose tooltip says when it applies, and a
+  pending detach shows Undo instead.
+
 ## The console window
 
 - **One window** (`virtpilot-console`) for every Console button. A click for a VM the window already shows
@@ -197,6 +221,8 @@ traffic-light dots, sparkle icons, uniform grids of identical stat cards, tiny s
 dashes in user-facing text. Type, rules and alignment do that work.
 
 ## Traps
+
+- A disabled `<Menu>` item keeps its text readable (muted, never an opacity fade): its hint is where it says why.
 
 - `.animate-fade-up` fills `backwards`, never `both`: a transform kept after the animation makes the
   section the containing block of every `position:fixed` child (dialogs, terminals).

@@ -24,6 +24,7 @@ import { buildCloudInitIso, getHostSshPublicKey, type NicCloudInit } from './clo
 import { generateMac } from './xmlBuilder.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
 import { validateVmName, validateVmUuid, validateMac, escapeXml } from '../lib/validate.js';
+import { parseHostdevs, stripBackingStores, stripHostdevs } from '../lib/hostdevXml.js';
 
 // ─── Domain XML derivation ────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ export function deriveDomainXml(opts: DeriveDomainXmlOptions): string {
   // file does not have — the same stale-cache condition that makes qemu refuse
   // to open a disk with `Failed to get "write" lock`. Drop it and let libvirt
   // re-probe from the images.
-  xml = xml.replace(/[ \t]*<backingStore\b[^>]*(?:\/>|>[\s\S]*?<\/backingStore>)\n?/g, '');
+  xml = stripBackingStores(xml);
   // Security labels and device aliases belong to the domain that generated
   // them. libvirt rejects a user-supplied alias that isn't `ua-`-prefixed, and
   // regenerates both for a new domain anyway.
@@ -72,6 +73,10 @@ export function deriveDomainXml(opts: DeriveDomainXmlOptions): string {
   xml = xml.replace(/[ \t]*<alias\s+name=['"][^'"]*['"]\s*\/>\n?/g, '');
   // Tap device names are per-host, and two domains claiming `vnet0` collide.
   xml = xml.replace(/[ \t]*<target\s+dev=['"]vnet\d+['"]\s*\/>\n?/g, '');
+  // Passed-through devices are one machine's hardware. A copy that kept them
+  // would claim the original's GPU or USB key, and whichever VM started second
+  // would fail (or, for USB, quietly take it).
+  xml = stripHostdevs(xml).xml;
 
   xml = xml.replace(/<name>[^<]*<\/name>/, () => `<name>${escapeXml(opts.newName)}</name>`);
   xml = xml.replace(/<uuid>[^<]*<\/uuid>/, () => `<uuid>${escapeXml(opts.newUuid)}</uuid>`);
@@ -275,6 +280,10 @@ async function provisionDerivedVm(opts: ProvisionOptions): Promise<ProvisionResu
     // ── Networking ──────────────────────────────────────────────────────────
     const net = await deriveNetworking(opts.sourceNics, opts.sourceMeta, uuid);
     warnings.push(...net.warnings);
+    const passedThrough = parseHostdevs(opts.sourceXml).length;
+    if (passedThrough > 0) {
+      warnings.push(`The source's ${passedThrough === 1 ? 'passed-through device stays' : `${passedThrough} passed-through devices stay`} with it: the new VM has none. Attach others on its Devices tab.`);
+    }
 
     // ── cloud-init ──────────────────────────────────────────────────────────
     // The seed's instance-id is the VM UUID, so a new UUID makes cloud-init

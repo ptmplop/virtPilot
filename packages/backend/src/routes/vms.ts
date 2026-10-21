@@ -9,6 +9,10 @@ import { virsh, qemuImg } from '../services/safeExec.js';
 import { validateVmName, validateVmUuid, validateFilename, validateNicModel, validatePositiveInt, ValidationError } from '../lib/validate.js';
 import * as vmService from '../services/vmService.js';
 import * as deviceService from '../services/deviceService.js';
+import { sendDeviceError } from './devices.js';
+import { DeviceError } from '../services/deviceService.js';
+import { HOSTDEV_KEY_RE } from '../lib/hostdevXml.js';
+import { translatePassthroughError, virshMessage } from '../lib/passthroughErrors.js';
 import * as storageService from '../services/storageService.js';
 import * as storageDirService from '../services/storageDirService.js';
 import * as networkService from '../services/networkService.js';
@@ -39,6 +43,17 @@ function requireUuidParam(req: Request, res: Response, next: NextFunction): void
 // Helper for log entries: pull the VM's friendly name to attach as `subject`,
 // while `subjectUuid` carries the immutable identity. Falls back to the UUID
 // if the lookup fails (deleted, libvirt offline, etc).
+/**
+ * A failure in words for the toast: a passthrough refusal as written, a libvirt
+ * failure as libvirt's own "error:" line (translated where known), never the
+ * whole command line it came from.
+ */
+function failureMessage(err: unknown): string {
+  if (err instanceof DeviceError) return err.message;
+  const raw = String((err as { stderr?: string })?.stderr || (err instanceof Error ? err.message : err));
+  return translatePassthroughError(raw) ?? virshMessage(raw).replace(/^(?:Error|Command failed):\s*/, '');
+}
+
 async function logSubject(uuid: string): Promise<{ subject: string; subjectUuid: string }> {
   let subject = uuid;
   try {
@@ -553,7 +568,7 @@ vmsRouter.post('/:uuid/clone', requireUuidParam, async (req, res) => {
       try {
         await vmService.startVm(result.uuid);
       } catch (err: unknown) {
-        result.warnings.push(`The clone was created but would not start: ${String(err)}`);
+        result.warnings.push(`The clone was created but would not start: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -706,8 +721,9 @@ vmsRouter.post('/:uuid/start', requireUuidParam, async (req, res) => {
     void logService.appendLog({ type: 'vm.start', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.start', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
-    res.status(500).json({ error: String(err) });
+    void logService.appendLog({ type: 'vm.start', ...log, status: 'error', output: err instanceof DeviceError ? err.message : String(err), durationMs: Date.now() - start });
+    // A passthrough problem found before the start (or translated after it) is said in words.
+    sendDeviceError(res, err);
   }
 });
 
@@ -872,8 +888,9 @@ vmsRouter.post('/:uuid/boot-once', requireUuidParam, async (req, res) => {
     void logService.appendLog({ type: 'vm.boot-once', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.boot-once', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
-    res.status(500).json({ error: String(err) });
+    void logService.appendLog({ type: 'vm.boot-once', ...log, status: 'error', output: err instanceof DeviceError ? err.message : String(err), durationMs: Date.now() - start });
+    // A passthrough problem found before the start (or translated after it) is said in words.
+    sendDeviceError(res, err);
   }
 });
 
@@ -992,10 +1009,11 @@ vmsRouter.post('/:uuid/snapshots', requireUuidParam, async (req, res) => {
     res.json({ ok: true });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.snapshot.create', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
-    const message = err instanceof Error ? err.message : String(err);
+    const message = failureMessage(err);
     // A VM carrying backup checkpoints genuinely can't be snapshotted — that's
-    // a conflict the operator resolves, not a server fault.
-    res.status(/checkpoints|already exists/i.test(message) ? 409 : 500).json({ error: message });
+    // a conflict the operator resolves, not a server fault. So is a running VM
+    // whose snapshots live in its disk while a PCI device is passed through.
+    res.status(err instanceof DeviceError ? err.status : /checkpoints|already exists/i.test(message) ? 409 : 500).json({ error: message });
   }
 });
 
@@ -1010,7 +1028,7 @@ vmsRouter.delete('/:uuid/snapshots/:snapshot', requireUuidParam, async (req, res
     res.json({ ok: true });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.snapshot.delete', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
-    res.status(500).json({ error: String(err) });
+    res.status(err instanceof DeviceError ? err.status : 500).json({ error: failureMessage(err) });
   }
 });
 
@@ -1023,8 +1041,9 @@ vmsRouter.post('/:uuid/snapshots/:snapshot/revert', requireUuidParam, async (req
     void logService.appendLog({ type: 'vm.snapshot.revert', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.snapshot.revert', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
-    res.status(500).json({ error: String(err) });
+    void logService.appendLog({ type: 'vm.snapshot.revert', ...log, status: 'error', output: err instanceof DeviceError ? err.message : String(err), durationMs: Date.now() - start });
+    // A passthrough problem found before the start (or translated after it) is said in words.
+    sendDeviceError(res, err);
   }
 });
 
@@ -1421,35 +1440,66 @@ vmsRouter.get('/:uuid/metrics', requireUuidParam, (req, res) => {
 
 // ─── Device passthrough ───────────────────────────────────────────────────────
 
-vmsRouter.post('/:uuid/devices', requireUuidParam, async (req, res) => {
-  const { uuid } = req.params;
-  const { deviceId } = req.body as { deviceId?: string };
-  if (!deviceId) return res.status(400).json({ error: 'deviceId is required' });
-
-  const start = Date.now();
-  const trace: TraceEntry[] = [];
-  const log = await logSubject(uuid);
+// GET /api/vms/:uuid/devices: what this VM has been given, read from its own
+// definition, so a device that has since left the host is still listed (and
+// can be detached), and a change waiting for the next start or stop says so.
+vmsRouter.get('/:uuid/devices', requireUuidParam, async (req, res) => {
   try {
-    await deviceService.attachDevice(uuid, deviceId, trace);
-    void logService.appendLog({ type: 'vm.device.attach', ...log, status: 'success', output: formatTrace(trace), durationMs: Date.now() - start });
-    res.json({ ok: true });
+    res.json(await deviceService.getVmDevices(req.params.uuid));
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.device.attach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
-    res.status(500).json({ error: String(err) });
+    sendDeviceError(res, err);
   }
 });
 
-vmsRouter.delete('/:uuid/devices/:deviceId', requireUuidParam, async (req, res) => {
-  const { uuid, deviceId } = req.params;
+vmsRouter.post('/:uuid/devices', requireUuidParam, async (req, res) => {
+  const { uuid } = req.params;
+  const { deviceId } = req.body as { deviceId?: string };
+  if (typeof deviceId !== 'string' || !/^(?:pci_[0-9a-f]{4}_[0-9a-f]{2}_[0-9a-f]{2}_[0-7]|usb_\d{1,3}-\d{1,3}(?:\.\d{1,3}){0,6})$/.test(deviceId)) {
+    return res.status(400).json({ error: 'deviceId is required' });
+  }
+
   const start = Date.now();
   const trace: TraceEntry[] = [];
   const log = await logSubject(uuid);
   try {
-    await deviceService.detachDevice(uuid, deviceId, trace);
-    void logService.appendLog({ type: 'vm.device.detach', ...log, status: 'success', output: formatTrace(trace), durationMs: Date.now() - start });
-    res.json({ ok: true });
+    const result = await deviceService.attachDevice(uuid, deviceId, trace);
+    void logService.appendLog({ type: 'vm.device.attach', ...log, status: 'success', output: [formatTrace(trace), result.reason].filter(Boolean).join('\n\n'), durationMs: Date.now() - start });
+    res.json({ ok: true, ...result });
   } catch (err: unknown) {
-    void logService.appendLog({ type: 'vm.device.detach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
-    res.status(500).json({ error: String(err) });
+    void logService.appendLog({ type: 'vm.device.attach', ...log, status: 'error', output: [formatTrace(trace), err instanceof Error ? err.message : String(err)].filter(Boolean).join('\n\n'), durationMs: Date.now() - start });
+    sendDeviceError(res, err);
+  }
+});
+
+// POST /api/vms/:uuid/devices/:key/keep: undo a detach that is waiting for the VM to stop.
+vmsRouter.post('/:uuid/devices/:key/keep', requireUuidParam, async (req, res) => {
+  const { uuid, key } = req.params;
+  if (!HOSTDEV_KEY_RE.test(key)) return res.status(400).json({ error: 'Invalid device' });
+  const start = Date.now();
+  const trace: TraceEntry[] = [];
+  const log = await logSubject(uuid);
+  try {
+    const result = await deviceService.keepAttached(uuid, key, trace);
+    void logService.appendLog({ type: 'vm.device.keep', ...log, status: 'success', output: formatTrace(trace), durationMs: Date.now() - start });
+    res.json({ ok: true, ...result });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.device.keep', ...log, status: 'error', output: [formatTrace(trace), err instanceof Error ? err.message : String(err)].filter(Boolean).join('\n\n'), durationMs: Date.now() - start });
+    sendDeviceError(res, err);
+  }
+});
+
+vmsRouter.delete('/:uuid/devices/:key', requireUuidParam, async (req, res) => {
+  const { uuid, key } = req.params;
+  if (!HOSTDEV_KEY_RE.test(key)) return res.status(400).json({ error: 'Invalid device' });
+  const start = Date.now();
+  const trace: TraceEntry[] = [];
+  const log = await logSubject(uuid);
+  try {
+    const result = await deviceService.detachDevice(uuid, key, trace);
+    void logService.appendLog({ type: 'vm.device.detach', ...log, status: 'success', output: [formatTrace(trace), result.reason].filter(Boolean).join('\n\n'), durationMs: Date.now() - start });
+    res.json({ ok: true, ...result });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'vm.device.detach', ...log, status: 'error', output: [formatTrace(trace), err instanceof Error ? err.message : String(err)].filter(Boolean).join('\n\n'), durationMs: Date.now() - start });
+    sendDeviceError(res, err);
   }
 });

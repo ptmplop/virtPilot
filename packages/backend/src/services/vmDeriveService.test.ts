@@ -94,6 +94,21 @@ describe('deriveDomainXml', () => {
     expect(xml).not.toContain('vnet3');
   });
 
+  // 2.15.0: a clone kept the original's <hostdev>s, so two VMs claimed one GPU
+  // and whichever started second failed (or, for USB, quietly took the device).
+  it('leaves passed-through devices with the original', () => {
+    const withDevices = SOURCE_XML.replace('</devices>', `<hostdev mode='subsystem' type='pci' managed='yes'>
+      <source><address domain='0x0000' bus='0x3b' slot='0x00' function='0x0'/></source>
+    </hostdev>
+    <hostdev mode='subsystem' type='usb' managed='yes'>
+      <source><vendor id='0x1050'/><product id='0x0407'/></source>
+    </hostdev>
+  </devices>`);
+    const xml = derive({ sourceXml: withDevices });
+    expect(xml).not.toContain('<hostdev');
+    expect(xml).toContain('</devices>');
+  });
+
   it('moves NVRAM to the new VM so UEFI vars are not shared', () => {
     expect(derive()).toContain(`<nvram template='/usr/share/OVMF/OVMF_VARS_4M.fd'>/var/lib/virtpilot/vms/${NEW_UUID}/${NEW_UUID}-nvram.fd</nvram>`);
   });

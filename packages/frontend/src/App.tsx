@@ -11,6 +11,7 @@ import { NetworksPage } from '@/pages/Networks';
 import { TemplatesPage } from '@/pages/Templates';
 import { IsosPage } from '@/pages/Isos';
 import { StoragePage } from '@/pages/Storage';
+import { DevicesPage } from '@/pages/Devices';
 import { SettingsPage } from '@/pages/Settings';
 import { LogsPage } from '@/pages/Logs';
 import { SshKeysPage } from '@/pages/SshKeys';
@@ -93,6 +94,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <StoragePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/devices"
+        element={
+          <ProtectedRoute>
+            <DevicesPage />
           </ProtectedRoute>
         }
       />

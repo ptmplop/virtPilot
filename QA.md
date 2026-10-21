@@ -34,6 +34,7 @@ Each section ends with a "Cleanup" so the next section starts from a known state
 15. [Backup consistency mechanism](#15-backup-consistency-mechanism) — which copy tier ran, and the freeze window
 16. [Restore into a new VM](#16-restore-into-a-new-vm) — rebuild a whole machine from a backup
 17. [Clone](#17-clone) — independent copy of a running or stopped VM
+18. [Device passthrough](#18-device-passthrough) — host checks, what is offered, groups, GPU end to end, SR-IOV, keep for VMs
 
 ---
 
@@ -537,9 +538,97 @@ ISO and gets its **own** seed (or an ejected `sda` if the source had no cloud-in
 
 ---
 
+## 18. Device passthrough
+
+Needs bare metal (or a VM with an emulated IOMMU) with VT-x/AMD-V and VT-d/AMD-Vi on. The 2026-10-21 run used an
+Intel S2600BP (2× Xeon Silver 4114) with an NVIDIA L4, a BlueField-3 (ConnectX-7) and an Intel X550.
+
+### 18.1 Host checks
+
+`GET $URL/api/devices` → `host.checks`. With VT-x/VT-d off in the firmware: `pciReady: false`, "Hardware
+virtualisation: Off in the firmware settings" (the journal's "VMX (outside TXT) disabled by BIOS" is what tells
+firmware-off from unsupported), IOMMU "Off in the firmware settings" (no DMAR table), interrupt remapping "Needs the
+IOMMU first". With them on: all four ok, and the Devices page folds the checks to one line.
+
+### 18.2 What is offered
+
+Every PCI function is offered, travels inside an offered device's group, or is hidden with a reason
+(`devices + members + hidden == lspci count`). The host's root-disk controller, the NIC with the default route and the
+BMC VGA (connector enabled) must be hidden as "host". `POST /api/vms/$UUID/devices {"deviceId":"pci_<root nvme>"}` must
+refuse with the reason.
+
+### 18.3 Groups
+
+Attach a device whose group-mate has a host driver (bp8: xHCI `00:14.0` with the PCH thermal sensor `00:14.2`): both
+hostdevs land in the config, the VM starts, the guest sees both. Before 2.15.0 this failed with "group 39 is not viable".
+
+### 18.4 GPU end to end
+
+UEFI VM, attach the GPU, start, install the vendor driver in the guest (`ubuntu-drivers install --gpgpu` plus
+`nvidia-utils-<n>-server`), `nvidia-smi` shows the card and its full memory. Stop (graceful and forced), start again:
+the card comes back. On BIOS firmware the attach is refused (SeaBIOS cannot place a 32 GB BAR; the guest crashed with
+`KVM_SET_USER_MEMORY_REGION failed`).
+
+### 18.5 Live changes
+
+Running VM: a NIC or HBA attaches and detaches live (the host driver takes it back); a GPU or a group attaches and
+detaches at the next start/stop, with Undo for a pending detach; a chipset-integrated endpoint ("No more available PCI
+slots" live) joins at the next start. USB attaches and detaches live, and shows as one row (libvirt adds the bus and
+device number to the running copy).
+
+### 18.6 Before a start
+
+Each refuses with words: a hostdev for an address that doesn't exist (`virsh attach-device --config` accepts one), a
+group-mate still on a host driver, the device in another running VM, guest memory above MemAvailable, a big-BAR card on
+BIOS. A missing device's row has a working Detach.
+
+### 18.7 Snapshots, clones, backups
+
+Running VM with a PCI device: snapshot succeeds (disk-only, external), the VM stops and starts again (the chain cache is
+dropped; before 2.15.0 a template-based VM failed with "Permission denied" on the template under AppArmor), revert keeps
+the devices. Clone: no hostdevs, and a warning says the devices stayed. Backup of the running GPU VM: libvirt tier, OK.
+
+### 18.8 Keep for VMs and virtual functions
+
+Keep a device: `driver_override` is `vfio-pci`, `/etc/virtpilot/passthrough.conf` has `keep <addr>`, and after a VM
+using it stops it stays on vfio-pci. Set virtual functions on an SR-IOV NIC: they appear as offered network cards in
+their own groups, and one passes through (the guest's mlx5_core binds it). Reboot: `virtpilot-passthrough.service`
+runs before libvirtd and both settings are back.
+
+### Cleanup
+
+Detach every device, give kept devices back, set virtual functions to 0, delete the test VMs.
+
+---
+
 ## Findings log
 
 Append per-run findings here. Format: `### YYYY-MM-DD — vX.Y.Z (host)` then bullet list.
+
+### 2026-10-21 — v2.15.0 (bp8, bare metal, owner's test server)
+
+A clean Ubuntu 24.04 install (kernel 6.8.0-147) with the real one-liner: 2.5 minutes, no errors. The BIOS had both
+VT-x and VT-d switched off; they were switched on from the OS with Intel's Server Configuration Utility (syscfg 16.0.13,
+checksum verified against Intel's page; `syscfg /bcs "" "Intel(R) Virtualization Technology" 1` and the same for
+"Intel(R) VT for Directed I/O"), then a reboot. Ubuntu's kernel has `CONFIG_INTEL_IOMMU_DEFAULT_ON=y`, so no kernel
+flag was needed. Section 18 passed in full. Found and fixed on the way (all in the 2.15.0 notes):
+
+- 2.14.0 listed 27 devices, among them the root NVMe, the management NIC and two USB root hubs; and a VM's own devices
+  appeared under "In use by other VMs" with no Detach (ID compared with name).
+- A running VM with a PCI device could not be snapshotted (VFIO migration).
+- Any template-based VM with a disk-only snapshot could not start again (AppArmor and the cached chain).
+- BIOS + L4 crashed the guest at once; clones copied hostdevs; USB showed twice while running.
+- The installer let debconf fall through three frontends; needrestart could prompt on a terminal.
+
+Observed, not fixed (outside VirtPilot): in 3 of the 6 restarts that followed snapshot activity on the running GPU VM
+(a snapshot then a forced power-off, or a revert), the guest's NVIDIA 595 driver hung at load on the next boot (its
+console stops at "NVRM: loading NVIDIA UNIX Open Kernel Module", or udev never creates /dev/disk/by-label/BOOT and the
+guest drops to emergency mode). A Hard reset recovered it every time. A snapshot then a clean shutdown, and plain forced
+power-offs (6 of 6), never showed it. No Xid errors in the guest after a snapshot, nothing in the host's log.
+
+The test run's own trap: the service user's home is the install directory, so an `rsync --delete` into it removed
+`~/.ssh` (the key VirtPilot injects into VMs). The backend makes a new one, but older VMs keep the old key. Protect
+top-level dotfiles when syncing a working tree into an install.
 
 ### 2026-08-04 — v2.8.2 (adm241) — the upgrade stream cut-off
 

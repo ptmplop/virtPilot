@@ -17,6 +17,7 @@ VirtPilot does not run a control plane, an agent, or a database of truth. VM sta
 - **Templates & ISOs** - qcow2 backing chain (overlay per VM), upload custom ISOs, convert a running snapshot back into a template
 - **Networking** - bridged interfaces (host bridge required) and managed NAT bridges (`vp0`, `vp1`, …); per-NIC bandwidth shaping via Linux `tc`; per-VM iptables firewall chains
 - **Snapshots** - internal and external (disk-only and live with RAM); size column shows on-disk cost
+- **Device passthrough** - give a VM a GPU, a network card, a disk controller or a USB device directly. The Devices page lists only what this host can give away, keeps each IOMMU group together, can keep a card for VMs from boot and split an SR-IOV network card into virtual functions, and says exactly what to change when the host isn't ready. See [Device passthrough](#device-passthrough)
 - **Backups** - full and incremental (libvirt checkpoints + qemu dirty bitmaps), scheduled or on demand, locally or to a configurable `BACKUP_ROOT` (e.g. NFS mount). Restore over the original VM, or rebuild the whole machine as a new one. See [Backups](#backups)
 - **Metrics** - Live / 1h / 24h history per VM; CPU, memory, disk, network; survives backend restarts
 - **Auth** - single-password login + optional TOTP; JWT in `httpOnly` cookie
@@ -143,11 +144,29 @@ Only `libvirt-backup` can produce incrementals.
 
 Both flatten any incremental chain, so the restored VM gets one standalone image.
 
+## Device passthrough
+
+A VM can be given host hardware directly: it sees the real device, and the host stops using it while the VM has it.
+
+**What the host needs.** Hardware virtualisation (Intel VT-x or AMD-V) and the IOMMU (Intel VT-d or AMD-Vi), both switched on in the firmware setup, plus interrupt remapping. Ubuntu 24.04's kernel turns the IOMMU on by itself once the firmware offers it, so no kernel flag is needed. The **Devices** page checks each of these and, when one is off, names the firmware setting or kernel flag to change. USB passthrough needs none of the IOMMU part.
+
+**What is offered.** Only devices a VM can use: GPUs, network cards, storage, USB controllers, accelerators and USB devices. A two-socket server has a couple of hundred PCI functions, nearly all chipset and processor plumbing; those are listed separately with the reason, as are the devices the host needs (the controller holding a mounted disk, the network card carrying the host's address or a bridge VMs use, the card drawing the host's screen).
+
+**IOMMU groups.** VFIO only gives a VM a device when nothing else in its IOMMU group is still used by the host, so a device comes with the rest of its group, and the list says so before you choose it. A group that would take something the host needs is not offered.
+
+**When a change happens.** A graphics card, or a device that shares its group, is added or removed when the VM starts or stops. Other devices (network cards, disk controllers, USB devices) change while the VM runs if the guest takes them, and otherwise at its next start. Starting a VM checks first and says in words what is wrong: a device that has left the host, a group-mate the host still uses, a device another running VM has, a card too large for BIOS firmware, or not enough free memory.
+
+**GPUs.** Use UEFI firmware: BIOS (SeaBIOS) guests can't place a modern GPU's memory window and stop as soon as they start, so VirtPilot refuses that pairing. Install the vendor's driver in the guest as on real hardware. Tested end to end with an NVIDIA L4 and the NVIDIA 595 driver in an Ubuntu 24.04 guest.
+
+**Keep for VMs** binds a device to `vfio-pci` now and at every boot (`virtpilot-passthrough.service`, before libvirt starts any VM), so the host's own driver never touches it. **Virtual functions** splits an SR-IOV network card into cards of its own that can go to different VMs, and the count is restored at boot. Both run through a small root-owned helper, `/usr/local/sbin/virtpilot-passthrough`, which refuses the controller of a mounted disk and the interface with the default route whatever it is asked. Its settings live in `/etc/virtpilot/passthrough.conf`.
+
+**Limits.** A VM with a PCI device passed through keeps all of its memory locked on the host, and can't have its memory saved: its snapshots are disk-only. A clone, or a VM rebuilt from a backup, starts with no passed-through devices. Mediated devices (NVIDIA vGPU) are not managed. **Copy report** on the Devices page puts the host's passthrough facts on the clipboard for a bug report, without addresses or VM names.
+
 ## Host requirements
 
-- Ubuntu 24 (the installer warns and continues on other distributions, but is only tested here)
+- Ubuntu 24.04 (the installer refuses other distributions)
 - Root access (the installer needs to install packages, write `/etc/systemd/system`, and create `/var/lib/virtpilot`)
-- KVM-capable CPU (VT-x / AMD-V) - VirtPilot does not run nested or software-only
+- A CPU with hardware virtualisation (VT-x / AMD-V) switched on in the firmware. Without it VMs fall back to software emulation, which is far too slow for real work, and nothing can be passed through; the Devices page says which setting to change
 - A pre-existing host bridge if you want bridged networking - typically `br0`. Set `DEFAULT_BRIDGE` in `.env` if you use a different name. NAT bridges are managed by VirtPilot itself and need no setup.
 
 ---

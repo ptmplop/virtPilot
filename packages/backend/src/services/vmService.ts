@@ -8,6 +8,9 @@ import { getRecentVmCpu, guestMemory } from './vmMetricsService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
 import { run, virsh as safeVirsh, qemuImg } from './safeExec.js';
+import * as deviceService from './deviceService.js';
+import { DeviceError } from './deviceService.js';
+import { parseHostdevs, portableHostdevXml, stripBackingStores, stripHostdevs } from '../lib/hostdevXml.js';
 import {
   validateVmName,
   validateSnapshotName,
@@ -399,8 +402,33 @@ async function checkGuestAgent(nameOrId: string): Promise<boolean> {
 export async function startVm(nameOrId: string): Promise<string> {
   const name = validateVmName(nameOrId);
   const trace: TraceEntry[] = [];
-  await virsh(['start', name], trace);
+  await startDomain(name, trace);
   return formatTrace(trace);
+}
+
+/**
+ * Every start VirtPilot makes goes through here.
+ *
+ * First the cached backing chain is dropped from the saved definition. libvirt
+ * keeps one after a disk-only snapshot, one level deep (overlay, then
+ * disk.qcow2), and on AppArmor hosts virt-aa-helper builds the guest's file
+ * allowlist from that cache: the template underneath is left out and qemu
+ * dies with "Permission denied" opening it. Without the cache libvirt reads
+ * the chain from the images themselves.
+ *
+ * Then passthrough: anything VFIO would refuse is found first and said in
+ * words, and a failure it still produces is translated where it is known.
+ */
+async function startDomain(name: string, trace: TraceEntry[]): Promise<void> {
+  await refreshChainQuietly(name);
+  await deviceService.checkBeforeStart(name);
+  try {
+    await virsh(['start', name], trace);
+  } catch (err) {
+    const why = await deviceService.explainStartFailure(err);
+    if (why) throw new DeviceError(why, 409);
+    throw err;
+  }
 }
 
 export async function stopVm(nameOrId: string, force = false): Promise<string> {
@@ -719,6 +747,23 @@ async function isUefiVm(nameOrId: string): Promise<boolean> {
   }
 }
 
+async function chooseExternalSnapshot(name: string): Promise<boolean> {
+  if (await isUefiVm(name)) return true;
+  const existing = await listSnapshots(name).catch(() => [] as VmSnapshot[]);
+  const hasExternal = existing.some((s) => s.vmState === 'disk-snapshot');
+  const hasInternal = existing.some((s) => s.vmState !== 'disk-snapshot');
+  if (hasExternal) return true;
+  const pci = await deviceService.hasPciPassthrough(name);
+  if (!pci) return false;
+  if (!hasInternal) return true;
+  const running = parseStatus(await virsh(['domstate', name])) === 'running';
+  if (running) {
+    throw new DeviceError("This VM's snapshots are kept inside its disk, and libvirt can't take one of those while it runs " +
+      'with a PCI device passed through. Shut the VM down to take a snapshot.', 409);
+  }
+  return false;
+}
+
 async function getSnapshotXml(nameOrId: string, snapshotName: string): Promise<string> {
   return virsh(['snapshot-dumpxml', validateVmName(nameOrId), validateSnapshotName(snapshotName)]);
 }
@@ -862,7 +907,13 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
       throw new Error('Invalid snapshot description');
     }
   }
-  const uefi = await isUefiVm(name);
+  // UEFI NVRAM rules out internal snapshots, and so does a running VM with a
+  // PCI device passed through: libvirt saves its memory by migrating it to a
+  // file, which VFIO refuses ("VFIO migration is not supported in kernel").
+  // Those take a disk-only snapshot on external overlays. A VM never mixes the
+  // two kinds: reverting an internal snapshot rewrites the very image an
+  // external overlay stands on.
+  const external = await chooseExternalSnapshot(name);
 
   // libvirt blocks every block operation on a disk carrying a dirty bitmap, so
   // a VM with backup checkpoints cannot be snapshotted. Say so plainly instead
@@ -895,7 +946,7 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
   const overlayPaths: string[] = [];
 
   try {
-    if (uefi) {
+    if (external) {
       const disks = await getVmDisks(name);
       const persistent = disks.filter((d) => d.type === 'disk' && d.source && /\.qcow2$/i.test(d.source));
       if (persistent.length === 0) {
@@ -941,6 +992,9 @@ export async function createSnapshot(nameOrId: string, snapshotName: string, des
   for (const overlay of overlayPaths) {
     await fs.chmod(overlay, 0o660).catch(() => { /* file may have been re-chowned by libvirt */ });
   }
+  // The snapshot leaves a backing-chain cache in the saved definition; see
+  // startDomain for why that stops the next boot.
+  if (external) await refreshChainQuietly(name);
 
   return formatTrace(trace);
 }
@@ -1042,6 +1096,7 @@ export async function deleteSnapshot(
   for (const f of overlayFiles) {
     await fs.unlink(f).catch(() => { /* best-effort */ });
   }
+  await refreshChainQuietly(name);
 
   return formatTrace(trace);
 }
@@ -1051,6 +1106,10 @@ export async function revertSnapshot(nameOrId: string, snapshotName: string): Pr
   const snap = validateSnapshotName(snapshotName);
   const trace: TraceEntry[] = [];
   const snapshotXml = await getSnapshotXml(name, snap);
+  // Passed-through devices are the host's hardware, not the VM's state: a
+  // snapshot from before a GPU was attached must not take it away, and one
+  // from before it moved to another VM must not hand it back.
+  const devicesBefore = parseHostdevs(await getVmXml(name));
 
   try { await virsh(['destroy', name], trace); } catch { /* already stopped */ }
 
@@ -1090,11 +1149,32 @@ export async function revertSnapshot(nameOrId: string, snapshotName: string): Pr
     }
   }
 
+  await keepDevices(name, devicesBefore, trace).catch((err: unknown) => {
+    // The revert itself has happened; a VM started with the snapshot's devices is
+    // still checked against the host before it starts.
+    trace.push({ cmd: 'virsh define (restoring the passed-through devices)', stdout: '', stderr: err instanceof Error ? err.message : String(err), exitCode: 1 });
+  });
+  await refreshChainQuietly(name);
+
   const state = await virsh(['domstate', name]);
   if (parseStatus(state) !== 'running') {
-    await virsh(['start', name], trace);
+    await startDomain(name, trace);
   }
   return formatTrace(trace);
+}
+
+/** Put a VM's saved definition back to exactly these passed-through devices. */
+async function keepDevices(name: string, devices: ReturnType<typeof parseHostdevs>, trace: TraceEntry[]): Promise<void> {
+  const xml = await getVmXml(name);
+  const now = parseHostdevs(xml).map((h) => h.xml).join('\n');
+  const wanted = devices.map((h) => h.xml).join('\n');
+  if (now === wanted) return;
+  const { xml: bare } = stripHostdevs(xml);
+  // Without their old guest slots: the snapshot's definition may have something else there.
+  const portable = devices.map((h) => portableHostdevXml(h.xml)).join('\n');
+  const withDevices = portable ? bare.replace(/<\/devices>/, `${portable}\n  </devices>`) : bare;
+  const out = await defineFromXml(withDevices, name);
+  trace.push({ cmd: 'virsh define (restoring the passed-through devices)', stdout: out, stderr: '', exitCode: 0 });
 }
 
 export async function exportSnapshotAsTemplate(vmName: string, snapshotName: string, destPath: string): Promise<string> {
@@ -1145,10 +1225,17 @@ export async function refreshDomainBackingChain(nameOrId: string): Promise<void>
   const name = validateVmName(nameOrId);
   const xml = await virsh(['dumpxml', name, '--inactive']);
   // Both forms: <backingStore/> (explicitly "no backing") and the container
-  // form holding the cached chain.
-  const stripped = xml.replace(/[ \t]*<backingStore\b[^>]*(?:\/>|>[\s\S]*?<\/backingStore>)\n?/g, '');
+  // form holding the cached chain, nested one level per overlay.
+  const stripped = stripBackingStores(xml);
   if (stripped === xml) return;
   await defineFromXml(stripped, name);
+}
+
+/** The chain refresh where a failure must not stop what follows, but must not vanish either. */
+async function refreshChainQuietly(name: string): Promise<void> {
+  await refreshDomainBackingChain(name).catch((err: unknown) => {
+    console.warn(`[vm] could not drop the cached disk chain of ${name}: ${err instanceof Error ? err.message : String(err)}`);
+  });
 }
 
 // ─── Transient backup snapshots ───────────────────────────────────────────────
@@ -1280,6 +1367,9 @@ export async function commitTransientDiskSnapshot(
 
     await fs.unlink(d.overlay).catch(() => { /* blockcommit --pivot may have removed it */ });
   }
+  // The overlay is gone, but the saved definition may still cache a chain
+  // through it; see startDomain.
+  await refreshChainQuietly(name);
 }
 
 // ─── Autostart ────────────────────────────────────────────────────────────────
@@ -1460,7 +1550,7 @@ export async function startVmBootOnce(nameOrId: string, device: 'cdrom' | 'hd'):
 
   await setBootOrderInternal(name, onceOrder, trace);
   try {
-    await virsh(['start', name], trace);
+    await startDomain(name, trace);
   } finally {
     const restoreOrder = originalOrder.length > 0 ? originalOrder : onceOrder.slice().reverse();
     await setBootOrderInternal(name, restoreOrder, trace).catch(() => {});
