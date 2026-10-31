@@ -17,7 +17,7 @@ export interface TerminalTheme {
 }
 
 // VirtPilot Slate — the house theme, built from the logo kit: the console sits on the same
-// ink as the sidebar, the cursor is the needle's steel, and the ANSI colours are the app's
+// ink as the sidebar, the cursor is the kit's steel, and the ANSI colours are the app's
 // damped status hues, brightened just enough to read on ink.
 const virtpilotSlate: ITheme = {
   background: '#0E121A',

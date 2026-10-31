@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.16.1] - 2026-10-31
+
+### Changed
+
+- **A new logo.** Front on, a biplane is two rack servers, and its propeller is a flying ace's moustache. It replaces the ring and needle in the sidebar, the phone top bar, the sign-in screen, the console window, the browser tab and the app icons. It uses the app's own colours in both themes, and the dashboard's ring gauges keep their shape.
+
 ## [2.16.0] - 2026-10-31
 
 ### Added

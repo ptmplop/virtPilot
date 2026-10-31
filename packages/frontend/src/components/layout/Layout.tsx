@@ -32,7 +32,7 @@ import { useHostName } from '@/hooks/useSystemStats';
 
 // The version the operator sees. scripts/check-versions.sh checks this literal, and the
 // login screen imports it so the two can never disagree again.
-export const APP_VERSION = 'v2.16.0';
+export const APP_VERSION = 'v2.16.1';
 
 interface LayoutProps {
   children?: ReactNode;
@@ -147,8 +147,8 @@ function TopBar({ open, onOpen, buttonRef }: { open: boolean; onOpen: () => void
   return (
     <div className="flex h-14 shrink-0 items-center justify-between pl-3 pr-2 md:hidden">
       <Link to="/" aria-label="VirtPilot - Dashboard" className="flex h-10 items-center rounded-md px-[7px] focus-visible:outline-offset-0">
-        <img src="/brand/virtpilot-horizontal.svg" alt="" className="h-[26px] w-[83px] max-w-none dark:hidden" />
-        <img src="/brand/virtpilot-horizontal-dark.svg" alt="" className="hidden h-[26px] w-[83px] max-w-none dark:block" />
+        <img src="/brand/virtpilot-horizontal-compact.svg" alt="" className="h-[26px] w-[83px] max-w-none dark:hidden" />
+        <img src="/brand/virtpilot-horizontal-compact-dark.svg" alt="" className="hidden h-[26px] w-[83px] max-w-none dark:block" />
       </Link>
       <button
         ref={buttonRef}
@@ -247,7 +247,8 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
         collapsed ? 'w-[64px]' : 'w-[236px]'
       )}
     >
-      {/* Brand — the way home, nothing else */}
+      {/* Brand — the way home, nothing else. The lockup's left square is the whole symbol,
+          which is what the collapsed width crops it to. */}
       <div className="flex h-[72px] shrink-0 items-center px-3">
         <Link
           to="/"
@@ -261,8 +262,8 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
               collapsed ? 'w-[26px]' : 'w-[83px]'
             )}
           >
-            <img src="/brand/virtpilot-horizontal.svg" alt="" className="h-[26px] w-[83px] max-w-none dark:hidden" />
-            <img src="/brand/virtpilot-horizontal-dark.svg" alt="" className="hidden h-[26px] w-[83px] max-w-none dark:block" />
+            <img src="/brand/virtpilot-horizontal-compact.svg" alt="" className="h-[26px] w-[83px] max-w-none dark:hidden" />
+            <img src="/brand/virtpilot-horizontal-compact-dark.svg" alt="" className="hidden h-[26px] w-[83px] max-w-none dark:block" />
           </span>
         </Link>
       </div>

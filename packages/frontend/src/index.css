@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 @layer base {
-  /* VirtPilot "Instrument" — built from the Heading logo kit.
+  /* VirtPilot "Instrument" — built from the Heading logo kit. The Moustache logo that
+     replaced it uses these same colours, so they stay put.
      Ink #1B2433 (wordmark), slate #3B4A5E (ring), steel #4F7CAC (needle);
      dark: frost #E6EAF0, mist #8A99AD, sky #86AEDA.
      Three planes: the canvas (window + sidebar), the sheet (the page, inset on the

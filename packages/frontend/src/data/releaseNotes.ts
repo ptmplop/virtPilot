@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.16.1',
+    date: '2026-10-31',
+    changes: [
+      { type: 'changed', text: 'A new logo: front on, a biplane is two rack servers, and its propeller is a flying ace\'s moustache. It replaces the ring and needle in the sidebar, the phone top bar, the sign-in screen, the console window, the browser tab and the app icons, in the app\'s own colours. The dashboard\'s ring gauges keep their shape.' },
+    ],
+  },
+  {
     version: '2.16.0',
     date: '2026-10-31',
     changes: [
