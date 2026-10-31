@@ -40,6 +40,7 @@ import { useDownloadVmDisk } from '@/hooks/useVmDisks';
 import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
+import { NicConfigHelp } from '@/components/networks/NicConfigHelp';
 import { formatMemory, formatDisk, formatBytes, formatDateTime, formatChartTime, formatChartMoment, formatRate, networkTypeLabel } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { CHART } from '@/lib/chartColors';
@@ -449,7 +450,7 @@ export function VmDetailPage() {
           <div role="tabpanel" id="vm-panel-disks" aria-labelledby="vm-tab-disks" className={tab !== 'disks' ? 'hidden' : undefined}><DisksTab vmUuid={uuid!} disks={vm.disks} vmStatus={vm.status} /></div>
           <div role="tabpanel" id="vm-panel-network" aria-labelledby="vm-tab-network" className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmUuid={uuid!} nics={vm.nics} meta={vmMeta} /></div>
           <div role="tabpanel" id="vm-panel-snapshots" aria-labelledby="vm-tab-snapshots" className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
-          <div role="tabpanel" id="vm-panel-firewall" aria-labelledby="vm-tab-firewall" className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmUuid={uuid!} vmStatus={vm.status} /></div>
+          <div role="tabpanel" id="vm-panel-firewall" aria-labelledby="vm-tab-firewall" className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmUuid={uuid!} vmStatus={vm.status} nics={vm.nics} /></div>
           <div role="tabpanel" id="vm-panel-devices" aria-labelledby="vm-tab-devices" className={tab !== 'devices' ? 'hidden' : undefined}><VmDevicesTab vmUuid={uuid!} vmName={vm.name} /></div>
           <div role="tabpanel" id="vm-panel-metrics" aria-labelledby="vm-tab-metrics" className={tab !== 'metrics' ? 'hidden' : undefined}><MetricsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
         </>
@@ -1822,6 +1823,7 @@ function IpCell({
   reservations,
   meta,
   networkType,
+  ipMode,
   networkId,
   vmUuid,
 }: {
@@ -1830,6 +1832,7 @@ function IpCell({
   reservations: DhcpReservation[];
   meta: VmMeta | null;
   networkType?: string;
+  ipMode?: string;
   networkId?: string;
   vmUuid: string;
 }) {
@@ -1857,7 +1860,9 @@ function IpCell({
   if (!displayIp) {
     return (
       <span className="text-[12.5px] text-muted-foreground">
-        {networkType === 'nat' || networkType === 'bridge' || networkType === 'existing-bridge' ? 'DHCP · not resolved yet' : 'Unknown'}
+        {networkType === 'vxlan' && ipMode === 'none'
+          ? 'Set inside the VM'
+          : networkType ? 'DHCP · not resolved yet' : 'Unknown'}
       </span>
     );
   }
@@ -1884,31 +1889,6 @@ function IpCell({
       )}
     </div>
   );
-}
-
-function buildNetplanSnippet(mac: string, network: NetworkConfig, staticIp?: string): string {
-  const prefix = network.cidr.split('/')[1];
-  const isStatic = (network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static' && staticIp;
-  const lines = [
-    'network:',
-    '  version: 2',
-    '  ethernets:',
-    '    new-nic:',
-    `      match:`,
-    `        macaddress: "${mac}"`,
-    `      set-name: eth1  # rename as needed`,
-  ];
-  if (isStatic) {
-    lines.push(`      addresses:`);
-    lines.push(`        - ${staticIp}/${prefix}`);
-    if (network.dns.length > 0) {
-      lines.push(`      nameservers:`);
-      lines.push(`        addresses: [${network.dns.map((d) => `"${d}"`).join(', ')}]`);
-    }
-  } else {
-    lines.push(`      dhcp4: true`);
-  }
-  return lines.join('\n');
 }
 
 // Convert KiB/s ↔ MB/s with two decimal places where needed (libvirt uses KiB/s).
@@ -1958,9 +1938,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
   const availableNetworks = (networks ?? []).filter((n) => !attachedBridges.has(n.bridge));
   const allAttached = availableNetworks.length === 0 && (networks ?? []).length > 0;
   const selectedNetwork = availableNetworks.find((n) => n.id === selectedNetworkId);
-  const isStaticNetwork = selectedNetwork &&
-    (selectedNetwork.type === 'bridge' || selectedNetwork.type === 'existing-bridge') &&
-    selectedNetwork.ipMode === 'static';
+  const isStaticNetwork = selectedNetwork && selectedNetwork.type !== 'nat' && selectedNetwork.ipMode === 'static';
 
   // Fetch available IPs only when a static network is selected
   const { data: networkDetail } = useNetwork(isStaticNetwork ? selectedNetworkId : '');
@@ -2031,8 +2009,8 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
         outboundKbps: outboundKbps > 0 ? outboundKbps : undefined,
       });
       setAddedNic({ mac: result.mac, network: selectedNetwork, staticIp: isStaticNetwork ? selectedStaticIp : undefined });
-    } catch {
-      toast.error('Failed to add NIC');
+    } catch (err: unknown) {
+      toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to add NIC');
     }
   };
 
@@ -2079,7 +2057,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                             <span className="flex flex-wrap items-baseline gap-x-1.5">
                               <span className="font-medium text-foreground">{network.name}</span>
                               <span className="text-[12px] text-muted-foreground">
-                                {networkTypeLabel(network.type, network.ipMode)}
+                                {networkTypeLabel(network.type, network.ipMode, network.vni)}
                               </span>
                             </span>
                           ) : nic.source ? (
@@ -2093,6 +2071,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                             reservations={reservations}
                             meta={meta}
                             networkType={network?.type}
+                            ipMode={network?.ipMode}
                             networkId={network?.id}
                             vmUuid={vmUuid}
                           />
@@ -2192,33 +2171,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
       >
         {addedNic ? (
           // ── Success: show config snippet ───────────────────────────────────
-          <div className="space-y-3">
-            <p className="text-[13.5px] text-foreground">
-              <span className="font-semibold">{addedNic.network.name}</span> attached with MAC{' '}
-              <span className="font-mono text-[12.5px]">{addedNic.mac}</span>.
-            </p>
-            <p className="text-[12.5px] leading-5 text-muted-foreground">
-              Cloud-init will not run again for this NIC - configure it inside the VM using your OS's
-              network tools. The example below is for <span className="font-medium text-foreground">Ubuntu / Debian</span> (netplan);
-              adapt as needed for other distributions or Windows.
-            </p>
-            <div className="relative">
-              <pre className="overflow-x-auto rounded-md border border-border bg-surface px-4 py-3 font-mono text-[12px] leading-relaxed text-foreground">
-                {buildNetplanSnippet(addedNic.mac, addedNic.network, addedNic.staticIp)}
-              </pre>
-              <button
-                type="button"
-                onClick={() => {
-                  void navigator.clipboard.writeText(buildNetplanSnippet(addedNic.mac, addedNic.network, addedNic.staticIp));
-                  toast.success('Copied to clipboard');
-                }}
-                className="absolute right-2 top-2 inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-card px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-surface"
-              >
-                <Copy className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                Copy
-              </button>
-            </div>
-          </div>
+          <NicConfigHelp mac={addedNic.mac} network={addedNic.network} staticIp={addedNic.staticIp} />
         ) : availableNetworks.length === 0 ? (
           <p className="text-[13.5px] text-muted-foreground">All configured networks are already attached to this VM.</p>
         ) : (
@@ -2241,11 +2194,11 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                   <div className="min-w-0 flex-1">
                     <p className="text-[13.5px] font-semibold text-foreground">{n.name}</p>
                     <p className="mt-0.5 font-mono text-[12px] text-muted-foreground">
-                      {n.cidr} · br: {n.bridge}
+                      {[n.cidr, `br: ${n.bridge}`].filter(Boolean).join(' · ')}
                     </p>
                   </div>
                   <span className="shrink-0 text-[12px] font-medium text-muted-foreground">
-                    {networkTypeLabel(n.type, n.ipMode)}
+                    {networkTypeLabel(n.type, n.ipMode, n.vni)}
                   </span>
                 </button>
               ))}
@@ -2451,7 +2404,9 @@ function FirewallRulesTable({
   );
 }
 
-function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus }) {
+function FirewallTab({ vmUuid, vmStatus, nics }: { vmUuid: string; vmStatus: VmStatus; nics: VmNic[] }) {
+  const { data: networks } = useNetworks();
+  const onVxlan = nics.some((nic) => networks?.find((n) => n.bridge === nic.source)?.type === 'vxlan');
   const [addDirection, setAddDirection] = useState<'inbound' | 'outbound' | null>(null);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleForm>(defaultRuleForm);
@@ -2655,6 +2610,13 @@ function FirewallTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus 
           </Button>
         </Tooltip>
       </SectionHeading>
+
+      {onVxlan && (
+        <Callout>
+          These rules don't apply inside a VXLAN: its traffic goes straight through the bridge. To restrict what VMs on
+          one can do to each other, use a firewall inside the VM.
+        </Callout>
+      )}
 
       {/* Default Policies */}
       <Panel>

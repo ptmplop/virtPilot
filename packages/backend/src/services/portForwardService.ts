@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { getNetwork, parseCidr, enumerateUsableIps } from './networkService.js';
 import { tokeniseIptablesRule, reassertForwardJumps } from './firewallService.js';
 import { run, runSafe, virsh } from './safeExec.js';
+import { parseDhcpLeases } from '../lib/vmAddresses.js';
 import {
   validateVmUuid,
   validateMac,
@@ -77,7 +78,9 @@ function ipToNum(ip: string): number {
   return ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0;
 }
 
-async function resolveCurrentVmIp(vmUuid: string, mac: string): Promise<string | null> {
+// ARP first, then the network's own lease table, the same places the VM's Network tab
+// reads: "Lock IP" has to pin the address it is showing, not pick another.
+async function resolveCurrentVmIp(vmUuid: string, mac: string, libvirtName: string): Promise<string | null> {
   try {
     const stdout = await virsh(['domifaddr', validateVmUuid(vmUuid), '--source', 'arp']);
     for (const line of stdout.split('\n')) {
@@ -86,6 +89,9 @@ async function resolveCurrentVmIp(vmUuid: string, mac: string): Promise<string |
         if (m) return m[1];
       }
     }
+  } catch {}
+  try {
+    return parseDhcpLeases(await virsh(['net-dhcp-leases', libvirtName])).get(mac.toLowerCase()) ?? null;
   } catch {}
   return null;
 }
@@ -135,7 +141,7 @@ async function ensureReservation(
     ...reservations.filter((r) => r.networkId === networkId).map((r) => r.ip),
   ]);
 
-  const currentIp = await resolveCurrentVmIp(vmUuid, mac);
+  const currentIp = await resolveCurrentVmIp(vmUuid, mac, network.libvirtName);
   const available = (currentIp && !takenIps.has(currentIp))
     ? currentIp
     : (() => {

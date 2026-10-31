@@ -12,7 +12,7 @@ const statusText: Record<VmStatus, string> = {
   unknown: 'text-muted-foreground',
 };
 
-const statusLabels: Record<VmStatus, string> = {
+export const statusLabels: Record<VmStatus, string> = {
   running: 'Running',
   stopped: 'Stopped',
   paused: 'Paused',

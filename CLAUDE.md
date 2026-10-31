@@ -67,8 +67,8 @@ usermod -aG libvirt $USER
 - Storage layout: `$STORAGE_ROOT/{templates,isos,vms,cloud-init}`
 - VM creation: creates qcow2 overlay from template, generates cloud-init ISO, defines libvirt domain XML, calls `virsh define`
 - Networking: bridged only; bridge must pre-exist on host
-- NAT bridge names: `vp0`, `vp1`, ... (libvirt network names: `virtpilot-{uuid8}`)
-- Firewall iptables chains: `VP-IN-{vmName}`, `VP-OUT-{vmName}`
+- NAT bridge names: `vp0`, `vp1`, ... (libvirt network names: `virtpilot-{uuid8}`); VXLANs: bridge `vpbr<ID>`, device `vpx<ID>`
+- Firewall iptables chains: `VP-IN-{vmName}`, `VP-OUT-{vmName}`; VXLAN allow-list: `VP-VXLAN`
 - Copying a VM's disks (backup **and** clone) goes through `services/diskCopyService.ts`, which
   picks the best of four tiers and reports which one ran. Never call `qemu-img convert` on a
   running VM's disk directly, and never wrap a copy in a guest fsfreeze — the freeze must only
@@ -96,6 +96,7 @@ usermod -aG libvirt $USER
   `ProtectKernelTunables` makes /sys read-only for everything it starts, plain sudo included. The helper refuses a
   mounted disk's controller and the default-route NIC itself. libvirt's `managed='yes'` sets `driver_override` while a
   VM runs, so "kept for VMs" is the helper's config file, never that attribute
+- **VXLAN networks** (`lib/vxlan.ts` holds every decision, `services/vxlanService.ts` talks to the host, `networkService` owns the records): an isolated libvirt network owns the bridge `vpbr<ID>` (so it is back before any autostart VM at boot, and runs DHCP), with a kernel device `vpx<ID>` as a port. All of it runs under the service's own CAP_NET_ADMIN: `ip`, `bridge` and `iptables` need no sudo rule, and the kernel loads `vxlan` and `xt_u32` itself even under ProtectKernelModules. An up device listens on UDP on every address whatever `local` says, and takes any frame with its ID from anyone (measured from another machine), so it stays **down with no remote hosts**, and with remote hosts the `VP-VXLAN` allow-list goes in first, per ID via `-m u32`; if the rules can't be applied the tunnel goes down. `applyVxlanNetworks` rebuilds everything at startup and every 30 s, and a bridge's existence is read from sysfs, not libvirt, so a stalled libvirt can't take tunnels down. The VM firewall never targets a VXLAN NIC (`resolveFirewallTarget`): its FORWARD jumps sit above libvirt's isolation and would let other networks in. A NIC's MTU is the network's, in `<mtu>` for virtio (libvirt refuses it on other models, and it reaches the guest as host_mtu); the default keeps 8 bytes free so a guest can tag twice without the outer packet being fragmented. The bridge has `vlan_filtering` off, so guest tags pass through untouched
 - **Startup side effect to know about**: `portForwardService.applyAllRules()` strips *every*
   `virtpilot-`-tagged nat PREROUTING rule on boot and re-adds only those in its own
   `port-forwards.json`. Two backends sharing a host but not a `STORAGE_ROOT` will fight over them

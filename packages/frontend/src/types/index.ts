@@ -161,24 +161,55 @@ export interface VmSnapshot {
   sizeBytes?: number;
 }
 
-export type NetworkType = 'nat' | 'bridge' | 'existing-bridge';
+export type NetworkType = 'nat' | 'bridge' | 'existing-bridge' | 'vxlan';
 export type BridgeIpMode = 'dhcp' | 'static';
+/** vxlan only: 'none' leaves addresses to the guests, or to a DHCP server elsewhere on the network. */
+export type NetworkIpMode = BridgeIpMode | 'none';
 
 export interface Network {
   id: string;
   name: string;
   type: NetworkType;
-  /** bridge / existing-bridge only */
-  ipMode?: BridgeIpMode;
+  /** bridge / existing-bridge / vxlan */
+  ipMode?: NetworkIpMode;
+  /** Empty on a vxlan with no addresses */
   cidr: string;
+  /** Empty on a vxlan with no gateway */
   gateway: string;
   dns: string[];
   bridge: string;
   /** bridge only — physical NIC enslaved to bridge */
   physicalNic?: string;
-  /** nat only */
+  /** nat and vxlan */
   libvirtName?: string;
+  /** vxlan only: the VXLAN ID */
+  vni?: number;
+  /** vxlan only */
+  vxlanPort?: number;
+  /** vxlan only */
+  mtu?: number;
+  /** vxlan only: other hosts on it, by address */
+  peers?: string[];
   createdAt: string;
+}
+
+export interface VxlanIds {
+  /** What "next available" would give right now. */
+  next: number | null;
+  used: Array<{ vni: number; usedBy: string }>;
+}
+
+export interface VxlanStatus {
+  /** 'local': no remote hosts, so its device is down on purpose. */
+  tunnel: 'local' | 'up' | 'down';
+  bridgeUp: boolean;
+  rxBytes: number;
+  txBytes: number;
+  peers: Array<{ address: string; machines: number }>;
+  /** What other hosts have to list to reach this one. */
+  localAddress: string | null;
+  problems: string[];
+  vms: Array<{ id: string; name: string; status: VmStatus; mac: string; ip?: string }>;
 }
 
 export interface NetworkIpStatus {

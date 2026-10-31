@@ -1,3 +1,4 @@
+import { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Callout as SharedCallout } from '@/components/ui/Callout';
@@ -24,7 +25,7 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
       <span className="mt-px w-4 shrink-0 text-right text-[13px] font-medium tabular-nums text-muted-foreground">
         {n}.
       </span>
-      <div className="flex-1 text-[13.5px] leading-relaxed text-foreground">{children}</div>
+      <div className="min-w-0 flex-1 text-[13.5px] leading-relaxed text-foreground">{children}</div>
     </li>
   );
 }
@@ -53,6 +54,24 @@ function Divider() {
 }
 
 export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const titleId = useId();
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  // Holds the keyboard while open, as a dialog does, and hands focus back afterwards.
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [open, onClose]);
+
   return (
     <>
       {open && (
@@ -61,21 +80,27 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
           onClick={onClose}
         />
       )}
+      {/* Invisible while closed: parked off-screen it would still cast its shadow over the
+          page and keep its links in the tab order. Flips only after the slide. */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className={cn(
-          'fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col border-l border-border bg-card shadow-pop transition-transform duration-200',
-          open ? 'translate-x-0' : 'translate-x-full'
+          'fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col border-l border-border bg-card shadow-pop transition-[transform,visibility] duration-200',
+          open ? 'translate-x-0' : 'invisible translate-x-full'
         )}
       >
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
           <div>
-            <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">Network setup guide</h2>
+            <h2 id={titleId} className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">Network setup guide</h2>
             <p className="mt-0.5 text-[13px] text-muted-foreground">
               Step-by-step instructions for every network configuration.
             </p>
           </div>
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Close guide"
@@ -110,6 +135,10 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
                 <p>
                   <span className="font-medium text-foreground">You already have a Linux bridge set up at the OS level</span>
                   {' '}- use <span className="font-medium text-foreground">Option 4: Existing OS bridge</span> to attach VirtPilot to it.
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">VMs need a private network between them</span>
+                  {' '}- use <span className="font-medium text-foreground">Option 5: VXLAN</span>, on this host or across several.
                 </p>
               </div>
             </div>
@@ -368,9 +397,122 @@ brctl show br0" />
               </Steps>
             </section>
 
+            <Divider />
+
+            {/* Option 5 — VXLAN */}
+            <section className="space-y-3">
+              <SectionBadge label="Easy" />
+              <h3 className="text-sm font-semibold text-foreground">Option 5: VXLAN</h3>
+              <p className="text-sm text-muted-foreground">
+                A private network that connects VMs to each other. VMs on it reach each other and nothing
+                else, and it carries no internet traffic, so a VM that needs to get out keeps a NAT or bridge
+                NIC as well. Each VXLAN has an ID from 1 to 16777215 that no other VXLAN on the host can have.
+                Nothing on the host OS has to change, and it comes back by itself after a reboot.
+              </p>
+              <Steps>
+                <Step n={1}>Click <strong>New VXLAN</strong> on the VXLANs panel.</Step>
+                <Step n={2}>
+                  Under <strong>VXLAN ID</strong>, keep <strong>Next available</strong>, or choose an ID of your own.
+                  VirtPilot refuses one that already exists, whether it made it or not.
+                </Step>
+                <Step n={3}>
+                  Set <strong>Addresses</strong>:
+                  <ul className="mt-2 list-disc space-y-1 pl-4 text-[13.5px] text-muted-foreground [&_strong]:text-foreground">
+                    <li><strong>DHCP</strong> - this host hands out addresses from the CIDR and takes one for itself. The usual choice.</li>
+                    <li><strong>Static</strong> - you pick each VM's address when you add it, and cloud-init sets it. This host has no address on the network, so the dashboard's SSH console can't reach a VM through it.</li>
+                    <li><strong>None</strong> - VirtPilot stays out of it. Set addresses inside the VMs, or run a DHCP server on the network.</li>
+                  </ul>
+                </Step>
+                <Step n={4}>Click <strong>Create network</strong>. MTU, UDP port and remote hosts are under <strong>Show optional settings</strong>.</Step>
+                <Step n={5}>
+                  Tick it in the VM wizard's <strong>Network</strong> step as well as your NAT network, leaving the NAT
+                  network as primary. Cloud-init then sets it up by itself. To connect a VM you already have, use{' '}
+                  <strong>Connect a VM</strong> on the VXLAN's row, or <strong>Add NIC</strong> on the VM's Network tab,
+                  and configure the new NIC inside the VM.
+                </Step>
+              </Steps>
+
+              <h4 className="pt-3 text-[13.5px] font-semibold text-foreground">Across several hosts</h4>
+              <p className="text-sm text-muted-foreground">
+                Remote hosts extend a VXLAN to VMs on other machines, over any network that can carry UDP between them.
+              </p>
+              <Steps>
+                <Step n={1}>
+                  On every host, make a VXLAN with the <strong>same ID, UDP port and MTU</strong>. Let only one of
+                  them hand out addresses, by choosing <strong>None</strong> on the others: two DHCP servers on one
+                  network hand out clashing addresses.
+                </Step>
+                <Step n={2}>
+                  Open <strong>Remote hosts</strong> on its row and list the other hosts by address. Do this on each host:
+                  every host lists all the others.
+                </Step>
+                <Step n={3}>
+                  A remote host shows how many machines have been seen behind it, once frames arrive from it.
+                  If it stays at <strong>Nothing received yet</strong> with VMs running on both sides, check the
+                  addresses first, then any firewall between the hosts: UDP 4789 has to pass in both directions.
+                </Step>
+              </Steps>
+
+              <Callout variant="warning">
+                <strong>VXLAN does not encrypt or authenticate anything.</strong> Between hosts, use a private
+                link or a VPN. On this host, VirtPilot adds firewall rules so only the hosts you list can reach
+                each VXLAN, and with no remote hosts its tunnel stays down and nothing listens at all.
+              </Callout>
+              <h4 className="pt-3 text-[13.5px] font-semibold text-foreground">VLANs inside a VXLAN</h4>
+              <p className="text-sm text-muted-foreground">
+                A VM can tag its own traffic on a VXLAN, with nothing to set up on the host: tags pass through the
+                bridge and the tunnel untouched, between VMs on this host and across remote hosts. Both 802.1Q and
+                nested tagging (QinQ, with an 802.1ad or 802.1Q outer tag) work at the full MTU.
+              </p>
+              <Steps>
+                <Step n={1}>
+                  On each VM, add a VLAN interface on its VXLAN NIC. Here <Code>eth1</Code> is that NIC:
+                  <CodeBlock code={`# One tag
+ip link add link eth1 name eth1.10 type vlan id 10
+ip addr add 192.168.10.1/24 dev eth1.10
+ip link set eth1.10 up
+
+# Two tags (QinQ)
+ip link add link eth1 name eth1.100 type vlan proto 802.1ad id 100
+ip link add link eth1.100 name eth1.100.200 type vlan id 200
+ip addr add 192.168.200.1/24 dev eth1.100.200
+ip link set eth1.100 up
+ip link set eth1.100.200 up`} />
+                </Step>
+                <Step n={2}>
+                  To keep a VLAN across reboots on Ubuntu or Debian, add it to netplan:
+                  <CodeBlock code={`network:
+  version: 2
+  vlans:
+    eth1.10:
+      id: 10
+      link: eth1
+      addresses: [192.168.10.1/24]`} />
+                </Step>
+              </Steps>
+              <p className="text-sm text-muted-foreground">
+                VLAN IDs inside a VXLAN belong to the VMs: VirtPilot doesn't assign or enforce them, so any VM on the
+                VXLAN can use any tag. This host's DHCP server answers untagged traffic only, so give a VLAN its
+                addresses inside the VMs, or run a DHCP server on it.
+              </p>
+
+              <Callout variant="tip">
+                The MTU is 1442 by default: a VXLAN's own headers plus two VLAN tags, inside a standard 1500-byte
+                link, so nothing is ever fragmented. VMs using virtio NICs pick it up by themselves, and their VLAN
+                interfaces inherit it. A VM with another NIC model takes it from DHCP or cloud-init; set up by hand, it
+                needs it set inside the VM, or large packets on this network are lost.
+              </Callout>
+              <Callout variant="tip">
+                A VM's firewall tab doesn't filter traffic inside a VXLAN: it passes through the bridge directly.
+                To restrict what VMs on one VXLAN can do to each other, use a firewall inside the VMs.
+              </Callout>
+            </section>
+
+            <Divider />
+
             {/* IP mode explainer */}
             <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-foreground">IP mode: DHCP or static</h3>
+              <h3 className="text-sm font-semibold text-foreground">IP mode on a bridge: DHCP or static</h3>
               <p className="text-sm text-muted-foreground">
                 This setting controls how VMs get their IP addresses when connected to a bridge network.
               </p>

@@ -20,7 +20,7 @@ import * as networkService from './networkService.js';
 import * as vmMetaService from './vmMetaService.js';
 import * as backupService from './backupService.js';
 import { copyVmDisks } from './diskCopyService.js';
-import { buildCloudInitIso, getHostSshPublicKey, type NicCloudInit } from './cloudInitService.js';
+import { buildCloudInitIso, getHostSshPublicKey, nicCloudInitFor, type NicCloudInit } from './cloudInitService.js';
 import { generateMac } from './xmlBuilder.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
 import { validateVmName, validateVmUuid, validateMac, escapeXml } from '../lib/validate.js';
@@ -180,10 +180,7 @@ async function deriveNetworking(
     const isPrimary = alloc?.isPrimary ?? index === 0;
     const network = alloc?.networkId ? await networkService.getNetwork(alloc.networkId) : null;
 
-    const needsStatic =
-      !!network &&
-      (network.type === 'bridge' || network.type === 'existing-bridge') &&
-      network.ipMode === 'static';
+    const needsStatic = !!network && networkService.usesStaticIps(network);
 
     if (needsStatic && alloc) {
       const status = await networkService.getNetworkIpStatus(alloc.networkId);
@@ -194,18 +191,13 @@ async function deriveNetworking(
         );
       }
       await networkService.allocateSpecificIp(alloc.networkId, newUuid, newMac, free.ip);
-      const { prefix } = networkService.parseCidr(network!.cidr);
-      cloudInitNics.push({
-        mac: newMac,
-        isPrimary,
-        ipConfig: { mode: 'static', ip: free.ip, prefix, gateway: network!.gateway, dns: network!.dns },
-      });
+      cloudInitNics.push(nicCloudInitFor(network!, newMac, isPrimary, free.ip));
       metaNetworks.push({ networkId: alloc.networkId, mac: newMac, ip: free.ip, isPrimary });
       if (alloc.ip && alloc.ip !== free.ip) {
         warnings.push(`NIC ${index + 1} was given ${free.ip} (the source VM keeps ${alloc.ip}).`);
       }
     } else {
-      cloudInitNics.push({ mac: newMac, isPrimary, ipConfig: { mode: 'dhcp' } });
+      cloudInitNics.push(network ? nicCloudInitFor(network, newMac, isPrimary) : { mac: newMac, isPrimary, ipConfig: { mode: 'dhcp' } });
       if (alloc?.networkId) metaNetworks.push({ networkId: alloc.networkId, mac: newMac, isPrimary });
     }
   }

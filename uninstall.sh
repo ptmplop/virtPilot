@@ -73,7 +73,8 @@ echo "  • All libvirt networks named virtpilot-* (defined by VirtPilot)"
 echo "  • Libvirt VMs created by VirtPilot (a hard disk under /var/lib/virtpilot/,"
 echo "    or a cloud-init seed from /var/lib/virtpilot/cloud-init/) - the domain"
 echo "    and those disk images only; disks stored elsewhere are kept"
-echo "  • iptables VP-IN-* / VP-OUT-* chains"
+echo "  • VXLAN tunnels (interfaces named vpx*)"
+echo "  • iptables VP-IN-* / VP-OUT-* / VP-VXLAN chains"
 echo "  • /etc/nginx/sites-{available,enabled}/virtpilot"
 echo "  • UFW rules for ports ${PUBLIC_PORT}/${BACKEND_PORT}"
 echo "  • /etc/sudoers.d/virtpilot"
@@ -179,16 +180,26 @@ if command -v virsh >/dev/null 2>&1; then
   done < <(virsh -c qemu:///system net-list --all --name 2>/dev/null)
 fi
 
+# ─── 3b. Remove VXLAN tunnels ─────────────────────────────────────────────────
+# Named vpx<ID>, and nothing else makes those; their bridges went with the libvirt
+# networks above. Before the firewall chains below: an up tunnel listens on UDP from
+# anywhere, and VP-VXLAN is what keeps strangers off it.
+while IFS= read -r dev; do
+  if [[ "${dev}" =~ ^vpx[0-9]+$ ]]; then
+    ip link delete "${dev}" 2>/dev/null || warn "Could not remove the VXLAN interface ${dev}"
+  fi
+done < <(ip -o link show type vxlan 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1)
+
 # ─── 4. Remove iptables VP-* chains ───────────────────────────────────────────
-# The backend creates VP-IN-{vm} / VP-OUT-{vm} chains and references them from
-# built-in chains (FORWARD etc.). Atomic approach: dump the ruleset, strip every
-# line that mentions VP-IN- or VP-OUT- (chain declarations, rules inside them,
-# and -j references), then restore. Cleaner than chasing -D rule-by-rule.
+# The backend creates VP-IN-{vm} / VP-OUT-{vm} / VP-VXLAN chains and references
+# them from built-in chains (FORWARD, INPUT). Atomic approach: dump the ruleset,
+# strip every line that mentions one (chain declarations, rules inside them, and
+# -j references), then restore. Cleaner than chasing -D rule-by-rule.
 if command -v iptables >/dev/null 2>&1 \
-   && iptables-save 2>/dev/null | grep -qE 'VP-(IN|OUT)-'; then
+   && iptables-save 2>/dev/null | grep -qE 'VP-(IN-|OUT-|VXLAN)'; then
   info "Removing VirtPilot iptables chains..."
   TMP_RULES="$(mktemp)"
-  if iptables-save 2>/dev/null | grep -vE 'VP-(IN|OUT)-' > "${TMP_RULES}"; then
+  if iptables-save 2>/dev/null | grep -vE 'VP-(IN-|OUT-|VXLAN)' > "${TMP_RULES}"; then
     iptables-restore < "${TMP_RULES}" 2>/dev/null \
       || warn "iptables-restore failed; check iptables-save manually"
   fi

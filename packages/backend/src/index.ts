@@ -31,6 +31,7 @@ import { createVncWss } from './vnc.js';
 import { ensureDirs } from './services/storageService.js';
 import { seedDefault as seedDefaultStorageDir } from './services/storageDirService.js';
 import { applyAllRules } from './services/portForwardService.js';
+import { applyVxlanNetworks, startVxlanWatch } from './services/networkService.js';
 import { startSampling } from './services/statsService.js';
 import { startVmMetricsSampling } from './services/vmMetricsService.js';
 import { startBackupScheduler } from './services/backupSchedulerService.js';
@@ -354,6 +355,14 @@ async function main() {
   } catch (err) {
     console.warn('Could not apply port forward iptables rules:', err);
   }
+  // libvirt brought the bridges back by itself and any autostart VM is on them
+  // by now. Tunnels, their remote hosts and their firewall rules are ours.
+  try {
+    await applyVxlanNetworks();
+  } catch (err) {
+    console.warn('Could not rebuild VXLAN tunnels:', err);
+  }
+  startVxlanWatch();
   try {
     getDb();
   } catch (err) {

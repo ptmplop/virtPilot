@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { HostNic, Network, NetworkIpStatus } from '@/types';
+import type { HostNic, Network, NetworkIpMode, NetworkIpStatus, VxlanIds, VxlanStatus } from '@/types';
 
 const KEYS = {
   networks: ['networks'] as const,
   network: (id: string) => ['networks', id] as const,
   systemNics: ['system', 'nics'] as const,
+  vxlanIds: ['networks', 'vxlan', 'ids'] as const,
+  vxlanStatus: ['networks', 'vxlan', 'status'] as const,
 };
 
 export function useNetworks() {
@@ -44,13 +46,18 @@ export function useCreateNetwork() {
   return useMutation({
     mutationFn: async (payload: {
       name: string;
-      type: 'nat' | 'bridge' | 'existing-bridge';
-      cidr: string;
+      type: 'nat' | 'bridge' | 'existing-bridge' | 'vxlan';
+      cidr?: string;
       gateway?: string;
       dns?: string[];
-      ipMode?: 'dhcp' | 'static';
+      ipMode?: NetworkIpMode;
       physicalNic?: string;
       bridge?: string;
+      /** vxlan: absent means the next available ID */
+      vni?: number;
+      peers?: string[];
+      mtu?: number;
+      port?: number;
     }) => {
       const { data } = await api.post<{ network: Network }>('/api/networks', payload);
       return data.network;
@@ -66,5 +73,55 @@ export function useDeleteNetwork() {
       await api.delete(`/api/networks/${id}`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.networks }),
+  });
+}
+
+/** Asked afresh whenever the form opens: an ID can be taken outside VirtPilot at any time. */
+export function useVxlanIds(enabled: boolean) {
+  return useQuery({
+    queryKey: KEYS.vxlanIds,
+    queryFn: async () => {
+      const { data } = await api.get<VxlanIds>('/api/networks/vxlan/ids');
+      return data;
+    },
+    enabled,
+    staleTime: 0,
+  });
+}
+
+export function useVxlanStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: KEYS.vxlanStatus,
+    queryFn: async () => {
+      const { data } = await api.get<{ status: Record<string, VxlanStatus> }>('/api/networks/vxlan/status');
+      return data.status;
+    },
+    enabled,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useSetVxlanPeers() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, peers }: { id: string; peers: string[] }) => {
+      const { data } = await api.put<{ network: Network }>(`/api/networks/${id}/peers`, { peers });
+      return data.network;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.networks }),
+  });
+}
+
+export function useConnectVm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ vmId, networkId, staticIp }: { vmId: string; networkId: string; staticIp?: string }) => {
+      const { data } = await api.post<{ ok: boolean; mac: string }>(`/api/vms/${vmId}/nics`, { networkId, staticIp });
+      return data;
+    },
+    onSuccess: (_data, { vmId }) => {
+      void qc.invalidateQueries({ queryKey: KEYS.networks });
+      void qc.invalidateQueries({ queryKey: ['vms', vmId] });
+    },
   });
 }

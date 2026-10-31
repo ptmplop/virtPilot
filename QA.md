@@ -35,6 +35,7 @@ Each section ends with a "Cleanup" so the next section starts from a known state
 16. [Restore into a new VM](#16-restore-into-a-new-vm) — rebuild a whole machine from a backup
 17. [Clone](#17-clone) — independent copy of a running or stopped VM
 18. [Device passthrough](#18-device-passthrough) — host checks, what is offered, groups, GPU end to end, SR-IOV, keep for VMs
+19. [VXLAN networks](#19-vxlan-networks) — IDs, addressing, isolation, MTU, VLANs in the guest, remote hosts, firewall, reboot
 
 ---
 
@@ -601,9 +602,98 @@ Detach every device, give kept devices back, set virtual functions to 0, delete 
 
 ---
 
+## 19. VXLAN networks
+
+Needs VT-x or AMD-V for speed, and a second machine on the internet for the tunnel checks. The second machine doesn't need VirtPilot: a VTEP in a network namespace is enough. Use a real public address on the host under test, because whether strangers can reach the VXLAN is part of the test. Testing from the host itself proves nothing.
+
+**The ID.**
+
+1. New network, VXLAN, Next available: gets 100. The next one gets 101. Delete both: back to 100.
+2. Choose 5000: created. Choose 5000 again: 409 naming the network. 0, 16777216, 1.5 and `abc`: 400. 1 and 16777215: created.
+3. `ip link add foreign9 type vxlan id 9000 dstport 4789`: 9000 is refused naming `foreign9`, and shows as used in the form before Create. An ID equal to the next available one is skipped.
+4. Five creates at once: five different IDs, all recorded.
+5. `ip -d link show type vxlan` shows each `vpx<ID>` with its ID, on bridge `vpbr<ID>`, and `state DOWN`.
+
+**VMs on it.** Create two VMs from a template with NAT (primary) and a DHCP VXLAN ticked, and one with only the VXLAN.
+
+6. Both NAT VMs get a VXLAN address. `ip route` in the guest: the default route is on the NAT NIC only. DNS and internet still work. `resolvectl dns eth1` is empty.
+7. `cat /sys/class/net/eth1/mtu` in the guest is 1442 with nothing configured. `ping -M do -s 1414` to the other VM works, and 1415 is refused by the guest.
+8. The VXLAN-only VM reaches the others and has no default route and no internet.
+9. A VM on another VXLAN can't reach this one, and a NAT VM can't route into it through the host.
+10. `ss -uln | grep 4789` is empty and `iptables -S | grep VP-VXLAN` is empty.
+11. A static pool: each VM has the address chosen in the wizard. None mode: a VM boots without waiting for DHCP.
+12. Connect a VM (running): the NIC appears at once with the MTU, and is kept for next boot. On a stopped VM: saved, and it starts with it. Clone a VM on a static pool: the clone gets a new address and keeps the MTU.
+13. Delete a VXLAN with VMs on it: the dialog names them and Delete waits, and the API says 409 naming them.
+14. The Overview's address and the SSH console use the primary NIC's address; a VM only on a VXLAN shows its lease. A stopped VM shows no address. Firewall Apply on a VM with NAT + VXLAN: `iptables -S FORWARD` has the NAT address and never the VXLAN one. On a VM only on VXLANs: 409 with the reason, no FORWARD jump, and a NAT VM still can't route into the VXLAN.
+15. A create that fails late (a bad hostname) gives its static address back. A rate limit that is refused adds no NIC and keeps no address.
+
+**VLANs in the guest.** Between two VMs on one VXLAN, with `ip link add link eth1 name eth1.10 type vlan id 10` and for QinQ `ip link add link eth1 name eth1.100 type vlan proto 802.1ad id 100`, then `ip link add link eth1.100 name eth1.100.200 type vlan id 200`.
+
+16. 802.1Q, 802.1ad + 802.1Q and 802.1Q + 802.1Q: each passes `ping -M do -s 1414` at the MTU the VLAN interface inherits, and iperf3 flows.
+17. `tcpdump -enni vpbr<ID>` (no filter: the kernel holds the outer tag as metadata, where a filter on `ether proto 0x88a8` never sees it) shows the tags as the guest sent them.
+18. VLAN 31 on one VM and VLAN 32 on the other, same subnet: no traffic. Same outer tag with different inner tags: no traffic. The same VLAN ID on another VXLAN: no traffic. Give each VM only its own side: a VM holding both answers ARP across them, and proves nothing.
+19. The same on an e1000e NIC, and on a NIC added to a running VM.
+
+**Remote hosts.** Send crafted frames from the other machine (a UDP datagram to port 4789: `08 00 00 00`, the 3-byte ID, `00`, then an Ethernet frame) and watch `tcpdump -ni vpbr<ID>`.
+
+20. No remote hosts: not delivered. A remote host listed that isn't the sender: socket open, `-A INPUT -p udp -j VP-VXLAN` first in INPUT, still not delivered. The sender listed: delivered. The sender listed on another VXLAN only: not delivered on this one.
+21. On the other machine, a VTEP with the same ID and MTU: ping both ways, at full size with `-M do`, with no tag, one tag and QinQ. iperf3 flows. Capture `udp port 4789` on the host's own NIC: no fragments, nothing over 1500 bytes, source address is the routed one. The panel shows machines seen behind the remote host, and the Remote hosts dialog shows bytes.
+22. Delete the INPUT jump, flush the chain, restore a stale chain of the same size, `ip link set vpx<ID> nomaster`, delete the flood entry, delete the device: each is put right within 35 seconds, and traffic flows. `virsh net-destroy` its libvirt network: the bridge is back within 35 seconds, and running VMs are back on it.
+23. Fail closed: remove the chain and make the `xt_u32` module unavailable. Within 35 seconds the tunnel is down and nothing listens; the panel says why; changing remote hosts is refused and the record is unchanged. Put the module back: up again and the problem clears.
+24. `systemctl restart virtpilot`: rule count unchanged, one flood entry, traffic still flows.
+25. `ufw --force enable` with default deny: the remote host still passes. `modprobe br_netfilter`, `bridge-nf-call-iptables=1`, FORWARD policy DROP (a host running Docker): VMs still reach each other, across the tunnel too, tagged too.
+26. Remote hosts emptied: device down, no socket, no rule, chain or jump, no flood entry; VMs on this host unaffected.
+27. Another UDP port: listens there, the rule follows it, gone on delete.
+
+**Reboot.** Two VMs on autostart, a remote host listed, then reboot.
+
+28. With nobody touching it: VMs running, devices back on their bridges in the right state, flood entry, rules and jump in place, VMs reach each other at full size, the tunnel works, and a VM left off starts on its VXLAN.
+
+**Uninstall.** `uninstall.sh`: no `vpx*`, no `vpbr*`, no `VP-VXLAN`, no `virtpilot-*` libvirt network.
+
+---
+
 ## Findings log
 
 Append per-run findings here. Format: `### YYYY-MM-DD — vX.Y.Z (host)` then bullet list.
+
+### 2026-10-31 — v2.16.0 (callisto3-test1, Supermicro bare metal, Xeon D-1541, 31 GB, a clean Ubuntu 24.04)
+
+The owner's test server: kernel 6.8.0-147, libvirt 10.0, a public address and no firewall of its own, so whether
+strangers can reach a VXLAN was tested for real. The second machine was the dev box, 52 ms away across the internet: a VTEP
+in a network namespace. Guests: Ubuntu 24.04 cloud image on KVM, plus Alpine 3.20 and an e1000e NIC for the corners.
+Section 19 passed in full, from a clean state, on the final code: 58 ID checks, 69 on VMs, 28 on VLANs, 79 on tunnels, 19
+corner cases, 57 through the browser and 22 after a real reboot with autostart VMs and a remote host.
+
+Measured, and shaping the design:
+
+- `local 127.0.0.1` still binds `0.0.0.0:4789`, and an up device takes any frame with its ID: a crafted frame from the dev
+  box landed on the VMs' bridge. A down device has no socket. Hence down with no remote hosts, and per-ID rules first.
+- The kernel loads `vxlan` and `xt_u32` itself under the service's sandbox (ProtectKernelModules doesn't stop it), and
+  `iptables-restore --noflush` under its ambient capabilities replaces the chain atomically. No sudo rule, no helper.
+- Two VLAN tags pass the bridge at the tap's own MTU: its check allows one tag over, and the kernel holds the outer tag
+  as metadata. Three don't. No tap needs a higher MTU than its guest. Over a tunnel a full-size tagged frame at MTU 1450 is
+  1504 to 1508 bytes on the wire, so the default is 1442, which comes to exactly 1500 with two tags. In 160,128 outer
+  packets during the tests: 0 fragments and none over 1500 bytes.
+- Tagged TCP between two VMs on one host: about 20 Gb/s with 0 retransmits, for 802.1Q and for QinQ either way. Across the
+  tunnel: 55 to 63 Mb/s, which is the route itself (raw TCP between the two machines measured 52 to 62 Mb/s).
+- A no-address VXLAN at first boot: 3 s of wait-online on Ubuntu. On Alpine, whose renderer ignores `optional`, SSH came up
+  after 95 s against 32 s, the DHCP client giving up. Worth it for the times something does answer, and the wizard says so.
+
+Found and fixed on the way, by an independent code review after the suites were green (all in the 2.16.0 notes): firewall
+rules on a VXLAN-only VM put FORWARD jumps above libvirt's isolation; the SSH console and Overview each had their own
+first-ARP-row lookup; a failed `virsh net-list` read as no bridges and took tunnels down; Lock IP could reserve a different
+address from the one on screen; a VM that failed to create kept its pool address, which then stopped the network being
+deleted; a restarted libvirt network left running VMs off the bridge; every VM start waited on the network queue with no limit.
+
+Test traps: a capture started over ssh with `&` holds the session open, so it was over before the frames were sent and
+"not delivered" passed without proving anything; run it with nohup and no shared stdout. `ether proto 0x88a8` never matches on a
+bridge because the outer tag is metadata; capture unfiltered. A VM holding both VLANs answers ARP across them and proves
+nothing about isolation, and leftover addresses from an earlier suite made a cross-host ping answer from the wrong VM. `systemctl
+reboot` can take a minute to bite, so wait for a new boot ID, not for ssh.
+
+Observed, not fixed (not this feature): a managed `bridge` network's interface doesn't survive a reboot, because it is made with `ip
+link add` and nothing rebuilds it. A VM on one now says its network isn't running instead of "Cannot get interface MTU".
 
 ### 2026-10-21 — v2.15.0 (bp8, bare metal, owner's test server)
 

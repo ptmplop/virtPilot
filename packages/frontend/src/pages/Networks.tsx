@@ -1,50 +1,39 @@
 import { useState } from 'react';
-import { BookOpen, Globe, Network, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, Network, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Panel, PanelHeader } from '@/components/ui/Panel';
+import { RowAction } from '@/components/ui/RowAction';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useNetworks, useCreateNetwork, useDeleteNetwork, useNetwork, useSystemNics } from '@/hooks/useNetworks';
+import { useNetworks, useCreateNetwork, useDeleteNetwork, useNetwork, useSystemNics, useVxlanIds } from '@/hooks/useNetworks';
 import { cn } from '@/lib/cn';
 import { networkTypeLabel } from '@/lib/format';
 import { Callout } from '@/components/ui/Callout';
+import { parseRemoteHosts, RemoteHostsField } from '@/components/networks/RemoteHostsField';
+import { VxlanPanel } from '@/components/networks/VxlanPanel';
 import { NetworkGuide } from './NetworkGuide';
-import type { Network as NetworkType } from '@/types';
+import type { Network as NetworkType, NetworkIpMode } from '@/types';
 
 function IpPoolDetail({ networkId }: { networkId: string }) {
   const { data } = useNetwork(networkId);
   if (!data?.ips?.length) return null;
-  const available = data.ips.filter((i) => !i.allocated).length;
-  return (
-    <span className="text-xs text-muted-foreground">
-      {available}/{data.ips.length} available
-    </span>
-  );
-}
-
-
-function NetworkIcon({ n, className }: { n: NetworkType; className?: string }) {
-  const Icon = n.type === 'nat' ? Network : Globe;
-  return <Icon className={cn('h-4 w-4 text-muted-foreground', className)} />;
+  const free = data.ips.filter((i) => !i.allocated).length;
+  return <span className="tabular-nums">{free} of {data.ips.length} free</span>;
 }
 
 function NetworkRow({ network, onDelete }: { network: NetworkType; onDelete: () => void }) {
   return (
-    <tr className="transition-colors hover:bg-surface/70">
-      <td className="px-5 py-3">
-        <div className="flex items-center gap-2.5">
-          <NetworkIcon n={network} />
-          <span className="text-[13.5px] font-semibold text-foreground">{network.name}</span>
-        </div>
-      </td>
+    <tr className="table-row">
+      <td className="px-5 py-3 text-[13.5px] font-semibold text-foreground">{network.name}</td>
       <td className="px-5 py-3">
         <span className="whitespace-nowrap text-[12.5px] text-foreground">{networkTypeLabel(network.type, network.ipMode)}</span>
       </td>
-      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{network.cidr}</td>
-      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">
+      <td className="whitespace-nowrap px-5 py-3 font-mono text-[12.5px] text-foreground">{network.cidr}</td>
+      <td className="whitespace-nowrap px-5 py-3 font-mono text-[12px] text-muted-foreground">
         {network.bridge}
         {network.physicalNic && (
           <span className="ml-1.5 text-muted-foreground">← {network.physicalNic}</span>
@@ -53,23 +42,17 @@ function NetworkRow({ network, onDelete }: { network: NetworkType; onDelete: () 
           <span className="ml-1.5 text-muted-foreground">(OS)</span>
         )}
       </td>
-      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{network.gateway}</td>
-      <td className="px-5 py-3 text-xs text-muted-foreground">
-        {network.type === 'bridge' && network.ipMode === 'static'
+      <td className="whitespace-nowrap px-5 py-3 font-mono text-[12px] text-muted-foreground">{network.gateway}</td>
+      <td className="whitespace-nowrap px-5 py-3 text-[12px] text-muted-foreground">
+        {network.type !== 'nat' && network.ipMode === 'static'
           ? <IpPoolDetail networkId={network.id} />
           : <span>DHCP</span>
         }
       </td>
-      <td className="px-5 py-3 text-right">
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label={`Delete network ${network.name}`}
-          title="Delete network"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+      <td className="px-5 py-1.5 text-right">
+        <RowAction label={`Delete network ${network.name}`} tooltip="Delete network" danger onClick={onDelete}>
+          <Trash2 size={14} />
+        </RowAction>
       </td>
     </tr>
   );
@@ -98,6 +81,14 @@ function cidrsOverlap(a: string, b: string): boolean {
   return ra.start <= rb.end && rb.start <= ra.end;
 }
 
+// The first usable address of a CIDR, or null while what is typed isn't one yet.
+function firstUsable(cidr: string): string | null {
+  const r = cidrRange(cidr);
+  if (!r || r.end - r.start < 2) return null;
+  const n = r.start + 1;
+  return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
+}
+
 function suggestNextLocalCidr(networks: NetworkType[]): string {
   for (let octet = 1; octet <= 254; octet++) {
     const candidate = `10.0.${octet}.0/24`;
@@ -108,13 +99,18 @@ function suggestNextLocalCidr(networks: NetworkType[]): string {
 
 interface CreateForm {
   name: string;
-  type: 'nat' | 'bridge' | 'existing-bridge';
-  ipMode: 'dhcp' | 'static';
+  type: 'nat' | 'bridge' | 'existing-bridge' | 'vxlan';
+  ipMode: NetworkIpMode;
   cidr: string;
   gateway: string;
   dns: string;
   physicalNic: string;
   existingBridge: string;
+  vniMode: 'next' | 'choose';
+  vni: string;
+  peers: string;
+  mtu: string;
+  port: string;
 }
 
 const defaultForm: CreateForm = {
@@ -126,7 +122,17 @@ const defaultForm: CreateForm = {
   dns: '8.8.8.8, 8.8.4.4',
   physicalNic: '',
   existingBridge: '',
+  vniMode: 'next',
+  vni: '',
+  peers: '',
+  mtu: '',
+  port: '',
 };
+
+const VNI_MAX = 16777215;
+const NETWORK_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
+
+const VXLAN_TAGGING = ' They can tag their own VLANs on it, including nested QinQ.';
 
 const TYPE_DESCRIPTIONS: Record<string, string> = {
   nat: 'A libvirt NAT network is created automatically. VMs get DHCP IPs and are reachable from this host. Ideal for isolated dev/test networks.',
@@ -134,6 +140,9 @@ const TYPE_DESCRIPTIONS: Record<string, string> = {
   'bridge-static': 'VirtPilot creates a new Linux bridge and optionally enslaves a dedicated NIC (one with no active IPs). VirtPilot assigns static IPs from the pool you define via cloud-init.',
   'existing-bridge-dhcp': 'Attach to a bridge already configured at the OS level (netplan / /etc/network/interfaces). VirtPilot will never modify this bridge. VMs receive IPs from the upstream DHCP server.',
   'existing-bridge-static': 'Attach to a bridge already configured at the OS level (netplan / /etc/network/interfaces). VirtPilot will never modify this bridge. VirtPilot assigns static IPs from the pool you define via cloud-init.',
+  'vxlan-dhcp': `VMs on it reach each other and this host, and nothing else. A VM that needs the internet keeps its NAT or bridge NIC.${VXLAN_TAGGING}`,
+  'vxlan-static': `VMs on it reach each other and nothing else. VirtPilot gives each VM an address from the pool through cloud-init.${VXLAN_TAGGING}`,
+  'vxlan-none': `VMs on it reach each other and nothing else. Set addresses inside the VMs, or run a DHCP server on the network.${VXLAN_TAGGING}`,
 };
 
 export function NetworksPage() {
@@ -145,18 +154,55 @@ export function NetworksPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<NetworkType | null>(null);
+  // A VXLAN's connected VMs, known to its panel: Delete can only fail until they are gone.
+  const [deleteBlockedBy, setDeleteBlockedBy] = useState<string[]>([]);
+  const [optionalOpen, setOptionalOpen] = useState(false);
   const [form, setForm] = useState<CreateForm>(defaultForm);
 
-  const openCreate = () => {
+  const openCreate = (type: CreateForm['type'] = 'nat') => {
     const suggested = suggestNextLocalCidr(networks ?? []);
-    setForm({ ...defaultForm, cidr: suggested });
+    setForm({ ...defaultForm, cidr: suggested, type, ipMode: type === 'vxlan' ? 'dhcp' : defaultForm.ipMode });
+    setOptionalOpen(false);
     setCreateOpen(true);
   };
 
+  const openDelete = (network: NetworkType, connected: string[] = []) => {
+    setDeleteBlockedBy(connected);
+    setDeleteTarget(network);
+  };
+
+  const vxlans = networks?.filter((n) => n.type === 'vxlan') ?? [];
+  const others = networks?.filter((n) => n.type !== 'vxlan') ?? [];
   const natCount = networks?.filter((n) => n.type === 'nat').length ?? 0;
   const bridgeCount = networks?.filter((n) => n.type === 'bridge' || n.type === 'existing-bridge').length ?? 0;
 
-  const cidrConflict = form.cidr
+  const isVxlan = form.type === 'vxlan';
+  const hasAddresses = !(isVxlan && form.ipMode === 'none');
+
+  const { data: vxlanIds } = useVxlanIds(createOpen && isVxlan);
+  const vniNumber = Number(form.vni);
+  const vniInRange = /^\d+$/.test(form.vni.trim()) && vniNumber >= 1 && vniNumber <= VNI_MAX;
+  const vniClash = form.vniMode === 'choose' && vniInRange ? vxlanIds?.used.find((u) => u.vni === vniNumber) : undefined;
+  const vniProblem = !isVxlan || form.vniMode !== 'choose' || !form.vni.trim()
+    ? undefined
+    : !vniInRange
+      ? `A VXLAN ID is a whole number from 1 to ${VNI_MAX}.`
+      : vniClash
+        ? `VXLAN ID ${vniNumber} already exists: it is used by ${vniClash.usedBy}.`
+        : undefined;
+  const nameProblem = isVxlan && form.name && !NETWORK_NAME.test(form.name)
+    ? 'Use only letters, numbers, dots, hyphens and underscores, starting with a letter or number.'
+    : undefined;
+  const peersListed = isVxlan ? parseRemoteHosts(form.peers) : [];
+  // Said here rather than left to the server: Number() of a typo would quietly become the default.
+  const mtuProblem = isVxlan && form.mtu.trim() && !(/^\d+$/.test(form.mtu.trim()) && Number(form.mtu) >= 576 && Number(form.mtu) <= 9000)
+    ? 'The MTU is a whole number from 576 to 9000.'
+    : undefined;
+  const portProblem = isVxlan && form.port.trim() && !(/^\d+$/.test(form.port.trim()) && Number(form.port) >= 1 && Number(form.port) <= 65535)
+    ? 'The UDP port is a whole number from 1 to 65535.'
+    : undefined;
+
+  const cidrConflict = form.cidr && hasAddresses
     ? (networks ?? []).find((n) => cidrsOverlap(form.cidr, n.cidr))
     : undefined;
 
@@ -164,11 +210,24 @@ export function NetworksPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const blockedNames = deleteBlockedBy.length > 1
+    ? `${deleteBlockedBy.slice(0, -1).join(', ')} and ${deleteBlockedBy[deleteBlockedBy.length - 1]}`
+    : deleteBlockedBy[0];
+
+  // Each kind has its own default way of giving out addresses, and a VXLAN's "none"
+  // means nothing on a bridge.
+  const setType = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const type = e.target.value as CreateForm['type'];
+    setForm((f) => ({ ...f, type, ipMode: type === 'vxlan' ? 'dhcp' : f.ipMode === 'none' || f.type === 'vxlan' ? 'static' : f.ipMode }));
+  };
+
   const descKey = form.type === 'nat'
     ? 'nat'
     : form.type === 'existing-bridge'
       ? `existing-bridge-${form.ipMode}`
-      : `bridge-${form.ipMode}`;
+      : isVxlan
+        ? `vxlan-${form.ipMode}`
+        : `bridge-${form.ipMode}`;
 
   const handleCreate = async () => {
     try {
@@ -176,9 +235,16 @@ export function NetworksPage() {
       await createNetwork.mutateAsync({
         name: form.name,
         type: form.type,
-        cidr: form.cidr,
-        gateway: form.gateway || undefined,
-        dns: dns.length ? dns : undefined,
+        cidr: hasAddresses ? form.cidr : undefined,
+        gateway: hasAddresses ? form.gateway || undefined : undefined,
+        dns: dns.length && !isVxlan ? dns : undefined,
+        ...(isVxlan ? {
+          ipMode: form.ipMode,
+          vni: form.vniMode === 'choose' ? vniNumber : undefined,
+          peers: peersListed,
+          mtu: form.mtu ? Number(form.mtu) : undefined,
+          port: form.port ? Number(form.port) : undefined,
+        } : {}),
         ...(form.type === 'bridge' ? {
           ipMode: form.ipMode,
           physicalNic: form.physicalNic || undefined,
@@ -188,7 +254,7 @@ export function NetworksPage() {
           bridge: form.existingBridge,
         } : {}),
       });
-      toast.success(`Network "${form.name}" created`);
+      toast.success(isVxlan ? `VXLAN "${form.name}" created` : `Network "${form.name}" created`);
       setCreateOpen(false);
       setForm(defaultForm);
     } catch (err: unknown) {
@@ -210,15 +276,21 @@ export function NetworksPage() {
 
   const createDisabled =
     !form.name ||
-    !form.cidr ||
+    (hasAddresses && !form.cidr) ||
     !!cidrConflict ||
+    !!nameProblem ||
+    !!mtuProblem ||
+    !!portProblem ||
+    (isVxlan && form.vniMode === 'choose' && (!vniInRange || !!vniClash)) ||
     createNetwork.isPending ||
     ((form.type === 'bridge' || form.type === 'existing-bridge') && !form.gateway) ||
     (form.type === 'existing-bridge' && !form.existingBridge);
   // What Create is waiting for, in words beside it. A CIDR clash is said under its field.
   const createWaitingFor =
     !form.name ? 'Name the network.'
-    : !form.cidr ? 'Give it a CIDR range.'
+    : hasAddresses && !form.cidr ? 'Give it a CIDR range.'
+    : isVxlan && form.vniMode === 'choose' && !form.vni.trim() ? 'Enter a VXLAN ID.'
+    : mtuProblem || portProblem ? 'Check the optional settings.'
     : form.type === 'existing-bridge' && !form.existingBridge ? 'Choose the OS bridge.'
     : (form.type === 'bridge' || form.type === 'existing-bridge') && !form.gateway ? 'A bridge needs a gateway.'
     : undefined;
@@ -226,66 +298,80 @@ export function NetworksPage() {
   return (
     <Layout
       title="Networks"
-      subtitle="NAT and bridge networks your VMs connect to."
+      subtitle="NAT and bridge networks your VMs connect to, and VXLANs that connect VMs to each other."
       actions={
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={() => setGuideOpen(true)}>
             <BookOpen className="h-3.5 w-3.5" /> Setup guide
           </Button>
-          <Button onClick={openCreate}>
+          <Button onClick={() => openCreate()}>
             <Plus className="h-3.5 w-3.5" /> New network
           </Button>
         </div>
       }
     >
-      <div className="panel overflow-hidden">
+      <div className="space-y-6">
         {isLoading ? (
-          <div className="space-y-px p-3">
-            {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[60px] rounded-lg" />)}
+          <div className="panel overflow-hidden">
+            <div className="space-y-px p-3">
+              {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[60px] rounded-lg" />)}
+            </div>
           </div>
         ) : !networks?.length ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <Network className="mb-3 h-5 w-5 text-muted-foreground" />
-            <p className="text-sm font-semibold text-foreground">No networks configured</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Create a NAT network or bridge to an upstream network.
-            </p>
-            <Button size="sm" className="mt-5" onClick={openCreate}>
-              <Plus className="h-3.5 w-3.5" /> New network
-            </Button>
+          <div className="panel overflow-hidden">
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <Network className="mb-3 h-5 w-5 text-muted-foreground" />
+              <p className="text-sm font-semibold text-foreground">No networks configured</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Create a NAT network, a bridge to an upstream network, or a private VXLAN.
+              </p>
+              <Button size="sm" className="mt-5" onClick={() => openCreate()}>
+                <Plus className="h-3.5 w-3.5" /> New network
+              </Button>
+            </div>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="table-head">
-                {['Name', 'Type', 'CIDR', 'Bridge', 'Gateway', 'IPs', ''].map((h) => (
-                  <th
-                    key={h}
-                    className={cn(
-                      'px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
-                      h === '' ? 'text-right' : 'text-left'
-                    )}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {networks.map((n) => (
-                <NetworkRow key={n.id} network={n} onDelete={() => setDeleteTarget(n)} />
-              ))}
-            </tbody>
-            {/* The count in the list's own foot; the split by kind only when there is one. */}
-            <tfoot>
-              <tr className="border-t border-border bg-surface/60">
-                <td colSpan={7} className="px-5 py-2.5 text-[12px] tabular-nums text-muted-foreground">
-                  {networks.length} {networks.length === 1 ? 'network' : 'networks'}
-                  {natCount > 0 && bridgeCount > 0 && <> · {natCount} NAT · {bridgeCount} bridged</>}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+          <>
+            {others.length > 0 && (
+              <Panel className="overflow-hidden">
+                <PanelHeader title="NAT and bridge" />
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="table-head">
+                        {['Name', 'Type', 'CIDR', 'Bridge', 'Gateway', 'IPs', ''].map((h) => (
+                          <th
+                            key={h}
+                            className={cn(
+                              'whitespace-nowrap px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
+                              h === '' ? 'text-right' : 'text-left'
+                            )}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {others.map((n) => (
+                        <NetworkRow key={n.id} network={n} onDelete={() => openDelete(n)} />
+                      ))}
+                    </tbody>
+                    {/* The count in the list's own foot; the split by kind only when there is one. */}
+                    <tfoot>
+                      <tr className="border-t border-border bg-surface/60">
+                        <td colSpan={7} className="px-5 py-2.5 text-[12px] tabular-nums text-muted-foreground">
+                          {others.length} {others.length === 1 ? 'network' : 'networks'}
+                          {natCount > 0 && bridgeCount > 0 && <> · {natCount} NAT · {bridgeCount} bridged</>}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </Panel>
+            )}
+            <VxlanPanel networks={vxlans} onNew={() => openCreate('vxlan')} onDelete={openDelete} />
+          </>
         )}
       </div>
 
@@ -307,13 +393,54 @@ export function NetworksPage() {
         }
       >
         <div className="space-y-4">
-          <Input label="Name" value={form.name} onChange={set('name')} required placeholder="e.g. lab-net" />
+          <Input label="Name" value={form.name} onChange={set('name')} required placeholder="e.g. lab-net" error={nameProblem} />
 
-          <Select label="Type" value={form.type} onChange={set('type')}>
+          <Select label="Type" value={form.type} onChange={setType}>
             <option value="nat">NAT - libvirt managed, isolated DHCP</option>
             <option value="bridge">Bridge - VirtPilot creates a new bridge</option>
             <option value="existing-bridge">Existing OS bridge - attach to a pre-configured bridge</option>
+            <option value="vxlan">VXLAN - private network</option>
           </Select>
+
+          {isVxlan && <Callout>{TYPE_DESCRIPTIONS[descKey]}</Callout>}
+
+          {isVxlan && (
+            <div className="space-y-1.5">
+              <p id="vxlan-id-label" className="text-[13px] font-semibold text-foreground">VXLAN ID</p>
+              <div className="segmented" role="group" aria-labelledby="vxlan-id-label">
+                <button type="button" aria-pressed={form.vniMode === 'next'} onClick={() => setForm((f) => ({ ...f, vniMode: 'next' }))}>
+                  Next available
+                </button>
+                <button type="button" aria-pressed={form.vniMode === 'choose'} onClick={() => setForm((f) => ({ ...f, vniMode: 'choose' }))}>
+                  Choose an ID
+                </button>
+              </div>
+              {form.vniMode === 'next' ? (
+                <p className="text-[12.5px] text-muted-foreground">
+                  This network gets ID <span className="font-mono text-foreground">{vxlanIds?.next ?? '…'}</span>.
+                </p>
+              ) : (
+                <Input
+                  aria-labelledby="vxlan-id-label"
+                  id="vxlan-id"
+                  value={form.vni}
+                  onChange={set('vni')}
+                  inputMode="numeric"
+                  placeholder={`1 to ${VNI_MAX}`}
+                  className="font-mono"
+                  error={vniProblem}
+                />
+              )}
+            </div>
+          )}
+
+          {isVxlan && (
+            <Select label="Addresses" value={form.ipMode} onChange={set('ipMode')}>
+              <option value="dhcp">DHCP - from this host</option>
+              <option value="static">Static - from a pool</option>
+              <option value="none">None - set by the VMs</option>
+            </Select>
+          )}
 
           {(form.type === 'bridge' || form.type === 'existing-bridge') && (
             <Select label="IP mode" value={form.ipMode} onChange={set('ipMode')}>
@@ -322,35 +449,90 @@ export function NetworksPage() {
             </Select>
           )}
 
-          <div className="space-y-1">
+          {hasAddresses && (
+            <div className="space-y-1">
+              <Input
+                label="CIDR"
+                value={form.cidr}
+                onChange={set('cidr')}
+                required
+                placeholder={form.type === 'nat' || isVxlan ? '10.0.1.0/24' : '203.0.113.0/29'}
+                className="font-mono"
+              />
+              {cidrConflict && (
+                <p className="text-xs text-destructive">
+                  Overlaps with existing network &ldquo;{cidrConflict.name}&rdquo; ({cidrConflict.cidr})
+                </p>
+              )}
+            </div>
+          )}
+
+          {!isVxlan && (
             <Input
-              label="CIDR"
-              value={form.cidr}
-              onChange={set('cidr')}
-              required
-              placeholder={form.type === 'nat' ? '10.0.1.0/24' : '203.0.113.0/29'}
+              label={form.type === 'nat' ? 'Gateway (optional - defaults to first usable IP)' : 'Gateway'}
+              id="network-gateway"
+              value={form.gateway}
+              onChange={set('gateway')}
+              required={form.type === 'bridge'}
+              placeholder={form.type === 'nat' ? '10.0.1.1' : '203.0.113.1'}
+              className="font-mono"
             />
-            {cidrConflict && (
-              <p className="text-xs text-destructive">
-                Overlaps with existing network &ldquo;{cidrConflict.name}&rdquo; ({cidrConflict.cidr})
-              </p>
-            )}
-          </div>
+          )}
 
-          <Input
-            label={form.type === 'nat' ? 'Gateway (optional - defaults to first usable IP)' : 'Gateway'}
-            value={form.gateway}
-            onChange={set('gateway')}
-            required={form.type === 'bridge'}
-            placeholder={form.type === 'nat' ? '10.0.1.1' : '203.0.113.1'}
-          />
+          {!isVxlan && (
+            <Input
+              label="DNS servers (comma-separated)"
+              value={form.dns}
+              onChange={set('dns')}
+              placeholder="8.8.8.8, 8.8.4.4"
+            />
+          )}
 
-          <Input
-            label="DNS servers (comma-separated)"
-            value={form.dns}
-            onChange={set('dns')}
-            placeholder="8.8.8.8, 8.8.4.4"
-          />
+          {/* A private network on this host needs none of these: the form stays short enough
+              for its buttons to fit a laptop's window. */}
+          {isVxlan && (
+            <div className="space-y-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-expanded={optionalOpen}
+                aria-controls="vxlan-optional"
+                onClick={() => setOptionalOpen((v) => !v)}
+              >
+                {optionalOpen ? 'Hide optional settings' : 'Show optional settings'}
+              </Button>
+              {optionalOpen && (
+                <div id="vxlan-optional" className="space-y-4">
+                  {hasAddresses && (
+                    <Input
+                      label={form.ipMode === 'dhcp' ? "This host's address" : 'Gateway (for a router VM on this network)'}
+                      id="network-gateway"
+                      value={form.gateway}
+                      onChange={set('gateway')}
+                      placeholder={form.ipMode === 'dhcp' ? firstUsable(form.cidr) ?? '10.0.1.1' : '10.0.1.1'}
+                      className="font-mono"
+                    />
+                  )}
+                  <RemoteHostsField
+                    value={form.peers}
+                    onChange={(peers) => setForm((f) => ({ ...f, peers }))}
+                    rows={2}
+                    help="Other hosts that carry this VXLAN, one IPv4 address per line."
+                  />
+                  {peersListed.length > 0 && (
+                    <Callout tone="warn">
+                      Traffic between hosts is not encrypted: use a private link or a VPN between them.
+                      {form.ipMode === 'dhcp' && ' Only one host on a VXLAN should hand out addresses: on the others, choose None.'}
+                    </Callout>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input label="MTU" id="vxlan-mtu" value={form.mtu} onChange={set('mtu')} inputMode="numeric" placeholder="1442" className="font-mono" error={mtuProblem} />
+                    <Input label="UDP port" id="vxlan-port" value={form.port} onChange={set('port')} inputMode="numeric" placeholder="4789" className="font-mono" error={portProblem} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {form.type === 'bridge' && (
             <div className="space-y-1.5">
@@ -393,7 +575,7 @@ export function NetworksPage() {
             </div>
           )}
 
-          <Callout>{TYPE_DESCRIPTIONS[descKey]}</Callout>
+          {!isVxlan && <Callout>{TYPE_DESCRIPTIONS[descKey]}</Callout>}
         </div>
       </Dialog>
 
@@ -404,7 +586,8 @@ export function NetworksPage() {
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         title="Delete network"
-        description={deleteTarget ? [deleteTarget.name, deleteTarget.cidr].filter(Boolean).join(' · ') : undefined}
+        description={deleteTarget ? [deleteTarget.name, deleteTarget.vni !== undefined ? `VXLAN ID ${deleteTarget.vni}` : '', deleteTarget.cidr].filter(Boolean).join(' · ') : undefined}
+        note={deleteBlockedBy.length > 0 ? `${deleteBlockedBy.length} ${deleteBlockedBy.length === 1 ? 'VM is' : 'VMs are'} still connected.` : undefined}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setDeleteTarget(null)}>
@@ -414,7 +597,7 @@ export function NetworksPage() {
               size="sm"
               variant="danger"
               onClick={() => deleteTarget && handleDelete(deleteTarget)}
-              disabled={deleteNetwork.isPending}
+              disabled={deleteNetwork.isPending || deleteBlockedBy.length > 0}
             >
               {deleteNetwork.isPending ? 'Deleting…' : 'Delete network'}
             </Button>
@@ -422,7 +605,11 @@ export function NetworksPage() {
         }
       >
         <p className="text-sm text-foreground">
-          {deleteTarget?.type === 'nat'
+          {deleteTarget?.type === 'vxlan'
+            ? deleteBlockedBy.length > 0
+              ? `${blockedNames} ${deleteBlockedBy.length === 1 ? 'is' : 'are'} still connected. Remove ${deleteBlockedBy.length === 1 ? 'its NIC on its' : 'their NICs on each VM\'s'} Network tab first.`
+              : 'This will destroy its bridge and tunnel.'
+            : deleteTarget?.type === 'nat'
             ? 'This will destroy the libvirt network and its bridge.'
             : deleteTarget?.type === 'existing-bridge'
               ? `This will remove the network record. The OS bridge "${deleteTarget.bridge}" will not be touched.`

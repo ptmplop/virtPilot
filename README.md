@@ -15,7 +15,7 @@ VirtPilot does not run a control plane, an agent, or a database of truth. VM sta
 
 - **VMs** - create from cloud images with cloud-init, BIOS or UEFI (OVMF + swtpm), a console window with tabs and split panes (serial console, SSH and the VNC display, on the same VM or any other) over WebSockets; clone any VM into an independent copy without shutting it down
 - **Templates & ISOs** - qcow2 backing chain (overlay per VM), upload custom ISOs, convert a running snapshot back into a template
-- **Networking** - bridged interfaces (host bridge required) and managed NAT bridges (`vp0`, `vp1`, …); per-NIC bandwidth shaping via Linux `tc`; per-VM iptables firewall chains
+- **Networking** - bridged interfaces (host bridge required) and managed NAT bridges (`vp0`, `vp1`, …); private VXLAN networks between VMs, on this host or across several, that guests can tag their own VLANs on (see [VXLAN networks](#vxlan-networks)); per-NIC bandwidth shaping via Linux `tc`; per-VM iptables firewall chains
 - **Snapshots** - internal and external (disk-only and live with RAM); size column shows on-disk cost
 - **Device passthrough** - give a VM a GPU, a network card, a disk controller or a USB device directly. The Devices page lists only what this host can give away, keeps each IOMMU group together, can keep a card for VMs from boot and split an SR-IOV network card into virtual functions, and says exactly what to change when the host isn't ready. See [Device passthrough](#device-passthrough)
 - **Backups** - full and incremental (libvirt checkpoints + qemu dirty bitmaps), scheduled or on demand, locally or to a configurable `BACKUP_ROOT` (e.g. NFS mount). Restore over the original VM, or rebuild the whole machine as a new one. See [Backups](#backups)
@@ -161,6 +161,46 @@ A VM can be given host hardware directly: it sees the real device, and the host 
 **Keep for VMs** binds a device to `vfio-pci` now and at every boot (`virtpilot-passthrough.service`, before libvirt starts any VM), so the host's own driver never touches it. **Virtual functions** splits an SR-IOV network card into cards of its own that can go to different VMs, and the count is restored at boot. Both run through a small root-owned helper, `/usr/local/sbin/virtpilot-passthrough`, which refuses the controller of a mounted disk and the interface with the default route whatever it is asked. Its settings live in `/etc/virtpilot/passthrough.conf`.
 
 **Limits.** A VM with a PCI device passed through keeps all of its memory locked on the host, and can't have its memory saved: its snapshots are disk-only. A clone, or a VM rebuilt from a backup, starts with no passed-through devices. Mediated devices (NVIDIA vGPU) are not managed. **Copy report** on the Devices page puts the host's passthrough facts on the clipboard for a bug report, without addresses or VM names.
+
+## VXLAN networks
+
+A VXLAN is a software-defined private network (SDN) that connects VMs to each other. VMs on one reach each other and nothing else, and it carries no internet traffic, so a VM that needs to get out keeps a NAT or bridge NIC as well. Create one with **New VXLAN** on the Networks page. Nothing has to be installed or configured on the host, and it comes back by itself after a reboot.
+
+**The ID.** Take the next available one (from 100 up), or choose your own from 1 to 16777215. An ID that already exists is refused, whether VirtPilot made it or not: the host's own VXLAN interfaces are checked too.
+
+**Addresses.** One of three:
+
+| Mode | What happens |
+|---|---|
+| DHCP | This host hands out addresses from the CIDR and takes one itself (the first by default). It offers no gateway and no DNS, so a VM's internet access stays on its other NIC. |
+| Static | You pick each VM's address from a pool, and cloud-init sets it. This host has no address on the network, so the dashboard's SSH console can't reach a VM through it. |
+| None | VirtPilot stays out of it. VMs set their own, or a DHCP server on the network answers: a VM created from a template asks. If nothing answers, Ubuntu and Debian boot as usual, and other systems can take about a minute longer (Alpine measured at 60 s). |
+
+**VLANs inside a VXLAN.** A VM can tag its own traffic, with nothing to set up on the host. 802.1Q and nested tagging (QinQ, with an 802.1ad or 802.1Q outer tag) pass through the bridge and the tunnel untouched, between VMs on this host and across remote hosts:
+
+```bash
+# Inside the VM, where eth1 is its VXLAN NIC
+ip link add link eth1 name eth1.10 type vlan id 10              # one tag
+
+ip link add link eth1 name eth1.100 type vlan proto 802.1ad id 100     # two tags
+ip link add link eth1.100 name eth1.100.200 type vlan id 200
+```
+
+VLAN IDs belong to the VMs: VirtPilot doesn't assign or enforce them, and this host's DHCP server answers untagged traffic only.
+
+**MTU.** 1442 by default: the VXLAN's own 50 bytes and two 4-byte VLAN tags, inside a standard 1500-byte link, so nothing is ever fragmented. On a link smaller than 1500 the default shrinks to fit. VMs using virtio NICs pick it up by themselves and their VLAN interfaces inherit it; other NIC models take it from DHCP or cloud-init.
+
+**Across several hosts.** List the other hosts under **Remote hosts** on its row (or under **Show optional settings** when you make it), on every host (each lists all the others), with the same ID, UDP port and MTU on each. Let only one of them hand out addresses, by choosing None on the others: two DHCP servers on one network hand out clashing addresses.
+
+**Security.** VXLAN does not encrypt or authenticate anything, so between hosts use a private link or a VPN. A VXLAN device that is up listens on UDP on every address of the host and takes frames from anyone, so:
+
+- With no remote hosts its device stays down, and nothing listens at all.
+- With remote hosts, firewall rules go in first: chain `VP-VXLAN`, jumped to from the top of `INPUT`, allowing each listed host on that VXLAN only and dropping everyone else on it. Rules match the VXLAN ID, so other VXLAN software on the host is left alone. If they can't be applied, the tunnel stays down and the page says why. They are rewritten every 30 seconds, so something that flushes them or restores an old set is put right.
+- If another firewall sits in front of this one (`nft`, or one on the network), it has to pass UDP 4789 between the hosts.
+
+A VM's Firewall tab doesn't filter traffic inside a VXLAN: it passes through the bridge directly. Its rules apply to the VM's other NICs, and a VM that is only on VXLANs is refused. Use a firewall inside the VMs for that.
+
+On the host each VXLAN is a libvirt network with no forwarding (`virsh net-list`, bridge `vpbr<ID>`) and a kernel VXLAN device on that bridge (`ip -d link show vpx<ID>`). libvirt brings the bridge back at boot; the backend rebuilds the device, its remote hosts and its firewall rules from `networks.json` when it starts, and every 30 seconds puts back anything that has gone, including running VMs' connections if the bridge itself was restarted. No extra packages or privileges are involved: the backend's own `CAP_NET_ADMIN` covers it.
 
 ## Host requirements
 

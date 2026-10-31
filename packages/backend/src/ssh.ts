@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { Client as SshClient, type ClientChannel } from 'ssh2';
 import fs from 'fs/promises';
 import * as vmMetaService from './services/vmMetaService.js';
+import { resolveVmIp } from './services/vmService.js';
 import { ensureHostSshKeypair } from './services/cloudInitService.js';
 import { virsh } from './services/safeExec.js';
 import { validateVmUuid } from './lib/validate.js';
@@ -41,24 +42,6 @@ function pickProtocol(protocols: Set<string>): string | false {
     if (p.startsWith('virtpilot.token.')) return p;
   }
   return false;
-}
-
-async function resolveVmIp(vmUuid: string): Promise<string | null> {
-  try {
-    const meta = await vmMetaService.getVmMeta(vmUuid);
-    if (meta?.networks) {
-      const primary = meta.networks.find((n) => n.isPrimary);
-      if (primary?.ip) return primary.ip;
-    }
-  } catch { /* ignore */ }
-
-  try {
-    const out = await virsh(['domifaddr', vmUuid, '--source', 'arp']);
-    const match = out.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
-    if (match) return match[1];
-  } catch { /* VM not running or no ARP entry yet */ }
-
-  return null;
 }
 
 export async function findHostPrivateKey(): Promise<Buffer | null> {

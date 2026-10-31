@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDomainXml, generateMac } from './xmlBuilder.js';
+import { buildDomainXml, buildInterfaceXml, generateMac } from './xmlBuilder.js';
 
 const base = {
   uuid: '3633a961-f385-4494-8df1-237787710c4f',
@@ -101,5 +101,35 @@ describe('generateMac', () => {
     // 24 bits of entropy: a handful of collisions in 500 would be unremarkable,
     // but anything close to a constant generator would not be.
     expect(seen.size).toBeGreaterThan(490);
+  });
+
+  // A guest's virtio driver reads this as host_mtu, so it needs no configuration
+  // to fit a VXLAN. Without it, ping works and anything bigger hangs.
+  it('gives a virtio NIC its network\'s MTU', () => {
+    const xml = buildDomainXml({ ...base, nics: [{ bridge: 'vp1', mac: '52:54:00:ab:cd:ef', model: 'virtio', mtu: 1450 }] });
+    expect(xml).toContain('<mtu size="1450"/>');
+  });
+
+  it('leaves the MTU out for other models, which libvirt refuses it on', () => {
+    const xml = buildDomainXml({ ...base, nics: [{ bridge: 'vp1', mac: '52:54:00:ab:cd:ef', model: 'e1000e', mtu: 1450 }] });
+    expect(xml).not.toContain('<mtu');
+  });
+
+  it('says nothing about MTU on a network with none set', () => {
+    expect(buildDomainXml(base)).not.toContain('<mtu');
+  });
+});
+
+describe('buildInterfaceXml', () => {
+  it('is the same NIC the domain builder writes, for a live attach', () => {
+    const nic = { bridge: 'vp1', mac: '52:54:00:ab:cd:ef', model: 'virtio', mtu: 1450 };
+    const xml = buildInterfaceXml(nic);
+    expect(xml).toContain('<source bridge="vp1"/>');
+    expect(xml).toContain('<mtu size="1450"/>');
+    expect(buildDomainXml({ ...base, nics: [nic] })).toContain(xml);
+  });
+
+  it('escapes what it is given', () => {
+    expect(buildInterfaceXml({ bridge: 'x"/><evil', mac: '52:54:00:ab:cd:ef' })).not.toContain('<evil');
   });
 });

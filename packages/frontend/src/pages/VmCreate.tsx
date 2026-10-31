@@ -858,14 +858,14 @@ function ResourcesStep({
 
 // ─── Network step ─────────────────────────────────────────────────────────────
 
-// Both bridge kinds carry a static-IP mode — 'bridge' is a VirtPilot-managed
+// Both bridge kinds and a VXLAN carry a static-IP mode — 'bridge' is a VirtPilot-managed
 // bridge, 'existing-bridge' one that already existed on the host. Every place
 // that decides "does this NIC need an IP?" has to agree, otherwise the wizard
 // lets an existing-bridge static network through without one, shows "DHCP" on
 // the Review step, and the backend rejects it at the very last click.
 function isStaticBridge(network: import('@/types').Network | undefined): boolean {
   if (!network) return false;
-  return (network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static';
+  return network.type !== 'nat' && network.ipMode === 'static';
 }
 
 function NetworkCard({
@@ -889,7 +889,7 @@ function NetworkCard({
   // used to get neither an IP picker nor this line.
   const isBridge = network.type === 'bridge' || network.type === 'existing-bridge';
 
-  const typeLabel = networkTypeLabel(network.type, network.ipMode);
+  const typeLabel = networkTypeLabel(network.type, network.ipMode, network.vni);
 
   return (
     <div className={cn(
@@ -917,12 +917,10 @@ function NetworkCard({
             </span>
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[12px] text-muted-foreground">
-            <span>{network.cidr}</span>
-            <span aria-hidden>·</span>
+            {network.cidr && <><span>{network.cidr}</span><span aria-hidden>·</span></>}
             <span>br: {network.bridge}</span>
             {network.physicalNic && <><span aria-hidden>·</span><span>{network.physicalNic}</span></>}
-            <span aria-hidden>·</span>
-            <span>gw: {network.gateway}</span>
+            {network.gateway && network.type !== 'vxlan' && <><span aria-hidden>·</span><span>gw: {network.gateway}</span></>}
           </div>
         </div>
       </button>
@@ -972,6 +970,16 @@ function NetworkCard({
               {network.type === 'nat' ? ' by libvirt' : ' by upstream network'}.
             </p>
           )}
+
+          {network.type === 'vxlan' && network.ipMode === 'dhcp' && (
+            <p className="text-[12.5px] text-muted-foreground">IP assigned via DHCP by this host.</p>
+          )}
+
+          {network.type === 'vxlan' && network.ipMode === 'none' && (
+            <p className="text-[12.5px] text-muted-foreground">
+              VirtPilot assigns no IP here. The VM asks for DHCP in case something on the network answers. If nothing does, Ubuntu and Debian boot as usual, and other systems can take about a minute longer.
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -1012,12 +1020,25 @@ function NetworkStep({
       if (exists) {
         const remaining = f.networks.filter((s) => s.networkId !== networkId);
         if (exists.isPrimary && remaining.length > 0) {
-          return { ...f, networks: remaining.map((s, i) => i === 0 ? { ...s, isPrimary: true } : s) };
+          // To a network with a way out if one is left: a VXLAN has none.
+          const heir = remaining.find((s) => networks.find((n) => n.id === s.networkId)?.type !== 'vxlan') ?? remaining[0];
+          return { ...f, networks: remaining.map((s) => s === heir ? { ...s, isPrimary: true } : s) };
         }
         return { ...f, networks: remaining };
       }
-      const isFirst = f.networks.length === 0;
-      return { ...f, networks: [...f.networks, { networkId, staticIp: '', isPrimary: isFirst }] };
+      // A VXLAN has no way out, so it only stays primary until a network with one is
+      // ticked. The radio can still put it back.
+      const typeOf = (id: string) => networks.find((n) => n.id === id)?.type;
+      const primaryId = f.networks.find((s) => s.isPrimary)?.networkId;
+      const takesPrimary = f.networks.length === 0
+        || (primaryId !== undefined && typeOf(primaryId) === 'vxlan' && typeOf(networkId) !== 'vxlan');
+      return {
+        ...f,
+        networks: [
+          ...f.networks.map((s) => (takesPrimary ? { ...s, isPrimary: false } : s)),
+          { networkId, staticIp: '', isPrimary: takesPrimary },
+        ],
+      };
     });
   };
 
@@ -1078,6 +1099,13 @@ function NetworkStep({
             />
           ))}
         </div>
+
+        {/* A VXLAN has no way out, and a first boot often needs one. */}
+        {form.networks.length > 0 && form.networks.every((s) => networks.find((n) => n.id === s.networkId)?.type === 'vxlan') && (
+          <p className={CALLOUT_INFO}>
+            A VXLAN is private: with no other network, this VM can only reach the other machines on it, and has no internet.
+          </p>
+        )}
 
         {form.networks.length > 1 && (
           <p className={CALLOUT_INFO}>

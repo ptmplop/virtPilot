@@ -1,9 +1,10 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import * as storageDirService from './storageDirService.js';
 import { listVmMetas } from './vmMetaService.js';
-import { listNetworks } from './networkService.js';
+import { ensureVxlanBridges, listNetworks } from './networkService.js';
 import { getRecentVmCpu, guestMemory } from './vmMetricsService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
@@ -11,6 +12,8 @@ import { run, virsh as safeVirsh, qemuImg } from './safeExec.js';
 import * as deviceService from './deviceService.js';
 import { DeviceError } from './deviceService.js';
 import { parseHostdevs, portableHostdevXml, stripBackingStores, stripHostdevs } from '../lib/hostdevXml.js';
+import { parseDhcpLeases, parseDomIfAddr, pickVmIp, type NicAddress } from '../lib/vmAddresses.js';
+import { buildInterfaceXml } from './xmlBuilder.js';
 import {
   validateVmName,
   validateSnapshotName,
@@ -65,6 +68,22 @@ export async function listVms(): Promise<VmSummary[]> {
     }
   }
   return vms;
+}
+
+/** Every VM with the NICs it is defined with, running or not, as cheaply as that can be read. */
+export async function listVmsWithNics(): Promise<Array<{ id: string; name: string; status: VmStatus; nics: VmNic[] }>> {
+  const [table, names] = await Promise.all([virsh(['list', '--all']), virsh(['list', '--all', '--uuid', '--name'])]);
+  const states = new Map(
+    table.split('\n').slice(2).map((line) => line.trim().split(/\s{2,}/)).filter((p) => p.length >= 3).map((p) => [p[1].trim(), p[2].trim()]),
+  );
+  const rows = names.split('\n').map((line) => line.trim().split(/\s+/)).filter((p) => p.length === 2);
+  return Promise.all(rows.map(async ([id, name]) => ({
+    id,
+    name,
+    status: parseStatus(states.get(name) ?? ''),
+    // Not caught: "no NICs" would pass the guard on deleting a network with a VM still on it.
+    nics: parseDomIfList(await virsh(['domiflist', name])),
+  })));
 }
 
 export async function listVmsRaw(): Promise<VmSummary[]> {
@@ -254,21 +273,24 @@ export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
   }
 }
 
+function parseDomIfList(out: string): VmNic[] {
+  const nics: VmNic[] = [];
+  for (const line of out.split('\n').slice(2).filter(Boolean)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5) continue;
+    const target = parts[0];
+    const source = parts[2];
+    const model = parts[3];
+    const mac = parts[4];
+    nics.push({ mac, source, model, target });
+  }
+  return nics;
+}
+
 export async function getVmNics(nameOrId: string): Promise<VmNic[]> {
   const name = validateVmName(nameOrId);
   try {
-    const out = await virsh(['domiflist', name]);
-    const lines = out.split('\n').slice(2).filter(Boolean);
-    const nics: VmNic[] = [];
-    for (const line of lines) {
-      const parts = line.trim().split(/\s+/);
-      if (parts.length < 5) continue;
-      const target = parts[0];
-      const source = parts[2];
-      const model = parts[3];
-      const mac = parts[4];
-      nics.push({ mac, source, model, target });
-    }
+    const nics = parseDomIfList(await virsh(['domiflist', name]));
 
     try {
       const xml = await virsh(['dumpxml', name, '--inactive']);
@@ -312,24 +334,38 @@ function parseNicBandwidthFromXml(xml: string): Map<string, { inboundKbps?: numb
   return result;
 }
 
+/**
+ * The address of each NIC, from whatever knows it. Sources fill in for each other
+ * NIC by NIC: the host's ARP cache knows nothing about a VXLAN it never talks on,
+ * while the network's own lease table does, and a bridge NIC never shows under
+ * `--source lease`.
+ */
 export async function getVmInterfaceIps(nameOrId: string): Promise<Record<string, string>> {
   const name = validateVmName(nameOrId);
+  const result: Record<string, string> = {};
   for (const source of ['agent', 'arp'] as const) {
     try {
-      const out = await virsh(['domifaddr', name, '--source', source]);
-      const result: Record<string, string> = {};
-      for (const line of out.split('\n').slice(2).filter(Boolean)) {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length < 4) continue;
-        const mac = parts[1];
-        const addr = parts[3];
-        const ip = addr?.split('/')[0];
-        if (mac && ip) result[mac] = ip;
+      for (const { mac, ip } of parseDomIfAddr(await virsh(['domifaddr', name, '--source', source]))) {
+        result[mac] ??= ip;
       }
-      if (Object.keys(result).length > 0) return result;
     } catch {}
   }
-  return {};
+  try {
+    // A lease outlives a stopped VM by its whole lease time: an address it doesn't have.
+    const running = parseStatus(await virsh(['domstate', name]).catch(() => '')) !== 'stopped';
+    const missing = running ? (await getVmNics(name)).filter((nic) => !result[nic.mac.toLowerCase()]) : [];
+    if (missing.length > 0) {
+      for (const net of await listNetworks()) {
+        if (!net.libvirtName || !missing.some((nic) => nic.source === net.bridge)) continue;
+        const leases = parseDhcpLeases(await virsh(['net-dhcp-leases', net.libvirtName]).catch(() => ''));
+        for (const nic of missing) {
+          const ip = nic.source === net.bridge ? leases.get(nic.mac.toLowerCase()) : undefined;
+          if (ip) result[nic.mac.toLowerCase()] = ip;
+        }
+      }
+    }
+  } catch { /* best-effort: the NIC shows as not resolved yet */ }
+  return result;
 }
 
 /**
@@ -346,19 +382,32 @@ export async function resolveVmIp(nameOrId: string): Promise<string | null> {
   const id = validateVmName(nameOrId);
 
   // 1. A statically-allocated address is authoritative and free to read.
+  let primaryMac: string | undefined;
   try {
     const metas = await listVmMetas();
     const meta = metas.find((m) => m.uuid === id.toLowerCase());
-    const staticIp = meta?.networks?.find((n) => n.isPrimary)?.ip;
-    if (staticIp) return staticIp;
+    const primary = meta?.networks?.find((n) => n.isPrimary);
+    if (primary?.ip) return primary.ip;
+    primaryMac = primary?.mac.toLowerCase();
   } catch { /* fall through */ }
+
+  // A lease outlives a stopped VM by its whole lease time: an address it doesn't have.
+  if (parseStatus(await virsh(['domstate', id]).catch(() => '')) === 'stopped') return null;
+
+  // The primary NIC's address wins wherever it turns up. Until a source has it, any
+  // other address is only held in reserve, for showing and for the SSH console. The
+  // firewall needs a stricter answer: see resolveFirewallTarget.
+  let reserve: string | null = null;
+  const found = (addresses: NicAddress[]): string | null => {
+    reserve ??= pickVmIp(addresses);
+    return primaryMac ? addresses.find((a) => a.mac === primaryMac)?.ip ?? null : reserve;
+  };
 
   // 2. Ask the guest, then the host's ARP cache.
   for (const source of ['agent', 'lease', 'arp'] as const) {
     try {
-      const out = await virsh(['domifaddr', id, '--source', source]);
-      const match = out.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
-      if (match) return match[1];
+      const ip = found(parseDomIfAddr(await virsh(['domifaddr', id, '--source', source])));
+      if (ip) return ip;
     } catch { /* try the next source */ }
   }
 
@@ -367,22 +416,43 @@ export async function resolveVmIp(nameOrId: string): Promise<string | null> {
   //    listing does.
   try {
     const nics = await getVmNics(id);
-    const macs = new Set(nics.map((n) => n.mac.toLowerCase()));
+    const macs = nics.map((n) => n.mac.toLowerCase());
     const networks = await listNetworks();
     for (const net of networks) {
-      if (!net.libvirtName) continue;
-      const out = await virsh(['net-dhcp-leases', net.libvirtName]).catch(() => '');
-      for (const line of out.split('\n')) {
-        const parts = line.trim().split(/\s+/);
-        const mac = parts.find((p) => /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(p));
-        if (!mac || !macs.has(mac.toLowerCase())) continue;
-        const ip = parts.find((p) => /^\d{1,3}(\.\d{1,3}){3}\/\d+$/.test(p));
-        if (ip) return ip.split('/')[0];
-      }
+      if (!net.libvirtName || !nics.some((n) => n.source === net.bridge)) continue;
+      const leases = parseDhcpLeases(await virsh(['net-dhcp-leases', net.libvirtName]).catch(() => ''));
+      const addresses = macs.flatMap((mac) => {
+        const ip = leases.get(mac);
+        return ip ? [{ mac, ip }] : [];
+      });
+      const ip = found(addresses);
+      if (ip) return ip;
     }
   } catch { /* give up */ }
 
-  return null;
+  return reserve;
+}
+
+/**
+ * The address VirtPilot's firewall filters: a NIC whose traffic is routed through this
+ * host, the primary one if it can be. Never a VXLAN's: its traffic goes straight through
+ * the bridge, so rules there filter nothing, and the FORWARD jumps they need sit above
+ * libvirt's isolation of the network, so they would let other networks in.
+ */
+export async function resolveFirewallTarget(nameOrId: string): Promise<{ ip: string | null; vxlanOnly: boolean }> {
+  const id = validateVmName(nameOrId);
+  const [nics, networks, metas] = await Promise.all([getVmNics(id), listNetworks(), listVmMetas().catch(() => [])]);
+  const vxlanBridges = new Set(networks.filter((n) => n.type === 'vxlan').map((n) => n.bridge));
+  const routed = nics.filter((n) => !vxlanBridges.has(n.source));
+  if (nics.length > 0 && routed.length === 0) return { ip: null, vxlanOnly: true };
+
+  const allocs = metas.find((m) => m.uuid === id.toLowerCase())?.networks ?? [];
+  const primaryMac = allocs.find((a) => a.isPrimary)?.mac.toLowerCase();
+  const target = routed.find((n) => n.mac.toLowerCase() === primaryMac) ?? routed[0];
+  if (!target) return { ip: null, vxlanOnly: false };
+  const mac = target.mac.toLowerCase();
+  const fixed = allocs.find((a) => a.mac.toLowerCase() === mac)?.ip;
+  return { ip: fixed ?? (await getVmInterfaceIps(id))[mac] ?? null, vxlanOnly: false };
 }
 
 // ─── Mutating operations ──────────────────────────────────────────────────────
@@ -422,11 +492,15 @@ export async function startVm(nameOrId: string): Promise<string> {
 async function startDomain(name: string, trace: TraceEntry[]): Promise<void> {
   await refreshChainQuietly(name);
   await deviceService.checkBeforeStart(name);
+  await getVmNics(name).then((nics) => ensureVxlanBridges(nics.map((n) => n.source))).catch(() => {});
   try {
     await virsh(['start', name], trace);
   } catch (err) {
     const why = await deviceService.explainStartFailure(err);
     if (why) throw new DeviceError(why, 409);
+    const raw = String((err as { stderr?: string })?.stderr || (err instanceof Error ? err.message : err));
+    const bridge = raw.match(/Cannot get interface MTU on '([^']+)'/)?.[1];
+    if (bridge) throw new DeviceError(`This VM has a NIC on ${bridge}, and that network is not running on this host. Check it on the Networks page, or remove the NIC.`, 409);
     throw err;
   }
 }
@@ -598,6 +672,7 @@ export async function attachNic(
   model = 'virtio',
   mac?: string,
   bandwidth?: { inboundKbps?: number; outboundKbps?: number },
+  mtu?: number,
 ): Promise<string> {
   const name = validateVmName(nameOrId);
   const br = validateBridgeName(bridge);
@@ -605,16 +680,36 @@ export async function attachNic(
   // two callers can't drift apart.
   const nicModel = validateNicModel(model);
   const trace: TraceEntry[] = [];
-  const args = ['attach-interface', name, 'bridge', br, '--model', nicModel];
-  if (mac) {
-    const m = validateMac(mac);
-    args.push('--mac', m);
-  }
-  args.push('--persistent');
-  await virsh(args, trace);
-
-  if (mac && bandwidth && (bandwidth.inboundKbps || bandwidth.outboundKbps)) {
-    await setNicBandwidth(name, mac, bandwidth, trace);
+  // Before anything changes: a rate limit refused after the attach would leave a NIC
+  // on the VM that the caller believes failed.
+  const inboundKbps = validateNonNegativeInt(bandwidth?.inboundKbps ?? 0, 100_000_000);
+  const outboundKbps = validateNonNegativeInt(bandwidth?.outboundKbps ?? 0, 100_000_000);
+  if (mtu && mac) {
+    // attach-interface has no way to say the MTU. The rate limit goes in with it, so the
+    // NIC either arrives whole or not at all.
+    const file = path.join(os.tmpdir(), `vp-nic-${randomUUID()}.xml`);
+    await fs.writeFile(file, buildInterfaceXml({ bridge: br, mac: validateMac(mac), model: nicModel, mtu, inboundKbps, outboundKbps }), 'utf8');
+    try {
+      await virsh(['attach-device', name, file, '--persistent'], trace);
+    } finally {
+      await fs.unlink(file).catch(() => {});
+    }
+  } else {
+    const args = ['attach-interface', name, 'bridge', br, '--model', nicModel];
+    if (mac) {
+      const m = validateMac(mac);
+      args.push('--mac', m);
+    }
+    args.push('--persistent');
+    await virsh(args, trace);
+    if (mac && (inboundKbps || outboundKbps)) {
+      try {
+        await setNicBandwidth(name, mac, { inboundKbps, outboundKbps }, trace);
+      } catch (err) {
+        await detachNic(name, mac).catch(() => {});
+        throw err;
+      }
+    }
   }
 
   return formatTrace(trace);

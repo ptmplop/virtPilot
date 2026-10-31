@@ -4,15 +4,35 @@ import { config } from '../config.js';
 import { type TraceEntry, execTraced } from './traceService.js';
 import { run } from './safeExec.js';
 import { validateVmUuid, validateMac } from '../lib/validate.js';
+import { parseCidr, type Network } from './networkService.js';
 
 export type NicIpConfig =
   | { mode: 'dhcp' }
+  /** gateway may be empty and dns may be empty: a VXLAN needs neither. */
   | { mode: 'static'; ip: string; prefix: number; gateway: string; dns: string[] };
 
 export interface NicCloudInit {
   mac: string;
   ipConfig: NicIpConfig;
   isPrimary: boolean;
+  /** A VXLAN's MTU. Any NIC model takes it this way. */
+  mtu?: number;
+  /** The guest's boot must not wait for this NIC to get an address. */
+  optional?: boolean;
+}
+
+/**
+ * How a NIC on `network` is set up inside the guest. A VXLAN NIC is never worth
+ * holding a guest's boot for: `optional` tells netplan so. Renderers without it wait
+ * for their DHCP client to give up (Alpine measured 60 s), which on a VXLAN with no
+ * VirtPilot addressing is still worth it, because a router VM or another host may
+ * well answer.
+ */
+export function nicCloudInitFor(network: Network, mac: string, isPrimary: boolean, staticIp?: string): NicCloudInit {
+  const vxlan = network.type === 'vxlan' ? { mtu: network.mtu, optional: true } : {};
+  if (!staticIp) return { mac, isPrimary, ipConfig: { mode: 'dhcp' }, ...vxlan };
+  const { prefix } = parseCidr(network.cidr);
+  return { mac, isPrimary, ipConfig: { mode: 'static', ip: staticIp, prefix, gateway: network.gateway, dns: network.dns }, ...vxlan };
 }
 
 interface CloudInitConfig {
@@ -66,7 +86,7 @@ function validateSshKey(line: string): string {
   return line;
 }
 
-function buildNetworkConfig(nics: NicCloudInit[]): string {
+export function buildNetworkConfig(nics: NicCloudInit[]): string {
   const lines = ['version: 2', 'ethernets:'];
 
   nics.forEach((nic, idx) => {
@@ -76,6 +96,12 @@ function buildNetworkConfig(nics: NicCloudInit[]): string {
     lines.push(`    match:`);
     lines.push(`      macaddress: ${yamlQuote(mac)}`);
     lines.push(`    set-name: ${key}`);
+    if (nic.mtu !== undefined) {
+      const mtu = Number(nic.mtu);
+      if (!Number.isInteger(mtu) || mtu <= 0) throw new Error('Invalid MTU');
+      lines.push(`    mtu: ${mtu}`);
+    }
+    if (nic.optional) lines.push(`    optional: true`);
 
     if (nic.ipConfig.mode === 'dhcp') {
       lines.push(`    dhcp4: true`);
@@ -87,20 +113,22 @@ function buildNetworkConfig(nics: NicCloudInit[]): string {
       const prefix = Number(nic.ipConfig.prefix);
       if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) throw new Error('Invalid prefix length');
       if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(nic.ipConfig.ip)) throw new Error('Invalid IPv4');
-      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(nic.ipConfig.gateway)) throw new Error('Invalid gateway');
+      if (nic.ipConfig.gateway && !/^\d{1,3}(\.\d{1,3}){3}$/.test(nic.ipConfig.gateway)) throw new Error('Invalid gateway');
       lines.push(`    addresses:`);
       lines.push(`      - ${yamlQuote(`${nic.ipConfig.ip}/${prefix}`)}`);
-      if (nic.isPrimary) {
+      if (nic.isPrimary && nic.ipConfig.gateway) {
         lines.push(`    routes:`);
         lines.push(`      - to: "0.0.0.0/0"`);
         lines.push(`        via: ${yamlQuote(nic.ipConfig.gateway)}`);
       }
-      lines.push(`    nameservers:`);
-      lines.push(`      addresses:`);
-      nic.ipConfig.dns.forEach((d) => {
-        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(d) && !/^[0-9a-fA-F:]+$/.test(d)) throw new Error('Invalid DNS');
-        lines.push(`        - ${yamlQuote(d)}`);
-      });
+      if (nic.ipConfig.dns.length > 0) {
+        lines.push(`    nameservers:`);
+        lines.push(`      addresses:`);
+        nic.ipConfig.dns.forEach((d) => {
+          if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(d) && !/^[0-9a-fA-F:]+$/.test(d)) throw new Error('Invalid DNS');
+          lines.push(`        - ${yamlQuote(d)}`);
+        });
+      }
     }
   });
 

@@ -81,7 +81,9 @@ async function readNet(): Promise<NetRaw> {
     const p = line.trim().split(/\s+/);
     if (p.length < 10) continue;
     const iface = p[0].replace(':', '');
-    if (iface === 'lo' || iface.startsWith('vp') || iface.startsWith('virbr')) continue;
+    // The host's own links only. Guest traffic also crosses its tap (vnet*) and
+    // bridge, and VMs on one VXLAN never touch a physical link at all.
+    if (iface === 'lo' || iface.startsWith('vp') || iface.startsWith('virbr') || iface.startsWith('vnet')) continue;
     rxBytes += parseInt(p[1], 10) || 0;
     txBytes += parseInt(p[9], 10) || 0;
   }

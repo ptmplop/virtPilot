@@ -13,6 +13,18 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.16.0',
+    date: '2026-10-31',
+    changes: [
+      { type: 'added', text: 'VXLAN networks: private networks that connect VMs to each other, created from New network. Take the next available ID or choose your own; an ID that already exists is refused, even one VirtPilot did not create.' },
+      { type: 'added', text: 'VLANs inside a VXLAN: a VM can tag its own traffic, 802.1Q or nested QinQ, at the full MTU, with nothing to set up on the host.' },
+      { type: 'added', text: 'A VXLAN can run DHCP, a static pool or no addresses at all, and reach VMs on other hosts: only the hosts you list can reach it, and with none listed nothing listens.' },
+      { type: 'added', text: 'A VXLANs panel on the Networks page shows each one\'s connected VMs and remote hosts, with New VXLAN and Connect a VM.' },
+      { type: 'changed', text: 'The host\'s network figures count its own links only, not guest traffic on its way through each VM\'s tap device.' },
+      { type: 'fixed', text: 'A VM with more than one NIC could get the firewall, SSH console and Overview pointed at the wrong address; Lock IP could reserve a different address from the one shown; and a VM that failed to create kept its static address.' },
+    ],
+  },
+  {
     version: '2.15.0',
     date: '2026-10-21',
     changes: [

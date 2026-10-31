@@ -67,6 +67,33 @@ export interface NicDefinition {
   model?: string;
   inboundKbps?: number;
   outboundKbps?: number;
+  /** Set on a VXLAN: frames bigger than its bridge are dropped silently, so ping works and scp hangs. */
+  mtu?: number;
+}
+
+/**
+ * libvirt refuses <mtu> on any other model. On virtio it also reaches the guest's
+ * driver as host_mtu, so the guest needs no configuration. Other models keep the
+ * MTU the bridge gives the tap, and learn theirs from DHCP or cloud-init.
+ */
+function nicMtuXml(nic: NicDefinition): string {
+  const mtu = Number(nic.mtu);
+  return Number.isInteger(mtu) && mtu > 0 && (nic.model ?? 'virtio').startsWith('virtio')
+    ? `\n      <mtu size="${mtu}"/>`
+    : '';
+}
+
+export function buildInterfaceXml(nic: NicDefinition): string {
+  const inKbps = Number(nic.inboundKbps);
+  const outKbps = Number(nic.outboundKbps);
+  const inb = Number.isFinite(inKbps) && inKbps > 0 ? `<inbound average="${Math.trunc(inKbps)}"/>` : '';
+  const outb = Number.isFinite(outKbps) && outKbps > 0 ? `<outbound average="${Math.trunc(outKbps)}"/>` : '';
+  const bandwidthXml = inb || outb ? `\n      <bandwidth>${inb}${outb}</bandwidth>` : '';
+  return `    <interface type="bridge">
+      <mac address="${escapeXml(nic.mac)}"/>
+      <source bridge="${escapeXml(nic.bridge)}"/>
+      <model type="${escapeXml(nic.model ?? 'virtio')}"/>${nicMtuXml(nic)}${bandwidthXml}
+    </interface>`;
 }
 
 interface DomainXmlOptions {
@@ -122,20 +149,7 @@ export function buildDomainXml(opts: DomainXmlOptions): string {
     <nvram template="${varsTemplate}">${escapeXml(opts.nvramPath ?? `/var/lib/libvirt/qemu/nvram/${opts.uuid}_VARS.fd`)}</nvram>`;
   }
 
-  const nicsXml = opts.nics
-    .map((nic) => {
-      const inKbps = Number(nic.inboundKbps);
-      const outKbps = Number(nic.outboundKbps);
-      const inb = Number.isFinite(inKbps) && inKbps > 0 ? `<inbound average="${Math.trunc(inKbps)}"/>` : '';
-      const outb = Number.isFinite(outKbps) && outKbps > 0 ? `<outbound average="${Math.trunc(outKbps)}"/>` : '';
-      const bandwidthXml = inb || outb ? `\n      <bandwidth>${inb}${outb}</bandwidth>` : '';
-      return `    <interface type="bridge">
-      <mac address="${escapeXml(nic.mac)}"/>
-      <source bridge="${escapeXml(nic.bridge)}"/>
-      <model type="${escapeXml(nic.model ?? 'virtio')}"/>${bandwidthXml}
-    </interface>`;
-    })
-    .join('\n');
+  const nicsXml = opts.nics.map(buildInterfaceXml).join('\n');
 
   const isIsoInstall = !!opts.installIsoPath;
   const primaryCdromPath = isIsoInstall ? opts.installIsoPath! : opts.cloudInitIsoPath!;

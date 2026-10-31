@@ -23,7 +23,7 @@ import * as portForwardService from '../services/portForwardService.js';
 import * as firewallService from '../services/firewallService.js';
 import * as logService from '../services/logService.js';
 import { type TraceEntry, formatTrace } from '../services/traceService.js';
-import { buildCloudInitIso, deleteCloudInitArtifacts, getHostSshPublicKey, type NicCloudInit } from '../services/cloudInitService.js';
+import { buildCloudInitIso, deleteCloudInitArtifacts, getHostSshPublicKey, nicCloudInitFor, type NicCloudInit } from '../services/cloudInitService.js';
 import { buildDomainXml, generateMac, type NicDefinition, type CpuMode, type FirmwareMode } from '../services/xmlBuilder.js';
 
 export const vmsRouter = Router();
@@ -236,20 +236,7 @@ vmsRouter.get('/:uuid', requireUuidParam, async (req, res) => {
 vmsRouter.get('/:uuid/meta', requireUuidParam, async (req, res) => {
   try {
     const meta = await vmMetaService.getVmMeta(req.params.uuid);
-
-    let ip: string | null = null;
-    if (meta?.networks) {
-      const primaryAlloc = meta.networks.find((n) => n.isPrimary);
-      ip = primaryAlloc?.ip ?? null;
-    }
-
-    if (!ip) {
-      try {
-        const stdout = await virsh(['domifaddr', validateVmUuid(req.params.uuid), '--source', 'arp']);
-        const match = stdout.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/\d+/);
-        if (match) ip = match[1];
-      } catch { /* VM not running or no lease yet */ }
-    }
+    const ip = await vmService.resolveVmIp(validateVmUuid(req.params.uuid)).catch(() => null);
 
     // Strip the guest password — it's fetched on demand via /credentials so it
     // doesn't ride along in the routine meta poll, the React Query cache, or
@@ -312,6 +299,8 @@ interface NetworkRequest {
 
 vmsRouter.post('/', async (req, res) => {
   const start = Date.now();
+  // Addresses taken from a pool under this ID are given back if the VM never appears.
+  let allocatedFor: string | undefined;
   try {
     const {
       name, cpus, memoryMb, diskGb,
@@ -427,32 +416,33 @@ vmsRouter.post('/', async (req, res) => {
     const nicCloudInit: NicCloudInit[] = [];
     const metaNetworks: vmMetaService.VmNetworkAlloc[] = [];
 
+    // Everything the loop below can refuse, refused before any address is taken.
     for (const req of networkList) {
       const network = await networkService.getNetwork(req.networkId);
       if (!network) {
         return res.status(400).json({ error: `Network ${req.networkId} not found` });
       }
+      if (networkService.usesStaticIps(network) && !req.staticIp) {
+        return res.status(400).json({ error: `staticIp required for static network "${network.name}"` });
+      }
+    }
+
+    allocatedFor = uuid;
+    for (const req of networkList) {
+      const network = (await networkService.getNetwork(req.networkId))!;
 
       const mac = generateMac();
 
-      if ((network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static') {
-        if (!req.staticIp) {
-          return res.status(400).json({ error: `staticIp required for bridge/static network "${network.name}"` });
-        }
-        await networkService.allocateSpecificIp(req.networkId, uuid, mac, req.staticIp);
-        const { prefix } = networkService.parseCidr(network.cidr);
-        nicCloudInit.push({
-          mac,
-          isPrimary: req.isPrimary,
-          ipConfig: { mode: 'static', ip: req.staticIp, prefix, gateway: network.gateway, dns: network.dns },
-        });
+      if (networkService.usesStaticIps(network)) {
+        await networkService.allocateSpecificIp(req.networkId, uuid, mac, req.staticIp!);
+        nicCloudInit.push(nicCloudInitFor(network, mac, req.isPrimary, req.staticIp));
         metaNetworks.push({ networkId: req.networkId, mac, ip: req.staticIp, isPrimary: req.isPrimary });
       } else {
-        nicCloudInit.push({ mac, isPrimary: req.isPrimary, ipConfig: { mode: 'dhcp' } });
+        nicCloudInit.push(nicCloudInitFor(network, mac, req.isPrimary));
         metaNetworks.push({ networkId: req.networkId, mac, isPrimary: req.isPrimary });
       }
 
-      nicDefinitions.push({ bridge: network.bridge, mac, model: safeNicModel });
+      nicDefinitions.push({ bridge: network.bridge, mac, model: safeNicModel, mtu: network.mtu });
     }
 
     await storageService.ensureDirs();
@@ -510,8 +500,10 @@ vmsRouter.post('/', async (req, res) => {
       durationMs: Date.now() - start,
     });
 
+    allocatedFor = undefined;
     res.status(201).json({ uuid, name });
   } catch (err: unknown) {
+    if (allocatedFor) await networkService.deallocateVmIps(allocatedFor).catch(() => {});
     void logService.appendLog({
       type: 'vm.create',
       subject: (req.body as { name?: string }).name ?? 'unknown',
@@ -519,6 +511,7 @@ vmsRouter.post('/', async (req, res) => {
       output: String(err),
       durationMs: Date.now() - start,
     });
+    if (err instanceof networkService.NetworkError) return res.status(err.status).json({ error: err.message });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -915,7 +908,7 @@ vmsRouter.post('/:uuid/nics', requireUuidParam, async (req, res) => {
     const mac = generateMac();
 
     let allocatedIp: string | undefined;
-    if ((network.type === 'bridge' || network.type === 'existing-bridge') && network.ipMode === 'static') {
+    if (networkService.usesStaticIps(network)) {
       if (!staticIp) return res.status(400).json({ error: `staticIp required for static network "${network.name}"` });
       await networkService.allocateSpecificIp(networkId, uuid, mac, staticIp);
       allocatedIp = staticIp;
@@ -924,7 +917,13 @@ vmsRouter.post('/:uuid/nics', requireUuidParam, async (req, res) => {
     const bandwidth = (inboundKbps && inboundKbps > 0) || (outboundKbps && outboundKbps > 0)
       ? { inboundKbps, outboundKbps }
       : undefined;
-    const output = await vmService.attachNic(uuid, network.bridge, model ?? 'virtio', mac, bandwidth);
+    let output: string;
+    try {
+      output = await vmService.attachNic(uuid, network.bridge, model ?? 'virtio', mac, bandwidth, network.mtu);
+    } catch (err) {
+      if (allocatedIp) await networkService.deallocateByMac(mac).catch(() => {});
+      throw err;
+    }
 
     const meta = await vmMetaService.getVmMeta(uuid);
     if (meta) {
@@ -938,6 +937,7 @@ vmsRouter.post('/:uuid/nics', requireUuidParam, async (req, res) => {
     res.json({ ok: true, mac });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.nic.attach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
+    if (err instanceof networkService.NetworkError) return res.status(err.status).json({ error: err.message });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -1164,7 +1164,10 @@ vmsRouter.post('/:uuid/firewall/apply', requireUuidParam, async (req, res) => {
     // static address to fall back on, and a deny-all inbound policy applied a
     // moment ago is exactly what stops ARP resolving — which used to leave the
     // operator unable to apply any further rules, including the ones undoing it.
-    const ip = await vmService.resolveVmIp(uuid);
+    const { ip, vxlanOnly } = await vmService.resolveFirewallTarget(uuid);
+    if (vxlanOnly) {
+      return res.status(409).json({ error: "This VM is only on VXLANs, and their traffic goes straight through the bridge, so there is nothing here for these rules to filter. Use a firewall inside the VM." });
+    }
     if (!ip) return res.status(400).json({ error: 'Could not resolve VM IP - ensure the VM is running' });
     const cfg = await firewallService.getFirewallConfig(uuid);
     await firewallService.applyFirewallRules(uuid, ip, cfg);

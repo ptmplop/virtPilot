@@ -3,6 +3,37 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.16.0] - 2026-10-31
+
+### Added
+
+- **VXLAN networks (SDN).** A new kind of network on the Networks page: a private, software-defined network that connects VMs to each other. VMs on a VXLAN reach each other and nothing else, and it carries no internet traffic, so a VM that needs to get out keeps a NAT or bridge NIC as well. Nothing on the host OS has to change, and everything comes back by itself after a reboot.
+- **Choose a VXLAN ID, or take the next available.** IDs run from 1 to 16777215, and the next available one starts at 100. An ID that already exists is refused with what holds it, including one used by an interface VirtPilot did not create.
+- **VLANs inside a VXLAN.** A VM can tag its own traffic on a VXLAN, with nothing to set up on the host: 802.1Q and nested tagging (QinQ, with an 802.1ad or 802.1Q outer tag) pass through the bridge and the tunnel untouched, at the full MTU. The default MTU is 1442 rather than the usual 1450 so that two tags fit inside a standard 1500-byte link and nothing is ever fragmented. VMs using virtio NICs pick it up by themselves.
+- **Addresses on a VXLAN are your choice.** DHCP from this host, with no gateway and no DNS so a VM's internet access stays on its other NIC; a static pool that cloud-init sets; or none, for VMs that set their own or a DHCP server on the network.
+- **Across several hosts.** List remote hosts on a VXLAN and it reaches VMs on other machines. Only the hosts listed can reach each VXLAN: VirtPilot adds firewall rules per VXLAN before the tunnel comes up, and takes the tunnel down if they can't be applied. With no remote hosts the tunnel stays down and nothing listens at all. VXLAN itself does not encrypt anything, so between hosts use a private link or a VPN.
+- **A VXLANs panel on the Networks page**: each one's ID, connected VMs with their addresses, addresses, and remote hosts with how many machines have been seen behind each. **New VXLAN** and **Connect a VM** are right there, and a VXLAN with VMs on it can't be deleted until they are disconnected.
+- A section on VXLANs and VLANs in the network setup guide.
+
+### Changed
+
+- The host's network figures count its own links only. Guest traffic was also counted on its way through each VM's tap device, so VMs talking to each other looked like traffic on the host's network.
+- The NAT and bridge list has a title, the same row layout as the VXLANs panel, and scrolls sideways on a phone instead of hiding its delete button.
+- A failed network change says why in plain words, without an "Error:" in front of it.
+- Starting a VM whose network is not running says so, instead of "Cannot get interface MTU".
+- The network setup guide no longer casts a faint shadow down the side of the page while closed, stays out of the tab order, and closes with Escape.
+- The Firewall tab says its rules don't apply inside a VXLAN, and applies them to a VM's other NIC. A VM that is only on VXLANs is refused with the reason: rules there would filter nothing, and the routes they need would open the network to others.
+
+### Fixed
+
+- **A VM's address could be the wrong one when it has more than one NIC.** The firewall, the SSH console and the Overview each took the first address they found, which could be the guest's loopback or a network this host has no route to. They now use the primary NIC's address, wherever it comes in the list, and find it from the guest, the ARP cache or the DHCP lease, not ARP alone.
+- A VM's Network tab showed "not resolved yet" for a NIC with a DHCP lease whenever another NIC's address was already known. Sources now fill in for each other NIC by NIC. A stopped VM shows none, whatever its old lease says.
+- **Lock IP could reserve a different address from the one on screen**, when the address was known from a lease but not from ARP.
+- A VM that failed to create, or a NIC that failed to attach, kept its static address allocated, and an address kept that way stopped its network being deleted. A NIC whose rate limit was refused was left on the VM with its address freed.
+- Static addresses on a network with no gateway or DNS no longer fail cloud-init's checks.
+- The list of networks is written so that a crash mid-write can't leave it truncated, and two changes at once can't lose one of them.
+- Long lines in the network setup guide's code blocks ran off the side of the panel.
+
 ## [2.15.0] - 2026-10-21
 
 ### Added
