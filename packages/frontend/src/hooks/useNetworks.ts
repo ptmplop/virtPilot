@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { HostNic, Network, NetworkIpMode, NetworkIpStatus, VxlanIds, VxlanStatus } from '@/types';
+import type { BridgeStatus, HostNic, Network, NetworkIpMode, NetworkIpStatus, VxlanIds, VxlanStatus } from '@/types';
 
 const KEYS = {
   networks: ['networks'] as const,
@@ -8,6 +8,7 @@ const KEYS = {
   systemNics: ['system', 'nics'] as const,
   vxlanIds: ['networks', 'vxlan', 'ids'] as const,
   vxlanStatus: ['networks', 'vxlan', 'status'] as const,
+  bridgeStatus: ['networks', 'bridge', 'status'] as const,
 };
 
 export function useNetworks() {
@@ -62,7 +63,10 @@ export function useCreateNetwork() {
       const { data } = await api.post<{ network: Network }>('/api/networks', payload);
       return data.network;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.networks }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.networks });
+      qc.invalidateQueries({ queryKey: KEYS.systemNics });
+    },
   });
 }
 
@@ -72,7 +76,10 @@ export function useDeleteNetwork() {
     mutationFn: async (id: string) => {
       await api.delete(`/api/networks/${id}`);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.networks }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.networks });
+      qc.invalidateQueries({ queryKey: KEYS.systemNics });
+    },
   });
 }
 
@@ -94,6 +101,18 @@ export function useVxlanStatus(enabled: boolean) {
     queryKey: KEYS.vxlanStatus,
     queryFn: async () => {
       const { data } = await api.get<{ status: Record<string, VxlanStatus> }>('/api/networks/vxlan/status');
+      return data.status;
+    },
+    enabled,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useBridgeStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: KEYS.bridgeStatus,
+    queryFn: async () => {
+      const { data } = await api.get<{ status: Record<string, BridgeStatus> }>('/api/networks/bridge/status');
       return data.status;
     },
     enabled,

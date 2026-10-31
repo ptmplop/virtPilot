@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { run, runSafe, virsh } from './safeExec.js';
 import { validateBridgeName, validateNicName, validateNetworkName, validateIpv4, escapeXml } from '../lib/validate.js';
+import { managedBridgeXml, planUplink } from '../lib/managedBridge.js';
 import {
   VxlanInputError,
   defaultVxlanMtu,
@@ -17,6 +18,8 @@ import {
   vxlanDeviceName,
   vxlanNetworkXml,
 } from '../lib/vxlan.js';
+import * as bridgeService from './bridgeService.js';
+import { bridgeExists, defineLibvirtNetwork, removeLibvirtNetwork } from './libvirtBridge.js';
 import * as vxlanService from './vxlanService.js';
 
 export type NetworkType = 'nat' | 'bridge' | 'existing-bridge' | 'vxlan';
@@ -38,7 +41,9 @@ export interface Network {
   bridge: string;
   /** bridge only — physical NIC enslaved to the bridge */
   physicalNic?: string;
-  /** nat and vxlan — libvirt network name */
+  /** bridge only — the host has been seen using that NIC, so it is not taken while networkd still manages it */
+  nicClaimed?: boolean;
+  /** nat, vxlan and bridge — libvirt network name. A bridge from before 2.16.3 gets one at the next start */
   libvirtName?: string;
   /** vxlan only — the VXLAN ID */
   vni?: number;
@@ -79,7 +84,7 @@ export interface HostNic {
   mac: string;
   speed?: string;
   inUse: boolean;
-  /** True if the NIC has active IPv4 addresses — unsafe to enslave without prior OS-level bridge config */
+  /** True if the NIC has a global address or the default route — unsafe to enslave without prior OS-level bridge config */
   hasIps: boolean;
 }
 
@@ -314,25 +319,35 @@ async function createBridgeNetworkNow(opts: {
   const networks = await readNetworks();
   checkCidrConflict(opts.cidr, networks);
   const bridge = `vp${nextBridgeIndex(networks)}`;
+  const safeBridge = validateBridgeName(bridge);
+  const nic = opts.physicalNic ? validateNicName(opts.physicalNic) : undefined;
 
-  if (opts.physicalNic) {
-    const nic = validateNicName(opts.physicalNic);
-    const addrOut = await runSafe('ip', ['-4', 'addr', 'show', 'dev', nic, 'scope', 'global']);
+  let plan: ReturnType<typeof planUplink> = { refusal: null, steps: [] };
+  let nicWasUp = false;
+  if (nic) {
+    const holder = networks.find((n) => n.physicalNic === nic);
+    if (holder) throw new NetworkError(`${nic} is already in use by network "${holder.name}".`, 409);
+    let facts: Awaited<ReturnType<typeof bridgeService.readUplinkFacts>>;
     // Fail closed: if we can't read the NIC's addresses we don't know whether
     // enslaving it would cut the host off, so refuse rather than guess.
-    if (addrOut === null) {
+    try {
+      facts = await bridgeService.readUplinkFacts(nic);
+    } catch {
       throw new Error(`Could not inspect ${nic} - refusing to enslave a NIC whose IP configuration is unknown.`);
     }
-    if (/inet /.test(addrOut)) {
-      throw new Error(
-        `${nic} has active IP addresses - enslaving it would drop host connectivity. ` +
-        `Configure the bridge at the OS level first (netplan / /etc/network/interfaces), ` +
-        `then attach it here using "Existing OS bridge".`
+    plan = planUplink(nic, safeBridge, facts);
+    nicWasUp = facts.up;
+    if (plan.refusal) {
+      const hostDependsOnIt = facts.hasAddress || facts.defaultRoute;
+      throw new NetworkError(
+        hostDependsOnIt
+          ? `${plan.refusal} Configure the bridge at the OS level first (netplan / /etc/network/interfaces), then attach it here using "Existing OS bridge".`
+          : plan.refusal,
+        409,
       );
     }
   }
 
-  const safeBridge = validateBridgeName(bridge);
   // Never adopt a pre-existing vpN device — it may belong to something else,
   // and the rollback below must only ever delete a bridge we created here.
   if ((await runSafe('ip', ['link', 'show', 'dev', safeBridge])) !== null) {
@@ -342,23 +357,12 @@ async function createBridgeNetworkNow(opts: {
     );
   }
 
-  try {
-    await run('ip', ['link', 'add', safeBridge, 'type', 'bridge']);
-    await run('ip', ['link', 'set', safeBridge, 'up']);
-    if (opts.physicalNic) {
-      const nic = validateNicName(opts.physicalNic);
-      await run('ip', ['link', 'set', nic, 'master', safeBridge]);
-    }
-  } catch (err) {
-    // A half-built bridge is never written to networks.json, so nextBridgeIndex
-    // would keep handing out the same vpN and every later create — NAT ones
-    // included — would collide with the orphan. Tear it down before rethrowing.
-    await runSafe('ip', ['link', 'delete', safeBridge]);
-    throw err;
-  }
+  const id = randomUUID();
+  const libvirtName = bridgeService.libvirtNameFor(id);
+  await defineLibvirtNetwork(libvirtName, managedBridgeXml({ libvirtName, bridge: safeBridge }));
 
   const network: Network = {
-    id: randomUUID(),
+    id,
     name: opts.name,
     type: 'bridge',
     ipMode: opts.ipMode,
@@ -366,10 +370,21 @@ async function createBridgeNetworkNow(opts: {
     gateway,
     dns: opts.dns ?? ['8.8.8.8', '8.8.4.4'],
     bridge,
-    physicalNic: opts.physicalNic,
+    physicalNic: nic,
+    libvirtName,
     createdAt: new Date().toISOString(),
   };
-  await writeNetworks([...networks, network]);
+  try {
+    for (const args of plan.steps) await run('ip', args);
+    await writeNetworks([...networks, network]);
+  } catch (err) {
+    // A half-built bridge is never written to networks.json, so nextBridgeIndex
+    // would keep handing out the same vpN and every later create — NAT ones
+    // included — would collide with the orphan. Tear it down before rethrowing.
+    await removeLibvirtNetwork(libvirtName);
+    if (nic && !nicWasUp) await runSafe('ip', ['link', 'set', nic, 'down']);
+    throw err;
+  }
   return network;
 }
 
@@ -510,7 +525,7 @@ async function createVxlanNetworkNow(opts: {
         ...dhcpRange(addressing.first, addressing.last, addressing.gateway),
       }
     : undefined;
-  await vxlanService.defineLibvirtNetwork(libvirtName, vxlanNetworkXml({ libvirtName, bridge, mtu, dhcp }));
+  await defineLibvirtNetwork(libvirtName, vxlanNetworkXml({ libvirtName, bridge, mtu, dhcp }));
 
   const network: Network = {
     id, name, type: 'vxlan', ipMode: opts.ipMode,
@@ -525,7 +540,7 @@ async function createVxlanNetworkNow(opts: {
     await writeNetworks([...networks, network]);
   } catch (err) {
     await vxlanService.removeVxlanDevice(vni);
-    await vxlanService.removeLibvirtNetwork(libvirtName);
+    await removeLibvirtNetwork(libvirtName);
     await vxlanService.syncVxlanNetworks(networks);
     throw err;
   }
@@ -552,6 +567,15 @@ export function updateVxlanPeers(id: string, peers: unknown): Promise<Network> {
 
 const lastLogged = new Map<string, string>();
 
+function logProblems(tag: string, networks: readonly Network[], problems: Map<string, string[]>): void {
+  for (const n of networks) {
+    const said = problems.get(n.id)?.join(' ') ?? '';
+    if (said && said !== lastLogged.get(n.id)) console.warn(`[${tag}] ${n.name}: ${said}`);
+    if (said) lastLogged.set(n.id, said);
+    else lastLogged.delete(n.id);
+  }
+}
+
 /**
  * Rebuild what doesn't survive a reboot (device, remote hosts, firewall rules;
  * libvirt brings the bridge back itself) and put back anything that has gone since,
@@ -561,40 +585,53 @@ export function applyVxlanNetworks(): Promise<void> {
   return serialized(async () => {
     const networks = await readNetworks();
     const problems = await vxlanService.syncVxlanNetworks(networks);
-    for (const n of networks) {
-      const said = problems.get(n.id)?.join(' ') ?? '';
-      if (said && said !== lastLogged.get(n.id)) console.warn(`[vxlan] ${n.name}: ${said}`);
-      if (said) lastLogged.set(n.id, said);
-      else lastLogged.delete(n.id);
-    }
+    logProblems('vxlan', networks.filter((n) => n.type === 'vxlan'), problems);
   });
 }
 
-export function startVxlanWatch(intervalMs = 30_000): void {
+/**
+ * Put each managed bridge's NIC back on it after a boot (libvirt brings the bridge back
+ * itself), put back anything that has gone since, and give a bridge from before 2.16.3
+ * its libvirt network.
+ */
+export function applyBridgeNetworks(): Promise<void> {
+  return serialized(async () => {
+    const networks = await readNetworks();
+    if (!networks.some(bridgeService.isManagedBridge)) return;
+    const { networks: next, problems } = await bridgeService.syncManagedBridges(networks);
+    if (next !== networks) await writeNetworks(next);
+    logProblems('bridge', next.filter(bridgeService.isManagedBridge), problems);
+  });
+}
+
+export function startNetworkWatch(intervalMs = 30_000): void {
   // One pass at a time: against a stalled libvirt a pass can outlast the interval, and
   // queueing another each time would only make everything behind them wait longer.
   let busy = false;
   setInterval(() => {
     if (busy) return;
     busy = true;
-    void vxlanService.anyVxlanDevice().then(async (present) => {
-      if (present || (await readNetworks()).some((n) => n.type === 'vxlan')) await applyVxlanNetworks();
-    }).catch((err) => console.warn('[vxlan] Check failed:', err)).finally(() => { busy = false; });
+    void (async () => {
+      const networks = await readNetworks();
+      await applyBridgeNetworks().catch((err) => console.warn('[bridge] Check failed:', err));
+      if ((await vxlanService.anyVxlanDevice()) || networks.some((n) => n.type === 'vxlan')) await applyVxlanNetworks();
+    })().catch((err) => console.warn('[vxlan] Check failed:', err)).finally(() => { busy = false; });
   }, intervalMs).unref();
 }
 
 /**
- * Bring back the bridge of any VXLAN a VM is about to start on, so it starts rather than
- * fails with libvirt's "Cannot get interface MTU". Pays nothing unless one is missing, and
- * never holds a start up for long: what can't come back in time is said at the start.
+ * Bring back the bridge of any VXLAN or managed bridge a VM is about to start on, so it
+ * starts rather than fails with libvirt's "Cannot get interface MTU". Pays nothing unless
+ * one is missing, and never holds a start up for long: what can't come back in time is
+ * said at the start.
  */
-export async function ensureVxlanBridges(bridges: readonly string[], waitMs = 15_000): Promise<void> {
-  const wanted = (await readNetworks()).filter((n) => n.type === 'vxlan' && bridges.includes(n.bridge));
-  const present = await Promise.all(wanted.map((n) => vxlanService.bridgeExists(n.bridge)));
+export async function ensureBridges(bridges: readonly string[], waitMs = 15_000): Promise<void> {
+  const wanted = (await readNetworks()).filter((n) => (n.type === 'vxlan' || bridgeService.isManagedBridge(n)) && bridges.includes(n.bridge));
+  const present = await Promise.all(wanted.map((n) => bridgeExists(n.bridge)));
   if (present.every(Boolean)) return;
   let timer: NodeJS.Timeout | undefined;
   await Promise.race([
-    applyVxlanNetworks().catch(() => {}),
+    Promise.all([applyBridgeNetworks().catch(() => {}), applyVxlanNetworks().catch(() => {})]),
     new Promise((resolve) => { timer = setTimeout(resolve, waitMs); }),
   ]);
   clearTimeout(timer);
@@ -611,17 +648,20 @@ async function deleteNetworkNow(id: string): Promise<void> {
 
   let allocations = await readAllocations();
 
-  // A VM left on a deleted VXLAN would refuse to start. Lazy import: vmService
-  // imports this module. It throws if libvirt can't say, and that refuses the delete.
-  if (network.type === 'vxlan') {
+  // A VM left on a deleted VXLAN or managed bridge would refuse to start. Lazy import:
+  // vmService imports this module. It throws if libvirt can't say, and that refuses the delete.
+  if (network.type === 'vxlan' || bridgeService.isManagedBridge(network)) {
     const all = await (await import('./vmService.js')).listVmsWithNics();
     const vms = all.filter((vm) => vm.nics.some((nic) => nic.source === network.bridge)).map((vm) => vm.name);
     if (vms.length > 0) {
-      throw new NetworkError(`${vms.join(', ')} ${vms.length === 1 ? 'is' : 'are'} still connected to this VXLAN. Remove ${vms.length === 1 ? 'its NIC' : 'their NICs'} first.`, 409);
+      throw new NetworkError(`${vms.join(', ')} ${vms.length === 1 ? 'is' : 'are'} still connected to this ${network.type === 'vxlan' ? 'VXLAN' : 'bridge'}. Remove ${vms.length === 1 ? 'its NIC' : 'their NICs'} first.`, 409);
     }
     // No VM is on it, so what is left in the pool belongs to VMs that are gone: nothing
-    // could ever release it, and it must not keep the network here for good.
-    allocations = allocations.filter((a) => a.networkId !== id);
+    // could ever release it, and it must not keep the network here for good. Except a VM
+    // being made right now, which holds an address before libvirt has heard of it. Read
+    // again: this file has writers outside the queue, and asking libvirt took a while.
+    const settled = Date.now() - 5 * 60_000;
+    allocations = (await readAllocations()).filter((a) => a.networkId !== id || Date.parse(a.allocatedAt) > settled);
     await writeAllocations(allocations);
   }
 
@@ -637,22 +677,32 @@ async function deleteNetworkNow(id: string): Promise<void> {
   // this module, so a top-level import would be a cycle.
   await (await import('./portForwardService.js')).assertNetworkHasNoForwards(id);
 
-  if ((network.type === 'nat' || network.type === 'vxlan') && network.libvirtName) {
+  // Hand-edited at worst, and the record can still go: virsh gets it as one argument.
+  const libvirtName = network.libvirtName && /^[A-Za-z0-9._-]{1,64}$/.test(network.libvirtName) ? network.libvirtName : undefined;
+
+  // Ahead of the bridge going, and only if it is still ours to take: the operator may have
+  // moved this NIC somewhere the host depends on since.
+  if (bridgeService.isManagedBridge(network) && network.physicalNic) {
+    try {
+      const nic = validateNicName(network.physicalNic);
+      if ((await bridgeService.nicMaster(nic)) === network.bridge) {
+        await runSafe('ip', ['link', 'set', nic, 'nomaster']);
+        // Not with something else on it: the host may be reached through a VLAN on this NIC.
+        if (!(await bridgeService.hasUpperDevice(nic))) await runSafe('ip', ['link', 'set', nic, 'down']);
+      }
+    } catch { /* a record edited by hand: that name was never on the bridge */ }
+  }
+
+  if (network.type !== 'existing-bridge' && libvirtName) {
     // The device before anything else: its socket closes with it, so at no point
     // is a tunnel up without its firewall rules.
     if (network.vni !== undefined) await vxlanService.removeVxlanDevice(network.vni);
-    if (!/^[A-Za-z0-9._-]{1,64}$/.test(network.libvirtName)) throw new Error('Invalid libvirt network name');
-    await runSafe('virsh', ['-c', config.libvirtUri, 'net-destroy', network.libvirtName], { timeout: 30_000 });
-    await runSafe('virsh', ['-c', config.libvirtUri, 'net-undefine', network.libvirtName], { timeout: 30_000 });
+    await removeLibvirtNetwork(libvirtName);
   }
 
+  // Still there after that: a plain bridge from before 2.16.3, not yet through a boot.
   // existing-bridge networks are OS-managed — never touch the bridge interface
-  if (network.type === 'bridge' && /^vp\d+$/.test(network.bridge)) {
-    if (network.physicalNic) {
-      try {
-        await runSafe('ip', ['link', 'set', validateNicName(network.physicalNic), 'nomaster']);
-      } catch { /* already detached */ }
-    }
+  if (bridgeService.isManagedBridge(network) && await bridgeExists(network.bridge)) {
     await runSafe('ip', ['link', 'set', network.bridge, 'down']);
     await runSafe('ip', ['link', 'delete', network.bridge]);
   }
@@ -708,6 +758,7 @@ export async function deallocateByMac(mac: string): Promise<void> {
 export async function listPhysicalNics(): Promise<HostNic[]> {
   const entries = await fs.readdir('/sys/class/net');
   const networks = await readNetworks();
+  const routes = await bridgeService.defaultRouteDevices().catch(() => [] as string[]);
   const nics: HostNic[] = [];
 
   for (const name of entries) {
@@ -741,11 +792,10 @@ export async function listPhysicalNics(): Promise<HostNic[]> {
       // Sysfs only ever contains alphanumeric+:.-_ in interface names, but
       // we still validate before letting it ride in argv.
       const safeName = validateNicName(name);
-      const addrOut = await runSafe('ip', ['-4', 'addr', 'show', 'dev', safeName, 'scope', 'global']) ?? '';
-      hasIps = /inet /.test(addrOut);
+      hasIps = routes.includes(safeName) || await bridgeService.hasGlobalAddress(safeName);
     } catch { /* ignore */ }
 
-    const inUse = networks.some((n) => n.physicalNic === name);
+    const inUse = networks.some((n) => n.physicalNic === name) || (await bridgeService.nicMaster(name)) !== null;
     nics.push({ name, mac, speed, inUse, hasIps });
   }
 

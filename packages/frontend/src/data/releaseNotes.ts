@@ -13,6 +13,18 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.16.3',
+    date: '2026-10-31',
+    changes: [
+      { type: 'fixed', text: 'Bridge networks now survive a reboot. A bridge VirtPilot made was gone after the host restarted, and every VM on it refused to start. It now comes back before any VM starts at boot, and its NIC goes back on within seconds. A bridge that is running when you upgrade isn\'t rebuilt and keeps its VMs until the next reboot, and one already lost comes back when the upgraded service starts.' },
+      { type: 'fixed', text: 'A bridge\'s NIC now carries traffic: it was put on the bridge but never brought up, so on a spare NIC VMs reached nothing. On a running bridge it comes up at the upgrade.' },
+      { type: 'fixed', text: 'A NIC the host may depend on is never taken: one with an IP address or the default route, IPv4 or IPv6, or on another bridge or bond stays off, when the network is made and after every boot, and the Networks page says why. A NIC systemd-networkd is still configuring gets two and a half minutes first, so leave a NIC meant for VMs out of netplan.' },
+      { type: 'fixed', text: 'Deleting a bridge with VMs on it is refused and names them, as for a VXLAN, and no longer pulls a NIC off a different bridge.' },
+      { type: 'fixed', text: 'A VXLAN whose bridge was removed behind libvirt\'s back now comes back by itself.' },
+      { type: 'changed', text: 'From their next reboot, bridge networks pass traffic on a host running Docker, and an address added to a bridge by hand no longer routes: use Existing OS bridge for that.' },
+    ],
+  },
+  {
     version: '2.16.2',
     date: '2026-10-31',
     changes: [

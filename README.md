@@ -15,7 +15,7 @@ VirtPilot does not run a control plane, an agent, or a database of truth. VM sta
 
 - **VMs** - create from cloud images with cloud-init, BIOS or UEFI (OVMF + swtpm), a console window with tabs and split panes (serial console, SSH and the VNC display, on the same VM or any other) over WebSockets; clone any VM into an independent copy without shutting it down
 - **Templates & ISOs** - qcow2 backing chain (overlay per VM), upload custom ISOs, convert a running snapshot back into a template
-- **Networking** - bridged interfaces (host bridge required) and managed NAT bridges (`vp0`, `vp1`, …); private VXLAN networks between VMs, on this host or across several, that guests can tag their own VLANs on (see [VXLAN networks](#vxlan-networks)); per-NIC bandwidth shaping via Linux `tc`; per-VM iptables firewall chains
+- **Networking** - bridged interfaces, on a bridge of your own or one VirtPilot manages with a dedicated NIC (see [Managed bridges](#managed-bridges)), and managed NAT bridges (`vp0`, `vp1`, …); private VXLAN networks between VMs, on this host or across several, that guests can tag their own VLANs on (see [VXLAN networks](#vxlan-networks)); per-NIC bandwidth shaping via Linux `tc`; per-VM iptables firewall chains
 - **Snapshots** - internal and external (disk-only and live with RAM); size column shows on-disk cost
 - **Device passthrough** - give a VM a GPU, a network card, a disk controller or a USB device directly. The Devices page lists only what this host can give away, keeps each IOMMU group together, can keep a card for VMs from boot and split an SR-IOV network card into virtual functions, and says exactly what to change when the host isn't ready. See [Device passthrough](#device-passthrough)
 - **Backups** - full and incremental (libvirt checkpoints + qemu dirty bitmaps), scheduled or on demand, locally or to a configurable `BACKUP_ROOT` (e.g. NFS mount). Restore over the original VM, or rebuild the whole machine as a new one. See [Backups](#backups)
@@ -162,6 +162,18 @@ A VM can be given host hardware directly: it sees the real device, and the host 
 
 **Limits.** A VM with a PCI device passed through keeps all of its memory locked on the host, and can't have its memory saved: its snapshots are disk-only. A clone, or a VM rebuilt from a backup, starts with no passed-through devices. Mediated devices (NVIDIA vGPU) are not managed. **Copy report** on the Devices page puts the host's passthrough facts on the clipboard for a bug report, without addresses or VM names.
 
+## Managed bridges
+
+**New network → Bridge** makes a bridge for you, with a dedicated NIC on it if you choose one, so VMs appear on that NIC's network as if they were physical machines. Nothing on the host OS has to change, and it comes back by itself after a reboot, before any VM that starts at boot needs it.
+
+On the host it is a libvirt network with no forwarding and no address (`virsh net-list`, bridge `vp<N>`). libvirt brings the bridge back at boot; the backend puts the NIC back on it and brings it up as soon as it starts, a few seconds later, and every 30 seconds puts back anything that has gone. A VM started on a bridge that has gone gets it back first.
+
+**It won't cut your host off.** A NIC with an IP address or the host's default route, in IPv4 or IPv6, is never taken, when you create the network or at any time later. A NIC that has picked one up since, that belongs to another bridge or bond, or that has gone from the host, stays off the bridge: the Networks page says why, VMs on the bridge can only reach each other in the meantime, and the NIC goes back on once it is free.
+
+**Leave the NIC out of netplan.** If netplan names it, systemd-networkd takes it off the bridge whenever it reconfigures it, and it can look as if an address is still coming: VirtPilot then holds it off the bridge for two and a half minutes, each boot, in case one is. With none by then it goes on the bridge. A NIC that does get an address stays with the host, even if it loses the address for a while (a cable pulled, a DHCP server down), until it is taken out of netplan. These checks are for systemd-networkd, the Ubuntu Server default: on a NetworkManager host a NIC whose DHCP is slower than the service starting could be taken, so don't leave a network naming a NIC the host now uses.
+
+**Upgrading from before 2.16.3.** A bridge already running isn't rebuilt and keeps its VMs, so the upgrade doesn't interrupt them; its libvirt network takes over at the next reboot. If its NIC was down or off it, the NIC goes on and comes up at the upgrade, so those VMs reach that network from then on. A bridge lost to an earlier reboot comes back when the upgraded service starts. An address you added to a bridge by hand doesn't carry over: libvirt's rules for a network with no forwarding block routing through it, so use an OS bridge (**Existing OS bridge**) for that.
+
 ## VXLAN networks
 
 A VXLAN is a software-defined private network (SDN) that connects VMs to each other. VMs on one reach each other and nothing else, and it carries no internet traffic, so a VM that needs to get out keeps a NAT or bridge NIC as well. Create one with **New VXLAN** on the Networks page. Nothing has to be installed or configured on the host, and it comes back by itself after a reboot.
@@ -207,7 +219,7 @@ On the host each VXLAN is a libvirt network with no forwarding (`virsh net-list`
 - Ubuntu 24.04 (the installer refuses other distributions)
 - Root access (the installer needs to install packages, write `/etc/systemd/system`, and create `/var/lib/virtpilot`)
 - A CPU with hardware virtualisation (VT-x / AMD-V) switched on in the firmware. Without it VMs fall back to software emulation, which is far too slow for real work, and nothing can be passed through; the Devices page says which setting to change
-- A pre-existing host bridge if you want bridged networking - typically `br0`. Set `DEFAULT_BRIDGE` in `.env` if you use a different name. NAT bridges are managed by VirtPilot itself and need no setup.
+- A pre-existing host bridge if you want to bridge VMs onto the NIC the host itself uses - typically `br0`. Set `DEFAULT_BRIDGE` in `.env` if you use a different name. NAT bridges, and bridges on a spare NIC, are managed by VirtPilot itself and need no setup.
 
 ---
 

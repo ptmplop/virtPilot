@@ -3,6 +3,21 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.16.3] - 2026-10-31
+
+### Fixed
+
+- **Bridge networks now survive a reboot.** A bridge VirtPilot made (**New network → Bridge**) was gone after the host restarted, its NIC with it, and every VM on it refused to start, including the ones set to start at boot. libvirt now owns the bridge, as it does for NAT networks and VXLANs, so it is back before any VM starts at boot, and VirtPilot puts the NIC back on it within seconds of starting. Nothing on the host OS has to change. Existing bridges are picked up by the upgrade: one that is running isn't rebuilt and keeps its VMs until the next reboot, and one already lost to a reboot comes back when the upgraded service starts.
+- **A bridge's NIC now carries traffic.** It was put on the bridge but never brought up, so on a spare NIC, which nothing else brings up, VMs reached nothing until someone ran `ip link set up` by hand. On a bridge that is running, it comes up at the upgrade, so its VMs reach that network from then on.
+- **A NIC the host may depend on is never taken.** The check used to look at IPv4 addresses when the network was made. It now covers IPv6 too, the default route in both, and a NIC already on another bridge or bond, which it used to move. Since the NIC now goes back on after every boot, the same check runs each time: a NIC that has picked up an address since stays off, the Networks page says why, and it goes back on once it is free. A NIC systemd-networkd is still configuring gets two and a half minutes first, in case an address is on its way, so leave a NIC meant for VMs out of netplan.
+- **Deleting a bridge.** A VM on it could be left unable to start: now the delete is refused and names the VMs, as it does for a VXLAN. Deleting no longer pulls a NIC off a different bridge it has since been moved to, and the NIC is only left down if nothing else, such as a VLAN, sits on it. The NIC picker frees it straight away.
+- **A VXLAN's bridge removed behind libvirt's back now comes back.** libvirt still counted the network as running, so every attempt to start it failed, and the 30-second check never recovered it.
+
+### Changed
+
+- **Bridge networks on a host running Docker pass traffic**, from their next reboot. Docker's FORWARD policy of DROP blocked a plain bridge's traffic when `br_netfilter` was loaded; libvirt's rules let it through.
+- **An address added to a bridge by hand no longer routes**, from its next reboot: libvirt's rules for a network with no forwarding reject routed traffic. For that kind of setup use **Existing OS bridge**.
+
 ## [2.16.2] - 2026-10-31
 
 ### Changed

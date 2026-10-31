@@ -36,6 +36,7 @@ Each section ends with a "Cleanup" so the next section starts from a known state
 17. [Clone](#17-clone) — independent copy of a running or stopped VM
 18. [Device passthrough](#18-device-passthrough) — host checks, what is offered, groups, GPU end to end, SR-IOV, keep for VMs
 19. [VXLAN networks](#19-vxlan-networks) — IDs, addressing, isolation, MTU, VLANs in the guest, remote hosts, firewall, reboot
+20. [Managed bridges](#20-managed-bridges) — back after a reboot, the NIC and when it is refused, upgrade from a plain bridge, repair, delete
 
 ---
 
@@ -653,9 +654,79 @@ Needs VT-x or AMD-V for speed, and a second machine on the internet for the tunn
 
 ---
 
+## 20. Managed bridges
+
+A reboot is the only test of the boot path: libvirt autostarts networks once per boot, so restarting it proves nothing. Needs a spare NIC. With no cable on one, a veth with its far end in a network namespace running a switch, `dnsmasq` and a gateway address serves as the NIC: the API takes any interface name, though the form only lists physical ones.
+
+**Making one.** Bridge, with a spare NIC that is down.
+
+1. `virsh net-list --all` shows its `virtpilot-*` network active with autostart. `virsh net-dumpxml`: no `<ip>`, no `<forward>`. `/sys/class/net/vp<N>/bridge/stp_state` is 0, `/proc/sys/net/ipv6/conf/vp<N>/disable_ipv6` is 1, no `dnsmasq` for it.
+2. The NIC's `master` is `vp<N>` and it is up (`flags` bit 0). A VM on the bridge gets a lease from the DHCP server behind the NIC and reaches its gateway.
+3. Refused with a 409 and nothing left behind (`ls /sys/class/net`, `virsh net-list --all` unchanged): a NIC with an IPv4 address, one with only a default route (`ip route add default dev X metric 9999`), one with only an IPv6 default route, one on another bridge (which it stays on), one another network has, one not on the host. A name that isn't one: 400.
+4. A failure after the bridge exists (`physicalNic: "lo"`) reports the error, removes the network and bridge, keeps no record, and the next create gets the same `vp<N>`.
+
+**After a reboot.** Bridges with and without a NIC, a VM set to start at boot on each. Name a NIC in netplan on one of them (`eno2: {dhcp4: false, optional: true}`): networkd takes a NIC it manages off its master when it configures it.
+
+5. The bridge is there and its libvirt network active. Each NIC netplan doesn't name is on its bridge and up within 45 seconds, and the one it names within three minutes, with the page saying why meanwhile. `journalctl -u libvirtd -b` has no "Cannot get interface MTU". The Networks page shows no problems.
+6. VMs set to start at boot are running, each has a lease from behind the NIC and reaches the gateway. VMs not set to start at boot stay off, as for any VM on this OS, and start when asked.
+7. For the gap between a VM starting and its NIC being on the bridge, compare `starting up` in `/var/log/libvirt/qemu/<vm>.log` with `[bridge]` in `journalctl -u virtpilot -b`: a few seconds at most, and usually the NIC is first.
+
+**Upgrading.** On the previous version: a bridge with a NIC, a floating one, and VMs running on both. Keep `ping -i 0.2` running from a VM to the gateway and to another VM on the floating bridge. In-dashboard upgrade.
+
+8. Neither ping loses a packet. The bridge's `ifindex`, its ports and the VMs' uptime are unchanged. A NIC the previous version left down is now up: bring it up by hand first to measure the pings. The record has `libvirtName`. `virsh net-list --all` has its network inactive with autostart. `systemctl restart virtpilot`: nothing changes.
+9. Delete one now: its plain bridge goes, its libvirt network goes, its NIC is free and down.
+10. Reboot. Each one is now owned by libvirt: its network active, `stp_state` 0, and step 5 and 6 pass.
+11. A host where the previous version lost the bridge in a reboot: upgrade alone brings it back with its NIC, and the VMs start.
+
+**What is put back, within about 35 seconds, with VMs running and without restarting them.**
+
+12. `ip link set <nic> nomaster`. `ip link set <nic> down`. Traffic passes again.
+13. `ip link delete vp<N>`, with libvirt still saying active. `virsh net-destroy <name>`. `virsh net-destroy <name>; virsh net-start <name>`, which falls between two passes. The bridge, every running VM's tap and the NIC are back, and traffic passes. The same on a VXLAN's bridge: `ip link delete vpbr<ID>`.
+14. Stop a VM, `virsh net-destroy <name>`, start the VM at once: it starts, with its bridge back. Another VM still running on that bridge is reconnected.
+
+**What is never taken, within about 35 seconds.** After `ip link set <nic> nomaster` each time.
+
+15. `ip addr add 192.0.2.7/32 dev <nic>`: it stays off, the Networks page says why, and the journal says so once, not every pass. `ip addr del`: back on. The same with the NIC on the bridge: the pass lets go of it, and the address works.
+16. The same with `ip -6 addr add 2001:db8:77::7/64 dev <nic>`, `ip route add default dev <nic> metric 9999` and `ip -6 route add default dev <nic> metric 9999`.
+17. `ip link set <nic> master other`: it stays there and the page says why. Delete the network: it stays on `other`, and stays up.
+18. Delete the NIC (a veth): the page says it isn't on this host. Make it again: back on, and up.
+19. A NIC netplan names (`networkctl reload` to apply; `.network` files aren't readable by the service, so this is judged by `ADMIN_STATE`). `dhcp4: true`, the DHCP server stopped: off the bridge at once, and the page says it is waiting. Start the server inside two minutes (networkd asks again at about 62 s and 126 s, so it can take that long to notice): the NIC gets the address and stays with the host. `dhcp4: false`, or nothing answering: on the bridge after two and a half minutes, and traffic passes. `networkctl reconfigure` then takes it off again, and it goes back, once. With `dhcp4: true` after the host has had a lease, stop the server and flush the address, as a cable pull would: still off after three minutes, with `nicClaimed` on the record. Take it out of netplan: back on.
+20. A VLAN on the NIC with the host's address on it (`ip link add link <nic> name <nic>.100 type vlan id 100`), the parent on the bridge: deleting the network leaves the parent up, and the VLAN passes traffic. uninstall.sh the same.
+21. A record of the old type `public` naming `br77`, put in `networks.json` with the service stopped: no libvirt network and no `br77` after the start, no row in `/api/networks/bridge/status`. It deletes, touching nothing.
+
+**Deleting.**
+
+22. With VMs on it: the dialog names them and Delete waits, and the API says 409 naming them. With none: the network and bridge go, no `iptables-save` line names the bridge, and the NIC is free and down.
+
+**The rest.**
+
+23. `uninstall.sh`: no managed bridge is left, including a plain one from before the upgrade, and a real NIC that was on one is free and down. An OS bridge is left alone, even one called `vp<N>` attached with Existing OS bridge: only bridges named by a `virtpilot-*` libvirt network go.
+24. Host with no managed bridges: no `virsh` from this feature on the 30-second pass (`libvirtd --timeout 120` still idles out with no VMs running).
+25. Docker's state, `bridge-nf-call-iptables=1` and FORWARD policy DROP: a libvirt-owned bridge still passes traffic between VMs. To undo it, set the sysctl back to 0 and **leave the module loaded**: `modprobe -r br_netfilter` also unloads `bridge`, which deletes every bridge on the host.
+
+---
+
 ## Findings log
 
 Append per-run findings here. Format: `### YYYY-MM-DD — vX.Y.Z (host)` then bullet list.
+
+### 2026-10-31 — v2.16.3 (callisto3-test1, the same machine)
+
+Section 20 in full on real interfaces, 8 VMs and 6 bridges at the largest. None of the spare NICs has a cable, so traffic went through veths into a network namespace holding a switch, `dnsmasq` and a gateway; `eno1`, `eno2` and `eno4` proved the attach and the flags on real devices.
+
+The control first, on stock 2.16.0: a real reboot lost `vp2`, `vp3` and `vp4`, libvirt logged `Failed to autostart VM 'old-a': Cannot get interface MTU on 'vp2'` for both autostart VMs, and both NICs came back detached and down. It also showed a second bug: as created, the NIC was never up (`flags 0x1302`), so a VM on the bridge got no lease until `ip link set up` by hand.
+
+- Upgrade alone on that broken host: 25/25, with leases through the NIC. Create and refusals: 31/31. Refused NICs (address, either family; default route, either family; another master; gone; old `public` record) and the hold and claim below: 59/59. Put back with VMs running: 31/31, among them `ip link del` and a restart between two passes, on a VXLAN too. Three real reboots on the fix: 23 + 23 for each set of networks, no complaint from libvirt.
+- Boot race, real reboot: a network naming a NIC netplan now gives to the host by DHCP, with the server answering 60 s into the boot. Off the bridge throughout, the host got its address, `nicClaimed` was recorded, and the address worked (7/7).
+- The NIC is on its bridge before the first VM has started: at 09:11:41, against 09:11:43 for the first `starting up`. The backend's first pass runs as soon as libvirt lets it start. A NIC netplan names waits 148 s (measured), by design.
+- `networkctl reconfigure` takes a NIC off its master within 0.1 s, as `netplan apply` would. It goes back after the hold, and there is no tug of war.
+- A VLAN on the NIC with an address on it passes with the parent on the bridge, and after a delete, which leaves the parent up. `uninstall.sh`'s loops, lifted by marker into a network namespace with `eno4` moved in: both bridges gone, the OS bridge `vp80`, `vp1abc`, `vpbr200` and `br0` kept, VLAN parent up, plain NIC down. A full uninstall wasn't run here, as it would delete the owner's VMs.
+
+Found by two reviewers on the diff (14 findings, all confirmed by a third, all fixed) and not by any test until then: a NIC being configured could be taken just before its address arrived; `net-define` isn't idempotent, so a crash between define and write failed for ever; a restart between two passes left VMs off the network with a clean status; `uninstall.sh` matched by name and would have taken an OS bridge called `vp<N>`; a delete took down a NIC with the host's VLAN on it.
+
+Test traps: `modprobe -r br_netfilter` also unloads `bridge`, deleting every bridge on the host (it took the owner's networks down for a few minutes, repaired without restarting a VM; set the sysctl back instead). `tsc -p tsconfig.json` in `packages/frontend` checks nothing, as that tsconfig only holds references: use `npm --workspace @virtpilot/frontend run typecheck`, which caught a syntax error. libvirt autostarts networks once per boot, so restarting it proves nothing about boot. `pkill -f` with a pattern that appears in your own ssh command line kills the session. networkd's DHCP client asks at about 62 s and 126 s, so a server back at 61 s isn't heard from for another minute.
+
+Observed, not fixed (not this feature): at 1024 px the NAT and bridge table scrolls sideways once a static pool's "251 of 253 free" is in it, and names wrap at their hyphens. A NAT network can still be deleted with a VM on it.
 
 ### 2026-10-31 — v2.16.0 (callisto3-test1, Supermicro bare metal, Xeon D-1541, 31 GB, a clean Ubuntu 24.04)
 
@@ -698,7 +769,7 @@ finished, and passed a 14-check smoke test (both kinds of ID, two VMs, a VLAN an
 box then installed 2.16.0 in 57 s, and the smoke test passed again.
 
 Observed, not fixed (not this feature): a managed `bridge` network's interface doesn't survive a reboot, because it is made with `ip
-link add` and nothing rebuilds it. A VM on one now says its network isn't running instead of "Cannot get interface MTU".
+link add` and nothing rebuilds it. A VM on one now says its network isn't running instead of "Cannot get interface MTU". Fixed in 2.16.3.
 
 ### 2026-10-21 — v2.15.0 (bp8, bare metal, owner's test server)
 

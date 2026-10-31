@@ -31,7 +31,7 @@ import { createVncWss } from './vnc.js';
 import { ensureDirs } from './services/storageService.js';
 import { seedDefault as seedDefaultStorageDir } from './services/storageDirService.js';
 import { applyAllRules } from './services/portForwardService.js';
-import { applyVxlanNetworks, startVxlanWatch } from './services/networkService.js';
+import { applyBridgeNetworks, applyVxlanNetworks, startNetworkWatch } from './services/networkService.js';
 import { startSampling } from './services/statsService.js';
 import { startVmMetricsSampling } from './services/vmMetricsService.js';
 import { startBackupScheduler } from './services/backupSchedulerService.js';
@@ -350,6 +350,13 @@ async function main() {
   } catch (err) {
     console.warn('Could not initialise storage dirs:', err);
   }
+  // First, as VMs on these bridges may be booting right now: libvirt brought the bridges
+  // back by itself, and the physical NICs on them are ours.
+  try {
+    await applyBridgeNetworks();
+  } catch (err) {
+    console.warn('Could not rebuild managed bridges:', err);
+  }
   try {
     await applyAllRules();
   } catch (err) {
@@ -362,7 +369,7 @@ async function main() {
   } catch (err) {
     console.warn('Could not rebuild VXLAN tunnels:', err);
   }
-  startVxlanWatch();
+  startNetworkWatch();
   try {
     getDb();
   } catch (err) {

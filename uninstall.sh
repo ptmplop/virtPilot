@@ -73,7 +73,7 @@ echo "  • All libvirt networks named virtpilot-* (defined by VirtPilot)"
 echo "  • Libvirt VMs created by VirtPilot (a hard disk under /var/lib/virtpilot/,"
 echo "    or a cloud-init seed from /var/lib/virtpilot/cloud-init/) - the domain"
 echo "    and those disk images only; disks stored elsewhere are kept"
-echo "  • VXLAN tunnels (interfaces named vpx*)"
+echo "  • VXLAN tunnels (interfaces named vpx*) and managed bridges (vp<N>)"
 echo "  • iptables VP-IN-* / VP-OUT-* / VP-VXLAN chains"
 echo "  • /etc/nginx/sites-{available,enabled}/virtpilot"
 echo "  • UFW rules for ports ${PUBLIC_PORT}/${BACKEND_PORT}"
@@ -122,6 +122,7 @@ fi
 # Deletion: only the disks we actually collected under /var/lib/virtpilot/.
 # Never --remove-all-storage; out-of-tree disks stay on disk and are reported so
 # the operator can reclaim the space themselves.
+MANAGED_BRIDGES=()
 if command -v virsh >/dev/null 2>&1; then
   info "Looking for VMs created by VirtPilot..."
   while IFS= read -r dom; do
@@ -168,6 +169,28 @@ if command -v virsh >/dev/null 2>&1; then
   done < <(virsh -c qemu:///system list --all --name 2>/dev/null)
 
   # ─── 3. Remove virtpilot-* libvirt networks ─────────────────────────────────
+  # Which vp<N> bridges are VirtPilot's is asked of these networks, before they go: an OS
+  # bridge can be called vp<N> too, attached with "Existing OS bridge", and it stays.
+  while IFS= read -r net; do
+    [[ "$net" == virtpilot-* ]] || continue
+    br="$(virsh -c qemu:///system net-dumpxml --inactive "$net" 2>/dev/null | sed -n "s/.*<bridge name='\(vp[0-9]*\)'.*/\1/p")"
+    [[ -n "$br" ]] && MANAGED_BRIDGES+=("$br")
+  done < <(virsh -c qemu:///system net-list --all --name 2>/dev/null)
+
+  # A managed bridge's NIC first, while the bridge still says which one it is: only a
+  # real device, which VirtPilot put there and brought up. VMs' taps are gone by now.
+  for br in "${MANAGED_BRIDGES[@]}"; do
+    for port in "/sys/class/net/${br}/brif/"*; do
+      [[ -e "${port}" ]] || continue
+      nic="$(basename "${port}")"
+      if [[ -e "/sys/class/net/${nic}/device" ]]; then
+        ip link set "${nic}" nomaster 2>/dev/null || warn "Could not take ${nic} off its bridge"
+        # Not with something else on it: the host may be reached through a VLAN on this NIC.
+        compgen -G "/sys/class/net/${nic}/upper_*" >/dev/null || ip link set "${nic}" down 2>/dev/null || true
+      fi
+    done
+  done
+
   info "Removing virtpilot-* libvirt networks..."
   while IFS= read -r net; do
     [[ -z "$net" ]] && continue
@@ -189,6 +212,14 @@ while IFS= read -r dev; do
     ip link delete "${dev}" 2>/dev/null || warn "Could not remove the VXLAN interface ${dev}"
   fi
 done < <(ip -o link show type vxlan 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1)
+
+# ─── 3c. Remove managed bridges libvirt didn't own ────────────────────────────
+# Made before 2.16.3 and not yet through a boot: libvirt's network was only defined,
+# so taking it away left the bridge here.
+for br in "${MANAGED_BRIDGES[@]}"; do
+  [[ -d "/sys/class/net/${br}/bridge" ]] || continue
+  ip link delete "${br}" 2>/dev/null || warn "Could not remove the bridge ${br}"
+done
 
 # ─── 4. Remove iptables VP-* chains ───────────────────────────────────────────
 # The backend creates VP-IN-{vm} / VP-OUT-{vm} / VP-VXLAN chains and references

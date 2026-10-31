@@ -9,8 +9,6 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { config } from '../config.js';
-import { virshMessage } from '../lib/passthroughErrors.js';
 import {
   VXLAN_CHAIN,
   VXLAN_JUMP,
@@ -23,7 +21,8 @@ import {
   type VxlanLink,
   type VxlanTunnel,
 } from '../lib/vxlan.js';
-import { run, runSafe, virsh } from './safeExec.js';
+import { bridgeExists, plainError, reconnectIfRebuilt, restoreBridge } from './libvirtBridge.js';
+import { run, runSafe } from './safeExec.js';
 import type { Network } from './networkService.js';
 
 export type VxlanNetwork = Network & Required<Pick<Network, 'vni' | 'vxlanPort' | 'mtu' | 'peers' | 'libvirtName'>>;
@@ -34,11 +33,6 @@ export function isVxlan(n: Network): n is VxlanNetwork {
 
 function tunnelOf(n: VxlanNetwork): VxlanTunnel {
   return { vni: n.vni, port: n.vxlanPort, peers: n.peers };
-}
-
-function plain(err: unknown): string {
-  const raw = String((err as { stderr?: string })?.stderr || (err instanceof Error ? err.message : err));
-  return virshMessage(raw);
 }
 
 // ─── Firewall ─────────────────────────────────────────────────────────────────
@@ -75,7 +69,7 @@ async function syncFirewall(tunnels: readonly VxlanTunnel[]): Promise<string | n
     }
     return null;
   } catch (err) {
-    return `The firewall rules that guard the tunnel could not be applied, so it stays down. Check that this host's kernel has the xt_u32 module (modprobe xt_u32). The error: ${plain(err)}`;
+    return `The firewall rules that guard the tunnel could not be applied, so it stays down. Check that this host's kernel has the xt_u32 module (modprobe xt_u32). The error: ${plainError(err)}`;
   } finally {
     await fs.unlink(file).catch(() => {});
   }
@@ -89,14 +83,6 @@ export async function readVxlanLinks(): Promise<VxlanLink[]> {
 
 async function readFdb(device: string) {
   return parseFdb((await runSafe('bridge', ['-j', 'fdb', 'show', 'dev', device])) ?? '[]');
-}
-
-/**
- * Asked of the kernel, not libvirt: a libvirt that is stalled or restarting says nothing
- * about the bridge, and the tunnel doesn't need libvirt to carry traffic.
- */
-export async function bridgeExists(bridge: string): Promise<boolean> {
-  return fs.access(`/sys/class/net/${bridge}`).then(() => true, () => false);
 }
 
 /** Without running anything: a host with no VXLANs should pay nothing for this feature. */
@@ -178,14 +164,10 @@ export async function syncVxlanNetworks(networks: readonly Network[]): Promise<M
     let bridgeUp = await bridgeExists(n.bridge);
     if (!bridgeUp) {
       // Stopped by hand, or autostart failed at boot.
-      try {
-        await virsh(['net-start', n.libvirtName]);
-        bridgeUp = true;
-        mine.push(...await reconnectRunningVms(n.bridge));
-      } catch (err) {
-        mine.push(`Its libvirt network ${n.libvirtName} isn't running and would not start: ${plain(err)}`);
-      }
+      mine.push(...await restoreBridge(n.libvirtName, n.bridge));
+      bridgeUp = await bridgeExists(n.bridge);
     }
+    if (bridgeUp) mine.push(...await reconnectIfRebuilt(n.bridge));
 
     const device = vxlanDeviceName(n.vni);
     const have = links.find((l) => l.name === device);
@@ -200,7 +182,7 @@ export async function syncVxlanNetworks(networks: readonly Network[]): Promise<M
       try {
         await run(step.tool, step.args);
       } catch (err) {
-        const why = plain(err);
+        const why = plainError(err);
         mine.push(/Unknown device type/i.test(why)
           ? `This host's kernel has no VXLAN support: the vxlan module is missing (modprobe vxlan).`
           : `${step.tool} ${step.args.join(' ')}: ${why}`);
@@ -215,45 +197,6 @@ export async function syncVxlanNetworks(networks: readonly Network[]): Promise<M
     }
   }
   return problems;
-}
-
-/**
- * A bridge that went away took every running VM's tap off it, and libvirt doesn't put
- * them back when the network starts again. Lazy import: vmService imports networkService,
- * which imports this module.
- */
-async function reconnectRunningVms(bridge: string): Promise<string[]> {
-  const vms = await (await import('./vmService.js')).listVmsWithNics().catch(() => []);
-  const lost: string[] = [];
-  for (const vm of vms) {
-    if (vm.status !== 'running') continue;
-    for (const nic of vm.nics) {
-      if (nic.source !== bridge || !nic.target || nic.target === '-') continue;
-      if ((await runSafe('ip', ['link', 'set', nic.target, 'master', bridge])) === null) lost.push(vm.name);
-    }
-  }
-  return lost.length > 0 ? [`${lost.join(', ')} lost this network when its bridge went away, and need a restart to get it back.`] : [];
-}
-
-/** Define, start and autostart the libvirt network that owns the bridge. */
-export async function defineLibvirtNetwork(libvirtName: string, xml: string): Promise<void> {
-  const file = path.join(os.tmpdir(), `vp-vxlan-${randomUUID()}.xml`);
-  await fs.writeFile(file, xml, 'utf8');
-  try {
-    await virsh(['net-define', file]);
-    await virsh(['net-start', libvirtName]);
-    await virsh(['net-autostart', libvirtName]);
-  } catch (err) {
-    await removeLibvirtNetwork(libvirtName);
-    throw new Error(plain(err));
-  } finally {
-    await fs.unlink(file).catch(() => {});
-  }
-}
-
-export async function removeLibvirtNetwork(libvirtName: string): Promise<void> {
-  await runSafe('virsh', ['-c', config.libvirtUri, 'net-destroy', libvirtName], { timeout: 30_000 });
-  await runSafe('virsh', ['-c', config.libvirtUri, 'net-undefine', libvirtName], { timeout: 30_000 });
 }
 
 export async function removeVxlanDevice(vni: number): Promise<void> {

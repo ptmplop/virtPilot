@@ -4,7 +4,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import * as storageDirService from './storageDirService.js';
 import { listVmMetas } from './vmMetaService.js';
-import { ensureVxlanBridges, listNetworks } from './networkService.js';
+import { ensureBridges, listNetworks } from './networkService.js';
 import { getRecentVmCpu, guestMemory } from './vmMetricsService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
@@ -492,7 +492,7 @@ export async function startVm(nameOrId: string): Promise<string> {
 async function startDomain(name: string, trace: TraceEntry[]): Promise<void> {
   await refreshChainQuietly(name);
   await deviceService.checkBeforeStart(name);
-  await getVmNics(name).then((nics) => ensureVxlanBridges(nics.map((n) => n.source))).catch(() => {});
+  await getVmNics(name).then((nics) => ensureBridges(nics.map((n) => n.source))).catch(() => {});
   try {
     await virsh(['start', name], trace);
   } catch (err) {

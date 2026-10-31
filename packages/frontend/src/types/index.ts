@@ -180,7 +180,7 @@ export interface Network {
   bridge: string;
   /** bridge only — physical NIC enslaved to bridge */
   physicalNic?: string;
-  /** nat and vxlan */
+  /** nat, vxlan and bridge */
   libvirtName?: string;
   /** vxlan only: the VXLAN ID */
   vni?: number;
@@ -210,6 +210,19 @@ export interface VxlanStatus {
   localAddress: string | null;
   problems: string[];
   vms: Array<{ id: string; name: string; status: VmStatus; mac: string; ip?: string }>;
+}
+
+export interface BridgeStatus {
+  bridgeUp: boolean;
+  uplink: {
+    nic: string;
+    attached: boolean;
+    up: boolean;
+    /** Null when the kernel can't say, as for a link that is down. */
+    carrier: boolean | null;
+  } | null;
+  problems: string[];
+  vms: Array<{ id: string; name: string; status: VmStatus }>;
 }
 
 export interface NetworkIpStatus {

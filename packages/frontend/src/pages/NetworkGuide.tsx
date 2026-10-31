@@ -189,6 +189,14 @@ export function NetworkGuide({ open, onClose }: { open: boolean; onClose: () => 
                 <strong>no active IP address</strong> - dedicated entirely to VMs. Your SSH/management
                 traffic must run over a separate interface.
               </p>
+              <p className="text-sm text-muted-foreground">
+                The bridge comes back by itself after a reboot, and VirtPilot puts the NIC back on it and
+                brings it up, with nothing to configure on the host. It won't take a NIC that has since
+                picked up an IP address or the host's default route, because that could cut the host off.
+                The Networks page says so instead, and the NIC goes back on once it is free again. Leave
+                the NIC out of netplan: if netplan names it, VirtPilot gives it two and a half minutes
+                after each boot in case it is getting an address, and the bridge has no way out until then.
+              </p>
 
               <Callout variant="tip">
                 In the NIC picker, any interface that currently has an IP address is greyed out and

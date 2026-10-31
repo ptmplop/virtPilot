@@ -9,14 +9,15 @@ import { Select } from '@/components/ui/Select';
 import { Panel, PanelHeader } from '@/components/ui/Panel';
 import { RowAction } from '@/components/ui/RowAction';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useNetworks, useCreateNetwork, useDeleteNetwork, useNetwork, useSystemNics, useVxlanIds } from '@/hooks/useNetworks';
+import { useBridgeStatus, useNetworks, useCreateNetwork, useDeleteNetwork, useNetwork, useSystemNics, useVxlanIds } from '@/hooks/useNetworks';
 import { cn } from '@/lib/cn';
 import { networkTypeLabel } from '@/lib/format';
+import { WarnGlyph } from '@/components/ui/Badge';
 import { Callout } from '@/components/ui/Callout';
 import { parseRemoteHosts, RemoteHostsField } from '@/components/networks/RemoteHostsField';
 import { VxlanPanel } from '@/components/networks/VxlanPanel';
 import { NetworkGuide } from './NetworkGuide';
-import type { Network as NetworkType, NetworkIpMode } from '@/types';
+import type { BridgeStatus, Network as NetworkType, NetworkIpMode } from '@/types';
 
 function IpPoolDetail({ networkId }: { networkId: string }) {
   const { data } = useNetwork(networkId);
@@ -25,36 +26,67 @@ function IpPoolDetail({ networkId }: { networkId: string }) {
   return <span className="tabular-nums">{free} of {data.ips.length} free</span>;
 }
 
-function NetworkRow({ network, onDelete }: { network: NetworkType; onDelete: () => void }) {
+function bridgeDeleteText(network: NetworkType, status?: BridgeStatus): string {
+  // An old record can name a bridge that was never VirtPilot's, and it is only forgotten.
+  if (!/^vp\d+$/.test(network.bridge)) return `This will remove the network record. The bridge "${network.bridge}" will not be touched.`;
+  if (!network.physicalNic) return 'This will destroy the bridge.';
+  if (status && !status.uplink?.attached) return `This will destroy the bridge. ${network.physicalNic} is not on it, and is left as it is.`;
+  return `This will take ${network.physicalNic} off the bridge, leave it down unless something else is on it, and destroy the bridge.`;
+}
+
+function NetworkRow({ network, status, onDelete }: { network: NetworkType; status?: BridgeStatus; onDelete: () => void }) {
+  const problems = status
+    ? [
+        ...status.problems,
+        ...(!status.bridgeUp && status.problems.length === 0 ? ['Its bridge is not running. VirtPilot is trying to start it again.'] : []),
+      ]
+    : [];
   return (
-    <tr className="table-row">
-      <td className="px-5 py-3 text-[13.5px] font-semibold text-foreground">{network.name}</td>
-      <td className="px-5 py-3">
-        <span className="whitespace-nowrap text-[12.5px] text-foreground">{networkTypeLabel(network.type, network.ipMode)}</span>
-      </td>
-      <td className="whitespace-nowrap px-5 py-3 font-mono text-[12.5px] text-foreground">{network.cidr}</td>
-      <td className="whitespace-nowrap px-5 py-3 font-mono text-[12px] text-muted-foreground">
-        {network.bridge}
-        {network.physicalNic && (
-          <span className="ml-1.5 text-muted-foreground">← {network.physicalNic}</span>
-        )}
-        {network.type === 'existing-bridge' && (
-          <span className="ml-1.5 text-muted-foreground">(OS)</span>
-        )}
-      </td>
-      <td className="whitespace-nowrap px-5 py-3 font-mono text-[12px] text-muted-foreground">{network.gateway}</td>
-      <td className="whitespace-nowrap px-5 py-3 text-[12px] text-muted-foreground">
-        {network.type !== 'nat' && network.ipMode === 'static'
-          ? <IpPoolDetail networkId={network.id} />
-          : <span>DHCP</span>
-        }
-      </td>
-      <td className="px-5 py-1.5 text-right">
-        <RowAction label={`Delete network ${network.name}`} tooltip="Delete network" danger onClick={onDelete}>
-          <Trash2 size={14} />
-        </RowAction>
-      </td>
-    </tr>
+    <>
+      <tr className="table-row">
+        <td className="px-5 py-3 text-[13.5px] font-semibold text-foreground">{network.name}</td>
+        <td className="px-5 py-3">
+          <span className="whitespace-nowrap text-[12.5px] text-foreground">{networkTypeLabel(network.type, network.ipMode)}</span>
+        </td>
+        <td className="whitespace-nowrap px-5 py-3 font-mono text-[12.5px] text-foreground">{network.cidr}</td>
+        <td className="whitespace-nowrap px-5 py-3 font-mono text-[12px] text-muted-foreground">
+          {network.bridge}
+          {network.physicalNic && (
+            <span className="ml-1.5 text-muted-foreground">← {network.physicalNic}</span>
+          )}
+          {network.type === 'existing-bridge' && (
+            <span className="ml-1.5 text-muted-foreground">(OS)</span>
+          )}
+          {status?.uplink?.attached && status.uplink.carrier === false && (
+            <div className="mt-0.5 font-sans">{status.uplink.nic} has no link</div>
+          )}
+        </td>
+        <td className="whitespace-nowrap px-5 py-3 font-mono text-[12px] text-muted-foreground">{network.gateway}</td>
+        <td className="whitespace-nowrap px-5 py-3 text-[12px] text-muted-foreground">
+          {network.type !== 'nat' && network.ipMode === 'static'
+            ? <IpPoolDetail networkId={network.id} />
+            : <span>DHCP</span>
+          }
+        </td>
+        <td className="px-5 py-1.5 text-right">
+          <RowAction label={`Delete network ${network.name}`} tooltip="Delete network" danger onClick={onDelete}>
+            <Trash2 size={14} />
+          </RowAction>
+        </td>
+      </tr>
+      {/* A row of its own: in the name's cell, a table that has run out of width squeezes it to a word per line. */}
+      {problems.length > 0 && (
+        <tr className="!border-t-0">
+          <td colSpan={7} className="px-5 pb-3">
+            {problems.map((p) => (
+              <p key={p} className="flex max-w-[min(80ch,calc(100vw-5rem))] items-start gap-1.5 text-[12px] leading-[1.45] text-amber-800 dark:text-amber-200">
+                <WarnGlyph className="mt-[3px] shrink-0" />{p}
+              </p>
+            ))}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -136,8 +168,8 @@ const VXLAN_TAGGING = ' They can tag their own VLANs on it, including nested Qin
 
 const TYPE_DESCRIPTIONS: Record<string, string> = {
   nat: 'A libvirt NAT network is created automatically. VMs get DHCP IPs and are reachable from this host. Ideal for isolated dev/test networks.',
-  'bridge-dhcp': 'VirtPilot creates a new Linux bridge and optionally enslaves a dedicated NIC (one with no active IPs). VMs are bridged onto your upstream network and receive IPs from its DHCP server.',
-  'bridge-static': 'VirtPilot creates a new Linux bridge and optionally enslaves a dedicated NIC (one with no active IPs). VirtPilot assigns static IPs from the pool you define via cloud-init.',
+  'bridge-dhcp': 'VirtPilot creates a new Linux bridge and optionally enslaves a dedicated NIC (one with no active IPs). Both come back by themselves after a reboot. VMs are bridged onto your upstream network and receive IPs from its DHCP server.',
+  'bridge-static': 'VirtPilot creates a new Linux bridge and optionally enslaves a dedicated NIC (one with no active IPs). Both come back by themselves after a reboot. VirtPilot assigns static IPs from the pool you define via cloud-init.',
   'existing-bridge-dhcp': 'Attach to a bridge already configured at the OS level (netplan / /etc/network/interfaces). VirtPilot will never modify this bridge. VMs receive IPs from the upstream DHCP server.',
   'existing-bridge-static': 'Attach to a bridge already configured at the OS level (netplan / /etc/network/interfaces). VirtPilot will never modify this bridge. VirtPilot assigns static IPs from the pool you define via cloud-init.',
   'vxlan-dhcp': `VMs on it reach each other and this host, and nothing else. A VM that needs the internet keeps its NAT or bridge NIC.${VXLAN_TAGGING}`,
@@ -154,7 +186,7 @@ export function NetworksPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<NetworkType | null>(null);
-  // A VXLAN's connected VMs, known to its panel: Delete can only fail until they are gone.
+  // The VMs on a VXLAN or managed bridge, known to its status: Delete can only fail until they are gone.
   const [deleteBlockedBy, setDeleteBlockedBy] = useState<string[]>([]);
   const [optionalOpen, setOptionalOpen] = useState(false);
   const [form, setForm] = useState<CreateForm>(defaultForm);
@@ -173,6 +205,7 @@ export function NetworksPage() {
 
   const vxlans = networks?.filter((n) => n.type === 'vxlan') ?? [];
   const others = networks?.filter((n) => n.type !== 'vxlan') ?? [];
+  const { data: bridgeStatus } = useBridgeStatus(others.some((n) => n.type === 'bridge'));
   const natCount = networks?.filter((n) => n.type === 'nat').length ?? 0;
   const bridgeCount = networks?.filter((n) => n.type === 'bridge' || n.type === 'existing-bridge').length ?? 0;
 
@@ -210,9 +243,13 @@ export function NetworksPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  const blockedNames = deleteBlockedBy.length > 1
-    ? `${deleteBlockedBy.slice(0, -1).join(', ')} and ${deleteBlockedBy[deleteBlockedBy.length - 1]}`
-    : deleteBlockedBy[0];
+  // Read live for a bridge, so a VM removed meanwhile frees the button and one added blocks it.
+  const blockers = deleteTarget?.type === 'bridge'
+    ? bridgeStatus?.[deleteTarget.id]?.vms.map((v) => v.name) ?? []
+    : deleteBlockedBy;
+  const blockedNames = blockers.length > 1
+    ? `${blockers.slice(0, -1).join(', ')} and ${blockers[blockers.length - 1]}`
+    : blockers[0];
 
   // Each kind has its own default way of giving out addresses, and a VXLAN's "none"
   // means nothing on a bridge.
@@ -354,7 +391,12 @@ export function NetworksPage() {
                     </thead>
                     <tbody className="divide-y divide-border">
                       {others.map((n) => (
-                        <NetworkRow key={n.id} network={n} onDelete={() => openDelete(n)} />
+                        <NetworkRow
+                          key={n.id}
+                          network={n}
+                          status={bridgeStatus?.[n.id]}
+                          onDelete={() => openDelete(n)}
+                        />
                       ))}
                     </tbody>
                     {/* The count in the list's own foot; the split by kind only when there is one. */}
@@ -545,7 +587,7 @@ export function NetworksPage() {
                   <option key={nic.name} value={nic.name} disabled={nic.hasIps || nic.inUse}>
                     {nic.name}, {nic.mac}
                     {nic.speed ? `, ${nic.speed}` : ''}
-                    {nic.hasIps ? ' ⚠ has active IPs: use Existing OS bridge instead' : nic.inUse ? ' (already in use)' : ''}
+                    {nic.hasIps ? ' ⚠ the host uses it: use Existing OS bridge instead' : nic.inUse ? ' (already in use)' : ''}
                   </option>
                 ))}
               </Select>
@@ -587,7 +629,7 @@ export function NetworksPage() {
         onClose={() => setDeleteTarget(null)}
         title="Delete network"
         description={deleteTarget ? [deleteTarget.name, deleteTarget.vni !== undefined ? `VXLAN ID ${deleteTarget.vni}` : '', deleteTarget.cidr].filter(Boolean).join(' · ') : undefined}
-        note={deleteBlockedBy.length > 0 ? `${deleteBlockedBy.length} ${deleteBlockedBy.length === 1 ? 'VM is' : 'VMs are'} still connected.` : undefined}
+        note={blockers.length > 0 ? `${blockers.length} ${blockers.length === 1 ? 'VM is' : 'VMs are'} still connected.` : undefined}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setDeleteTarget(null)}>
@@ -597,7 +639,7 @@ export function NetworksPage() {
               size="sm"
               variant="danger"
               onClick={() => deleteTarget && handleDelete(deleteTarget)}
-              disabled={deleteNetwork.isPending || deleteBlockedBy.length > 0}
+              disabled={deleteNetwork.isPending || blockers.length > 0}
             >
               {deleteNetwork.isPending ? 'Deleting…' : 'Delete network'}
             </Button>
@@ -605,17 +647,15 @@ export function NetworksPage() {
         }
       >
         <p className="text-sm text-foreground">
-          {deleteTarget?.type === 'vxlan'
-            ? deleteBlockedBy.length > 0
-              ? `${blockedNames} ${deleteBlockedBy.length === 1 ? 'is' : 'are'} still connected. Remove ${deleteBlockedBy.length === 1 ? 'its NIC on its' : 'their NICs on each VM\'s'} Network tab first.`
-              : 'This will destroy its bridge and tunnel.'
+          {blockers.length > 0
+            ? `${blockedNames} ${blockers.length === 1 ? 'is' : 'are'} still connected. Remove ${blockers.length === 1 ? 'its NIC on its' : 'their NICs on each VM\'s'} Network tab first.`
+            : deleteTarget?.type === 'vxlan'
+            ? 'This will destroy its bridge and tunnel.'
             : deleteTarget?.type === 'nat'
             ? 'This will destroy the libvirt network and its bridge.'
             : deleteTarget?.type === 'existing-bridge'
               ? `This will remove the network record. The OS bridge "${deleteTarget.bridge}" will not be touched.`
-              : deleteTarget?.physicalNic
-                ? `This will detach ${deleteTarget.physicalNic} from the bridge, bring it down, and remove the network.`
-                : 'This will bring down the bridge and remove the network.'}
+              : deleteTarget ? bridgeDeleteText(deleteTarget, bridgeStatus?.[deleteTarget.id]) : ''}
         </p>
       </Dialog>
     </Layout>
