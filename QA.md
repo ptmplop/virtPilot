@@ -692,6 +692,11 @@ bridge because the outer tag is metadata; capture unfiltered. A VM holding both 
 nothing about isolation, and leftover addresses from an earlier suite made a cross-host ping answer from the wrong VM. `systemctl
 reboot` can take a minute to bite, so wait for a new boot ID, not for ssh.
 
+The release itself, after those suites: a real in-app upgrade from a clean v2.15.0 printed the hand-off to the pulled update.sh,
+finished, and passed a 14-check smoke test (both kinds of ID, two VMs, a VLAN and QinQ in the guests). `uninstall.sh --yes
+--remove-install-dir` with a live tunnel up left no device, bridge, rule, chain, listener or libvirt network. The one-liner on that
+box then installed 2.16.0 in 57 s, and the smoke test passed again.
+
 Observed, not fixed (not this feature): a managed `bridge` network's interface doesn't survive a reboot, because it is made with `ip
 link add` and nothing rebuilds it. A VM on one now says its network isn't running instead of "Cannot get interface MTU".
 
