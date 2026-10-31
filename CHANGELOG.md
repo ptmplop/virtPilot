@@ -3,6 +3,12 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.16.2] - 2026-10-31
+
+### Changed
+
+- **A new logo, replacing the moustache from 2.16.1.** A stubby plane that has just looped the loop inside the dial and is flying out through the gap, with the name redrawn in lowercase to match. It's in the sidebar, the phone top bar, the sign-in screen, the console window, the browser tab and the app icons. It uses the app's own colours in both themes, and its ring is the same one the dashboard's gauges are drawn with.
+
 ## [2.16.1] - 2026-10-31
 
 ### Changed

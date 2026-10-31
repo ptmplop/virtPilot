@@ -1,17 +1,17 @@
 # VirtPilot frontend — design system ("Instrument")
 
-The logo is **Moustache** (`public/brand/`, kit and usage guide in `websites/virtpilot-logo/kit-moustache`):
-a biplane front on, with rack servers for wings and a propeller for a moustache. The logo has the fun; the
-interface doesn't join in.
+The logo is **Joyride** (`public/brand/`, kit and usage guide in `websites/virtpilot-logo/kit-joyride`): an
+instrument ring with a 40° gap at 45° and a stubby steel plane that has looped the loop inside it, leaving
+through the gap. The wordmark is drawn from scratch in lowercase, with the ring's gap in its `o`. In text the
+product is still VirtPilot.
 
-The interface is built from **Heading**, the logo before it: an instrument ring with a 40° gap at 45° and a
-steel needle. Calm, precise, quietly confident. Newness comes from structure and type; colour stays quiet.
-Moustache uses the same tokens, with the face in steel in both themes.
+The interface is built from that ring. Calm, precise, quietly confident. Newness comes from structure and type;
+colour stays quiet. The plane and its loop are the logo's fun; the interface doesn't join in.
 
 Three drawings, by size: `virtpilot-horizontal` or `virtpilot-symbol` above 48px (the sign-in screen's 38px
 lockup is the one exception), the `-compact` files from 20 to 32px (sidebar and phone top bar), and
-`virtpilot-symbol-small`, the face alone, at 20px and below. The horizontal files are drawn so the symbol is the
-left square of an 83:26 box, because the collapsed sidebar crops to it.
+`virtpilot-symbol-small`, ring and plane with no trail, at 20px and below. The horizontal files are drawn so the
+ring is the left square of a 90:26 box, because the collapsed sidebar crops to it.
 
 ## The frame
 
@@ -44,7 +44,7 @@ left square of an 83:26 box, because the collapsed sidebar crops to it.
 | A section of the page | `<SectionHeading label="…" />` (label + steel tick + hairline) |
 | VM state | `<StatusBadge status />` / `<StatusGlyph status />` — the glyph *shape* encodes state (disc running, ring stopped, bars paused, diamond crashed) |
 | A warning that isn't a VM state | `<WarnGlyph />` |
-| A proportion of a whole | `<RingGauge value tone>` (the instrument ring) — dashboard; or a 5px bar on `bg-gauge-track` |
+| A proportion of a whole | `<RingGauge value tone>` (the logo ring) — dashboard; or a 5px bar on `bg-gauge-track` |
 | Buttons | `<Button variant="primary\|secondary\|ghost\|danger\|dangerOutline" size="sm\|md">` — primary is **ink** (`bg-action`), not steel, and marks the one main action of a view; actions repeated down a table are `secondary`. Page-header actions are `md` (36px) everywhere; dialog footers use `sm` |
 | Several related commands behind one button (a row's power actions) | `<Menu label tooltip icon items>` — portalled, keyboard-complete; graceful commands above forceful ones (`separated`), destructive ones `danger`. Pass `tooltip` to the Menu, never wrap it in `<Tooltip>` (React counts the portal as inside the wrapper) |
 | A quiet action on a table row (detach, rename, delete) | `<RowAction label tooltip danger>` (`components/ui/RowAction.tsx`): a ghost icon button, red only on hover when `danger`; the tooltip may say when or why, the label says what |

@@ -983,7 +983,7 @@ function VirtPilotUpdateCard() {
 // ─── Health band ───────────────────────────────────────────────────────────────
 //
 // The instrument cluster at the top of the landing page: an overall verdict for the
-// host, its three vitals and the VM count as ring gauges (the instrument ring), and
+// host, its three vitals and the VM count as ring gauges (the logo's own dial), and
 // the installed VirtPilot version. "Is the host happy?" in one glance.
 
 // Tweens a number towards its target with the shared count-up curve, then formats

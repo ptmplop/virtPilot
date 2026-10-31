@@ -1,4 +1,4 @@
-// A section heading is its label, a short steel tick — the old logo's needle, laid flat —
+// A section heading is its label, a short steel tick — the first logo's needle, laid flat —
 // and a hairline that runs to the edge of the column. The rule groups what follows
 // without boxing it.
 export function SectionHeading({ label, children }: { label: string; children?: React.ReactNode }) {

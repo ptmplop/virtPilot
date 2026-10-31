@@ -13,6 +13,13 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.16.2',
+    date: '2026-10-31',
+    changes: [
+      { type: 'changed', text: 'A new logo, replacing the moustache from 2.16.1: a stubby plane that has just looped the loop inside the dial and is flying out through the gap, with the name redrawn in lowercase to match. It uses the app\'s own colours, and its ring is the same one the dashboard\'s gauges are drawn with.' },
+    ],
+  },
+  {
     version: '2.16.1',
     date: '2026-10-31',
     changes: [

@@ -2,12 +2,12 @@ import type { ReactNode } from 'react';
 import { useCountUp } from '@/hooks/useCountUp';
 import { cn } from '@/lib/cn';
 
-// The instrument ring, used as a gauge. Same geometry as Heading, the logo before this
-// one: a ring with a 40° gap centred on 45° (up and to the right, where its needle left
-// the dial). The track runs clockwise from the gap's lower edge round to its upper edge,
-// 320° in all, and the reading fills it in that direction — so an empty gauge is that
-// ring and a full one closes on the gap. Butt caps keep the gap's edges radial, as they
-// were in the mark.
+// The logo's instrument ring, used as a gauge. Same geometry as the mark: a ring with
+// a 40° gap centred on 45° (up and to the right, where the plane leaves the dial).
+// The track runs clockwise from the gap's lower edge round to its upper edge, 320° in
+// all, and the reading fills it in that direction — so an empty gauge is the logo's
+// ring and a full one closes on the gap. Butt caps keep the gap's edges radial, as
+// they are in the mark.
 
 const GAP_CENTRE = 45;
 const GAP = 40;

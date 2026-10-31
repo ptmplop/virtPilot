@@ -32,7 +32,7 @@ import { useHostName } from '@/hooks/useSystemStats';
 
 // The version the operator sees. scripts/check-versions.sh checks this literal, and the
 // login screen imports it so the two can never disagree again.
-export const APP_VERSION = 'v2.16.1';
+export const APP_VERSION = 'v2.16.2';
 
 interface LayoutProps {
   children?: ReactNode;
@@ -147,8 +147,8 @@ function TopBar({ open, onOpen, buttonRef }: { open: boolean; onOpen: () => void
   return (
     <div className="flex h-14 shrink-0 items-center justify-between pl-3 pr-2 md:hidden">
       <Link to="/" aria-label="VirtPilot - Dashboard" className="flex h-10 items-center rounded-md px-[7px] focus-visible:outline-offset-0">
-        <img src="/brand/virtpilot-horizontal-compact.svg" alt="" className="h-[26px] w-[83px] max-w-none dark:hidden" />
-        <img src="/brand/virtpilot-horizontal-compact-dark.svg" alt="" className="hidden h-[26px] w-[83px] max-w-none dark:block" />
+        <img src="/brand/virtpilot-horizontal-compact.svg" alt="" className="h-[26px] w-[90px] max-w-none dark:hidden" />
+        <img src="/brand/virtpilot-horizontal-compact-dark.svg" alt="" className="hidden h-[26px] w-[90px] max-w-none dark:block" />
       </Link>
       <button
         ref={buttonRef}
@@ -259,11 +259,11 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
           <span
             className={cn(
               'block h-[26px] overflow-hidden transition-[width] duration-200 ease-out motion-reduce:transition-none',
-              collapsed ? 'w-[26px]' : 'w-[83px]'
+              collapsed ? 'w-[26px]' : 'w-[90px]'
             )}
           >
-            <img src="/brand/virtpilot-horizontal-compact.svg" alt="" className="h-[26px] w-[83px] max-w-none dark:hidden" />
-            <img src="/brand/virtpilot-horizontal-compact-dark.svg" alt="" className="hidden h-[26px] w-[83px] max-w-none dark:block" />
+            <img src="/brand/virtpilot-horizontal-compact.svg" alt="" className="h-[26px] w-[90px] max-w-none dark:hidden" />
+            <img src="/brand/virtpilot-horizontal-compact-dark.svg" alt="" className="hidden h-[26px] w-[90px] max-w-none dark:block" />
           </span>
         </Link>
       </div>
