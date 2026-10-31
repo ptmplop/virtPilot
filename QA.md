@@ -722,6 +722,8 @@ Append per-run findings here. Format: `### YYYY-MM-DD — vX.Y.Z (host)` then bu
 
 Section 11's new checks: 50/50 on the local rig (real libvirt, TCG VMs) through the API and the real dialog, among them a VM added while the dialog is open, a stranded port forward and a NIC attached by the network's name. Table widths with worst-case rows served by intercepting the API: NAT and bridge 987/702 before, fits after (679 minimum); VXLAN with ordinary rows fits, and 785/702 with an 8-digit ID, a long VM name and two remote hosts, which scrolls inside its panel with nothing clipped.
 
+The release itself: a real in-app upgrade on callisto3-test1 from 2.16.3, with VMs running (not restarted). On the released build, 23/23: refused with a VM stopped or running, deleted with none and nothing left behind, an OS bridge's record deleted with a VM on it, which still starts. The dialog on a real network named its two VMs with Delete disabled, and both tables fit 702/702 at 1024.
+
 Found by a reviewer and a design critic on the diff, not by any test until then: the dialog's own advice stranded a port forward, since removing a NIC left it behind with nothing to remove it by, and the network then couldn't be deleted. My "worst case" used a 13-character NIC name, though `enx` + MAC is 15. TanStack Query puts a failed query with no data back to pending on each poll, so `isLoading` alone keeps flipping: use `isLoading && !isFetched`. A disabled observer keeps the cache alive, so a dialog's answer needs `gcTime: 0`, or reopening shows the old one.
 
 ### 2026-10-31 — v2.16.3 (callisto3-test1, the same machine)
