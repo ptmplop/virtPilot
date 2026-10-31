@@ -431,35 +431,50 @@ export async function deletePortForward(id: string): Promise<void> {
   await releaseReservationIfUnused(forward.networkId, forward.mac);
 }
 
-export async function deletePortForwardsForVm(vmUuid: string): Promise<void> {
+async function deleteForwardsWhere(match: (f: PortForward) => boolean): Promise<void> {
   const forwards = await readForwards();
-  const mine = forwards.filter((f) => f.vmUuid === vmUuid);
+  const mine = forwards.filter(match);
+  if (mine.length === 0) return;
   for (const fwd of mine) {
     await removeIptablesRules(fwd);
   }
-  const remaining = forwards.filter((f) => f.vmUuid !== vmUuid);
-  await writeForwards(remaining);
+  await writeForwards(forwards.filter((f) => !match(f)));
   for (const fwd of mine) {
     await releaseReservationIfUnused(fwd.networkId, fwd.mac);
   }
 }
 
-export async function reserveVmIp(networkId: string, vmUuid: string, mac: string): Promise<string> {
-  return (await ensureReservation(networkId, vmUuid, mac)).ip;
+export async function deletePortForwardsForVm(vmUuid: string): Promise<void> {
+  await deleteForwardsWhere((f) => f.vmUuid === vmUuid);
 }
 
-// Deleting a network out from under a live port forward strands its DNAT rule:
-// the forward's record still points at a network that no longer exists, so the
-// ingress match can no longer be derived from disk. networkService must call
-// this before removing a network.
-export async function assertNetworkHasNoForwards(networkId: string): Promise<void> {
-  const forwards = await readForwards();
-  const inUse = forwards.filter((f) => f.networkId === networkId).length;
-  if (inUse > 0) {
-    throw new Error(
-      `This network still has ${inUse} port forward${inUse === 1 ? '' : 's'}. Remove them before deleting the network.`
-    );
+/**
+ * With a NIC gone, its forwards and any address locked for it have no use, and nothing left in
+ * the dashboard to remove them by: their list is drawn per NIC. The DNAT rule would stay live,
+ * the host port taken, and the network undeletable.
+ */
+export async function deletePortForwardsForNic(vmUuid: string, macRaw: string): Promise<void> {
+  const mac = validateMac(macRaw);
+  await deleteForwardsWhere((f) => f.vmUuid === vmUuid && f.mac.toLowerCase() === mac);
+  for (const r of await readReservations()) {
+    if (r.vmUuid === vmUuid && r.mac === mac) await releaseReservationIfUnused(r.networkId, r.mac);
   }
+}
+
+/**
+ * For a network about to go, with no VM left on it: whatever is left on it belongs to a NIC
+ * that has gone. Ahead of the network, as a DNAT rule is built from the network's bridge, and
+ * once that has gone nothing can construct the matching `-D`.
+ */
+export async function deletePortForwardsForNetwork(networkId: string): Promise<void> {
+  await deleteForwardsWhere((f) => f.networkId === networkId);
+  for (const r of await readReservations()) {
+    if (r.networkId === networkId) await releaseReservationIfUnused(r.networkId, r.mac);
+  }
+}
+
+export async function reserveVmIp(networkId: string, vmUuid: string, mac: string): Promise<string> {
+  return (await ensureReservation(networkId, vmUuid, mac)).ip;
 }
 
 export async function getReservationsForVm(vmUuid: string): Promise<DhcpReservation[]> {

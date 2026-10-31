@@ -60,16 +60,16 @@ function ConnectedVms({ network, status, onConnect }: { network: Network; status
       {vms.length === 0 ? (
         <p className="text-[12.5px] text-muted-foreground">None yet</p>
       ) : (
-        // One grid across the rows, so the addresses share a left edge whatever the names.
-        <ul className="grid w-fit grid-cols-[auto_auto] gap-x-2.5 gap-y-1">
+        // The address under the name, not beside it: side by side they don't fit at 1024.
+        <ul className="space-y-1.5">
           {shown.map((vm) => (
-            <li key={vm.mac} className="col-span-2 grid grid-cols-subgrid items-center whitespace-nowrap">
+            <li key={vm.mac} className="whitespace-nowrap">
               <span className="flex items-center gap-2">
                 <StatusGlyph status={vm.status} size={7} />
                 <span className="sr-only">{statusLabels[vm.status]}:</span>
                 <Link to={`/vms/${vm.id}?tab=network`} className="text-[13px] text-primary underline-offset-2 hover:underline">{vm.name}</Link>
               </span>
-              <span className="font-mono text-[12px] text-muted-foreground">{vm.ip}</span>
+              {vm.ip && <div className="ml-[15px] font-mono text-[12px] text-muted-foreground">{vm.ip}</div>}
             </li>
           ))}
         </ul>
@@ -275,8 +275,7 @@ export function VxlanPanel({
 }: {
   networks: Network[];
   onNew: () => void;
-  /** With the names of the VMs still on it: the delete dialog says who is in the way. */
-  onDelete: (n: Network, connected: string[]) => void;
+  onDelete: (n: Network) => void;
 }) {
   const { data: statuses, isLoading } = useVxlanStatus(networks.length > 0);
   const [hostsFor, setHostsFor] = useState<Network | null>(null);
@@ -341,7 +340,7 @@ export function VxlanPanel({
                     </td>
                     <td className="px-3 py-3"><Addresses network={n} /></td>
                     <td className="px-3 py-3"><RemoteHosts network={n} status={status} /></td>
-                    <td className="whitespace-nowrap py-1.5 pl-3 pr-5 text-right">
+                    <td className="whitespace-nowrap py-1.5 pl-1 pr-5 text-right">
                       <div className="inline-flex items-center justify-end gap-0.5">
                         <RowAction label={`Remote hosts of ${n.name}`} tooltip="Remote hosts" onClick={() => setHostsFor(n)}>
                           <Waypoints size={14} />
@@ -350,7 +349,7 @@ export function VxlanPanel({
                           label={`Delete network ${n.name}`}
                           tooltip="Delete network"
                           danger
-                          onClick={() => onDelete(n, [...new Set((status?.vms ?? []).map((vm) => vm.name))])}
+                          onClick={() => onDelete(n)}
                         >
                           <Trash2 size={14} />
                         </RowAction>

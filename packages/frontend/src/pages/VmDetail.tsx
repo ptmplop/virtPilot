@@ -2129,6 +2129,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
               <> from <span className="font-medium text-foreground">{networks?.find((n) => n.bridge === removeNic.source)?.name ?? removeNic.source}</span></>
             )}?{' '}
             A running VM loses this connection at once.
+            {networks?.find((n) => n.bridge === removeNic?.source)?.type === 'nat' && ' Its port forwards and any locked IP go with it.'}
           </p>
         </Dialog>
 

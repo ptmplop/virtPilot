@@ -637,6 +637,11 @@ export async function ensureBridges(bridges: readonly string[], waitMs = 15_000)
   clearTimeout(timer);
 }
 
+/** A VM made outside VirtPilot can name the libvirt network where VirtPilot names its bridge. */
+export function nicIsOnNetwork(nic: { source: string }, n: Pick<Network, 'bridge' | 'libvirtName'>): boolean {
+  return nic.source === n.bridge || (!!n.libvirtName && nic.source === n.libvirtName);
+}
+
 export function deleteNetwork(id: string): Promise<void> {
   return serialized(() => deleteNetworkNow(id));
 }
@@ -648,34 +653,32 @@ async function deleteNetworkNow(id: string): Promise<void> {
 
   let allocations = await readAllocations();
 
-  // A VM left on a deleted VXLAN or managed bridge would refuse to start. Lazy import:
-  // vmService imports this module. It throws if libvirt can't say, and that refuses the delete.
-  if (network.type === 'vxlan' || bridgeService.isManagedBridge(network)) {
+  // A VM left on a deleted network of VirtPilot's would refuse to start. An OS bridge stays
+  // when its record goes, so a VM on one is fine. Lazy import: vmService imports this module.
+  // It throws if libvirt can't say, and that refuses the delete.
+  if (network.type === 'nat' || network.type === 'vxlan' || bridgeService.isManagedBridge(network)) {
     const all = await (await import('./vmService.js')).listVmsWithNics();
-    const vms = all.filter((vm) => vm.nics.some((nic) => nic.source === network.bridge)).map((vm) => vm.name);
+    const vms = all.filter((vm) => vm.nics.some((nic) => nicIsOnNetwork(nic, network))).map((vm) => vm.name);
     if (vms.length > 0) {
-      throw new NetworkError(`${vms.join(', ')} ${vms.length === 1 ? 'is' : 'are'} still connected to this ${network.type === 'vxlan' ? 'VXLAN' : 'bridge'}. Remove ${vms.length === 1 ? 'its NIC' : 'their NICs'} first.`, 409);
+      const kind = network.type === 'vxlan' ? 'VXLAN' : network.type === 'nat' ? 'NAT network' : 'bridge';
+      throw new NetworkError(`${vms.join(', ')} ${vms.length === 1 ? 'is' : 'are'} still connected to this ${kind}. Remove ${vms.length === 1 ? 'its NIC' : 'their NICs'} first.`, 409);
     }
     // No VM is on it, so what is left in the pool belongs to VMs that are gone: nothing
     // could ever release it, and it must not keep the network here for good. Except a VM
     // being made right now, which holds an address before libvirt has heard of it. Read
     // again: this file has writers outside the queue, and asking libvirt took a while.
     const settled = Date.now() - 5 * 60_000;
-    allocations = (await readAllocations()).filter((a) => a.networkId !== id || Date.parse(a.allocatedAt) > settled);
-    await writeAllocations(allocations);
+    const held = await readAllocations();
+    allocations = held.filter((a) => a.networkId !== id || Date.parse(a.allocatedAt) > settled);
+    if (allocations.length !== held.length) await writeAllocations(allocations);
   }
 
   if (allocations.some((a) => a.networkId === id)) {
     throw new Error('Network has active IP allocations - delete the associated VMs first');
   }
 
-  // NAT networks never create IP allocations, so the check above doesn't cover
-  // them. Without this a NAT network can be deleted while port forwards still
-  // reference it — and the DNAT rules are built from the network's bridge, so
-  // once it's gone nothing can construct the matching `-D` and the rules are
-  // orphaned in PREROUTING for good. Lazy import: portForwardService imports
-  // this module, so a top-level import would be a cycle.
-  await (await import('./portForwardService.js')).assertNetworkHasNoForwards(id);
+  // Only a NAT network has port forwards. Lazy import: portForwardService imports this module.
+  if (network.type === 'nat') await (await import('./portForwardService.js')).deletePortForwardsForNetwork(id);
 
   // Hand-edited at worst, and the record can still go: virsh gets it as one argument.
   const libvirtName = network.libvirtName && /^[A-Za-z0-9._-]{1,64}$/.test(network.libvirtName) ? network.libvirtName : undefined;

@@ -14,7 +14,9 @@ export interface VmDisk {
 
 export interface VmNic {
   mac: string;
-  source: string;   // bridge name
+  source: string;   // bridge name; a libvirt network's name on a NIC made outside VirtPilot
+  /** How libvirt attaches it: 'bridge' for everything VirtPilot makes. */
+  type?: string;
   model: string;
   target?: string;  // tap device
   inboundKbps?: number;   // average inbound rate limit, KiB/s (from guest perspective)

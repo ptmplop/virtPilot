@@ -3,6 +3,21 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.16.4] - 2026-10-31
+
+### Fixed
+
+- **A NAT network can no longer be deleted with a VM on it.** The VM was left with a NIC on a network that had gone, and refused to start. The delete is now refused and names the VMs, running or stopped, as it already was for a VXLAN or a bridge. The dialog says so before you try, and keeps watching: remove the NIC in another tab and Delete frees itself.
+- **A port forward no longer outlives its NIC.** Removing a NIC left its forwards behind with nothing in the dashboard to remove them by: the DNAT rule stayed live, the host port stayed taken, and the NAT network could never be deleted. They now go with the NIC, as does any IP locked for it. Deleting a NAT network clears any left over from before this version.
+- **A VM attached outside VirtPilot by the libvirt network's name** (`virsh attach-interface`, virt-manager) now counts as connected, and its NIC can be removed from its Network tab.
+- **The NAT and bridge table fits at 1024 px.** With a static pool and a long NIC name it ran to nearly 1000 px, with every Delete button out of view even at 1280. Like the VXLAN table it now has an Addresses column: the CIDR, then the gateway, then a static pool's free count. A long network name wraps.
+- **The VXLAN table fits at 1024 px with ordinary names**, as a VM's address now sits under its name. A very long row, such as an 8-digit ID with a long VM name and two remote hosts, still scrolls inside its panel, with nothing clipped.
+
+### Changed
+
+- **A NAT network reads "NAT · DHCP" everywhere**, like "Bridge · DHCP", as the table's IPs column that said so has gone.
+- **The Networks page asks libvirt less.** With a bridge on the page it listed every VM's NICs every 10 seconds, only for the delete dialog. Now the dialog asks, while it is open.
+
 ## [2.16.3] - 2026-10-31
 
 ### Fixed

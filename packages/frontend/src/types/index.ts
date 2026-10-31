@@ -222,7 +222,12 @@ export interface BridgeStatus {
     carrier: boolean | null;
   } | null;
   problems: string[];
-  vms: Array<{ id: string; name: string; status: VmStatus }>;
+}
+
+export interface ConnectedVm {
+  id: string;
+  name: string;
+  status: VmStatus;
 }
 
 export interface NetworkIpStatus {

@@ -4,7 +4,7 @@ import * as portForwardService from '../services/portForwardService.js';
 import * as logService from '../services/logService.js';
 import * as vmService from '../services/vmService.js';
 import { listVmMetas } from '../services/vmMetaService.js';
-import { isManagedBridge, readBridgeRuntime, type BridgeRuntime } from '../services/bridgeService.js';
+import { isManagedBridge, readBridgeRuntime } from '../services/bridgeService.js';
 import { readVxlanRuntime, type VxlanRuntime } from '../services/vxlanService.js';
 import { parseDhcpLeases } from '../lib/vmAddresses.js';
 import { VXLAN_DEFAULT_PORT, VxlanInputError } from '../lib/vxlan.js';
@@ -73,24 +73,28 @@ networksRouter.get('/vxlan/status', async (_req, res) => {
 
 // ─── Managed bridges ──────────────────────────────────────────────────────────
 
-// The live state of every managed bridge: whether its NIC is on it, why not if not,
-// and which VMs are connected, running or not.
+// The live state of every managed bridge: whether its NIC is on it, and why not if not.
+// From sysfs and what the last pass found, so it costs libvirt nothing however often it is read.
 networksRouter.get('/bridge/status', async (_req, res) => {
   try {
-    const networks = (await networkService.listNetworks()).filter(isManagedBridge);
-    const status: Record<string, BridgeRuntime & { vms: Array<{ id: string; name: string; status: string }> }> = {};
-    if (networks.length > 0) {
-      // A libvirt that is down must not hide what is wrong with the bridges: the page needs
-      // this most then. The delete guard asks libvirt for itself, and refuses if it can't say.
-      const [runtime, vms] = await Promise.all([readBridgeRuntime(networks), vmService.listVmsWithNics().catch(() => [])]);
-      for (const n of networks) {
-        status[n.id] = {
-          ...runtime.get(n.id)!,
-          vms: vms.filter((vm) => vm.nics.some((nic) => nic.source === n.bridge)).map(({ id, name, status }) => ({ id, name, status })),
-        };
-      }
-    }
-    res.json({ status });
+    const runtime = await readBridgeRuntime((await networkService.listNetworks()).filter(isManagedBridge));
+    res.json({ status: Object.fromEntries(runtime) });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Which VMs are on each network, running or not: what the delete dialog waits for. If libvirt
+// can't say this fails, and the delete itself, which asks again, refuses.
+networksRouter.get('/connected', async (_req, res) => {
+  try {
+    const [networks, vms] = await Promise.all([networkService.listNetworks(), vmService.listVmsWithNics()]);
+    res.json({
+      connected: Object.fromEntries(networks.map((n) => [
+        n.id,
+        vms.filter((vm) => vm.nics.some((nic) => networkService.nicIsOnNetwork(nic, n))).map(({ id, name, status }) => ({ id, name, status })),
+      ])),
+    });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

@@ -279,10 +279,11 @@ function parseDomIfList(out: string): VmNic[] {
     const parts = line.trim().split(/\s+/);
     if (parts.length < 5) continue;
     const target = parts[0];
+    const type = parts[1];
     const source = parts[2];
     const model = parts[3];
     const mac = parts[4];
-    nics.push({ mac, source, model, target });
+    nics.push({ mac, source, type, model, target });
   }
   return nics;
 }
@@ -719,7 +720,9 @@ export async function detachNic(nameOrId: string, mac: string): Promise<string> 
   const name = validateVmName(nameOrId);
   const m = validateMac(mac);
   const trace: TraceEntry[] = [];
-  await virsh(['detach-interface', name, 'bridge', '--mac', m, '--persistent'], trace);
+  // A NIC made outside VirtPilot may be of another type, and virsh wants the right one.
+  const type = (await getVmNics(name)).find((n) => n.mac.toLowerCase() === m)?.type ?? 'bridge';
+  await virsh(['detach-interface', name, type, '--mac', m, '--persistent'], trace);
   return formatTrace(trace);
 }
 

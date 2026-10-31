@@ -312,6 +312,14 @@ ssh root@$HOST "iptables -t nat -L PREROUTING -n; iptables -L FORWARD -n | head"
 
 Delete a port forward; verify rules torn down.
 
+Delete a NAT network with a VM on it, running or stopped: the dialog names the VMs and Delete waits, and the API says 409 naming them. Add a NIC on another NAT network to a VM while its delete dialog is open: the dialog notices within 5 seconds, and frees Delete again when the NIC goes. With no VM on it: the network, its bridge and its firewall rules go. A DHCP OS bridge's record deletes with VMs on it, and they keep running; one with a static pool is refused while addresses are allocated.
+
+A VM attached with `virsh attach-interface <vm> network virtpilot-<id> --config` counts as connected, and its Network tab can remove the NIC.
+
+A port forward on a NAT NIC, then remove the NIC: the DNAT rule (`iptables -t nat -S PREROUTING`), the record, the host port and the locked address (`virsh net-dumpxml`) all go. Remove a NIC with `virsh detach-interface` instead, leaving its forward stranded as older versions did: deleting the network clears it, rule and all.
+
+The NAT and bridge table fits at 1024 px with the sidebar open (`scrollWidth` of the table against its box, 702 px): a static pool of 65024, a 15-character gateway, a 15-character NIC name with no link (`enx00e04c680001`, how a USB NIC is called), a long network name. Delete is in view on every row. The VXLAN table does too, with an ordinary row: `staging-api-01` at `192.168.100.25`.
+
 ---
 
 ## 12. Negative tests
@@ -710,6 +718,12 @@ A reboot is the only test of the boot path: libvirt autostarts networks once per
 
 Append per-run findings here. Format: `### YYYY-MM-DD — vX.Y.Z (host)` then bullet list.
 
+### 2026-10-31 — v2.16.4 (the local rig, then callisto3-test1)
+
+Section 11's new checks: 50/50 on the local rig (real libvirt, TCG VMs) through the API and the real dialog, among them a VM added while the dialog is open, a stranded port forward and a NIC attached by the network's name. Table widths with worst-case rows served by intercepting the API: NAT and bridge 987/702 before, fits after (679 minimum); VXLAN with ordinary rows fits, and 785/702 with an 8-digit ID, a long VM name and two remote hosts, which scrolls inside its panel with nothing clipped.
+
+Found by a reviewer and a design critic on the diff, not by any test until then: the dialog's own advice stranded a port forward, since removing a NIC left it behind with nothing to remove it by, and the network then couldn't be deleted. My "worst case" used a 13-character NIC name, though `enx` + MAC is 15. TanStack Query puts a failed query with no data back to pending on each poll, so `isLoading` alone keeps flipping: use `isLoading && !isFetched`. A disabled observer keeps the cache alive, so a dialog's answer needs `gcTime: 0`, or reopening shows the old one.
+
 ### 2026-10-31 — v2.16.3 (callisto3-test1, the same machine)
 
 Section 20 in full on real interfaces, 8 VMs and 6 bridges at the largest. None of the spare NICs has a cable, so traffic went through veths into a network namespace holding a switch, `dnsmasq` and a gateway; `eno1`, `eno2` and `eno4` proved the attach and the flags on real devices.
@@ -728,7 +742,7 @@ Found by two reviewers on the diff (14 findings, all confirmed by a third, all f
 
 Test traps: `modprobe -r br_netfilter` also unloads `bridge`, deleting every bridge on the host (it took the owner's networks down for a few minutes, repaired without restarting a VM; set the sysctl back instead). `tsc -p tsconfig.json` in `packages/frontend` checks nothing, as that tsconfig only holds references: use `npm --workspace @virtpilot/frontend run typecheck`, which caught a syntax error. libvirt autostarts networks once per boot, so restarting it proves nothing about boot. `pkill -f` with a pattern that appears in your own ssh command line kills the session. networkd's DHCP client asks at about 62 s and 126 s, so a server back at 61 s isn't heard from for another minute.
 
-Observed, not fixed (not this feature): at 1024 px the NAT and bridge table scrolls sideways once a static pool's "251 of 253 free" is in it, and names wrap at their hyphens. A NAT network can still be deleted with a VM on it.
+Observed, not fixed (not this feature): at 1024 px the NAT and bridge table scrolls sideways once a static pool's "251 of 253 free" is in it, and names wrap at their hyphens. A NAT network can still be deleted with a VM on it. Both fixed in 2.16.4.
 
 ### 2026-10-31 — v2.16.0 (callisto3-test1, Supermicro bare metal, Xeon D-1541, 31 GB, a clean Ubuntu 24.04)
 

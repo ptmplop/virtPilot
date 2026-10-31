@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { BridgeStatus, HostNic, Network, NetworkIpMode, NetworkIpStatus, VxlanIds, VxlanStatus } from '@/types';
+import type { BridgeStatus, ConnectedVm, HostNic, Network, NetworkIpMode, NetworkIpStatus, VxlanIds, VxlanStatus } from '@/types';
 
 const KEYS = {
   networks: ['networks'] as const,
@@ -9,6 +9,7 @@ const KEYS = {
   vxlanIds: ['networks', 'vxlan', 'ids'] as const,
   vxlanStatus: ['networks', 'vxlan', 'status'] as const,
   bridgeStatus: ['networks', 'bridge', 'status'] as const,
+  connected: ['networks', 'connected'] as const,
 };
 
 export function useNetworks() {
@@ -118,6 +119,28 @@ export function useBridgeStatus(enabled: boolean) {
     enabled,
     refetchInterval: 10_000,
   });
+}
+
+/**
+ * The VMs on a network, for as long as something needs to know: it asks libvirt about every VM.
+ * Keyed by network and kept for no time, so each opening starts afresh: an answer from before
+ * a NIC was removed must not come back and disable the button. `checking` is the first answer
+ * only, as a failed poll with no data goes back to pending and would keep flipping it.
+ */
+export function useConnectedVms(networkId: string | null) {
+  const query = useQuery({
+    queryKey: [...KEYS.connected, networkId],
+    queryFn: async () => {
+      const { data } = await api.get<{ connected: Record<string, ConnectedVm[]> }>('/api/networks/connected');
+      return data.connected[networkId!] ?? [];
+    },
+    enabled: networkId !== null,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchInterval: 5_000,
+  });
+  return { vms: query.data, checking: query.isLoading && !query.isFetched };
 }
 
 export function useSetVxlanPeers() {

@@ -74,10 +74,10 @@ export function formatUptime(seconds: number): string {
   return `${Math.max(m, 1)} min`;
 }
 
-// A network's type in words, the same on every page: "NAT", "Bridge · DHCP",
+// A network's type in words, the same on every page: "NAT · DHCP", "Bridge · DHCP",
 // "OS bridge · static". A type is a plain word, never a status colour.
 export function networkTypeLabel(type: string, ipMode?: string, vni?: number): string {
-  if (type === 'nat') return 'NAT';
+  if (type === 'nat') return 'NAT · DHCP';
   if (type === 'vxlan') return `VXLAN ${vni} · ${ipMode === 'dhcp' ? 'DHCP' : ipMode === 'static' ? 'static' : 'set by the VMs'}`;
   const kind = type === 'existing-bridge' ? 'OS bridge' : 'Bridge';
   return `${kind} · ${ipMode === 'dhcp' ? 'DHCP' : 'static'}`;

@@ -9,7 +9,7 @@ import { Select } from '@/components/ui/Select';
 import { Panel, PanelHeader } from '@/components/ui/Panel';
 import { RowAction } from '@/components/ui/RowAction';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useBridgeStatus, useNetworks, useCreateNetwork, useDeleteNetwork, useNetwork, useSystemNics, useVxlanIds } from '@/hooks/useNetworks';
+import { useBridgeStatus, useConnectedVms, useNetworks, useCreateNetwork, useDeleteNetwork, useNetwork, useSystemNics, useVxlanIds } from '@/hooks/useNetworks';
 import { cn } from '@/lib/cn';
 import { networkTypeLabel } from '@/lib/format';
 import { WarnGlyph } from '@/components/ui/Badge';
@@ -26,9 +26,18 @@ function IpPoolDetail({ networkId }: { networkId: string }) {
   return <span className="tabular-nums">{free} of {data.ips.length} free</span>;
 }
 
+// A VM on a network VirtPilot would destroy has to come off it first. An OS bridge stays when
+// its record goes, as does the bridge of an old record that was never VirtPilot's.
+function isManagedBridge(network: NetworkType): boolean {
+  return network.type === 'bridge' && /^vp\d+$/.test(network.bridge);
+}
+
+function deleteWaitsForVms(network: NetworkType): boolean {
+  return network.type === 'nat' || network.type === 'vxlan' || isManagedBridge(network);
+}
+
 function bridgeDeleteText(network: NetworkType, status?: BridgeStatus): string {
-  // An old record can name a bridge that was never VirtPilot's, and it is only forgotten.
-  if (!/^vp\d+$/.test(network.bridge)) return `This will remove the network record. The bridge "${network.bridge}" will not be touched.`;
+  if (!isManagedBridge(network)) return `This will remove the network record. The bridge "${network.bridge}" will not be touched.`;
   if (!network.physicalNic) return 'This will destroy the bridge.';
   if (status && !status.uplink?.attached) return `This will destroy the bridge. ${network.physicalNic} is not on it, and is left as it is.`;
   return `This will take ${network.physicalNic} off the bridge, leave it down unless something else is on it, and destroy the bridge.`;
@@ -43,32 +52,38 @@ function NetworkRow({ network, status, onDelete }: { network: NetworkType; statu
     : [];
   return (
     <>
-      <tr className="table-row">
-        <td className="px-5 py-3 text-[13.5px] font-semibold text-foreground">{network.name}</td>
-        <td className="px-5 py-3">
-          <span className="whitespace-nowrap text-[12.5px] text-foreground">{networkTypeLabel(network.type, network.ipMode)}</span>
+      <tr className="table-row align-top">
+        {/* A name of any length wraps rather than widen the table, but never to a letter per line. */}
+        <td className="py-3 pl-5 pr-3 text-[13.5px] font-semibold text-foreground">
+          <div className="min-w-[5.5rem] [overflow-wrap:anywhere]">{network.name}</div>
         </td>
-        <td className="whitespace-nowrap px-5 py-3 font-mono text-[12.5px] text-foreground">{network.cidr}</td>
-        <td className="whitespace-nowrap px-5 py-3 font-mono text-[12px] text-muted-foreground">
-          {network.bridge}
-          {network.physicalNic && (
-            <span className="ml-1.5 text-muted-foreground">← {network.physicalNic}</span>
+        <td className="px-3 py-3">
+          <div className="whitespace-nowrap text-[12.5px] text-foreground">{networkTypeLabel(network.type, network.ipMode)}</div>
+        </td>
+        <td className="px-3 py-3">
+          <div className="whitespace-nowrap font-mono text-[12.5px] text-foreground">{network.cidr}</div>
+          <div className="mt-0.5 whitespace-nowrap text-[12px] text-muted-foreground">
+            Gateway <span className="font-mono">{network.gateway}</span>
+          </div>
+          {network.type !== 'nat' && network.ipMode === 'static' && (
+            <div className="mt-0.5 whitespace-nowrap text-[12px] text-muted-foreground"><IpPoolDetail networkId={network.id} /></div>
           )}
-          {network.type === 'existing-bridge' && (
-            <span className="ml-1.5 text-muted-foreground">(OS)</span>
-          )}
+        </td>
+        <td className="px-3 py-3 font-mono text-[12px] text-muted-foreground">
+          <div className="whitespace-nowrap">
+            {network.bridge}
+            {network.physicalNic && (
+              <span className="ml-1.5">← {network.physicalNic}</span>
+            )}
+            {network.type === 'existing-bridge' && (
+              <span className="ml-1.5">(OS)</span>
+            )}
+          </div>
           {status?.uplink?.attached && status.uplink.carrier === false && (
             <div className="mt-0.5 font-sans">{status.uplink.nic} has no link</div>
           )}
         </td>
-        <td className="whitespace-nowrap px-5 py-3 font-mono text-[12px] text-muted-foreground">{network.gateway}</td>
-        <td className="whitespace-nowrap px-5 py-3 text-[12px] text-muted-foreground">
-          {network.type !== 'nat' && network.ipMode === 'static'
-            ? <IpPoolDetail networkId={network.id} />
-            : <span>DHCP</span>
-          }
-        </td>
-        <td className="px-5 py-1.5 text-right">
+        <td className="py-1.5 pl-3 pr-5 text-right">
           <RowAction label={`Delete network ${network.name}`} tooltip="Delete network" danger onClick={onDelete}>
             <Trash2 size={14} />
           </RowAction>
@@ -77,7 +92,7 @@ function NetworkRow({ network, status, onDelete }: { network: NetworkType; statu
       {/* A row of its own: in the name's cell, a table that has run out of width squeezes it to a word per line. */}
       {problems.length > 0 && (
         <tr className="!border-t-0">
-          <td colSpan={7} className="px-5 pb-3">
+          <td colSpan={5} className="px-5 pb-3">
             {problems.map((p) => (
               <p key={p} className="flex max-w-[min(80ch,calc(100vw-5rem))] items-start gap-1.5 text-[12px] leading-[1.45] text-amber-800 dark:text-amber-200">
                 <WarnGlyph className="mt-[3px] shrink-0" />{p}
@@ -186,8 +201,6 @@ export function NetworksPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<NetworkType | null>(null);
-  // The VMs on a VXLAN or managed bridge, known to its status: Delete can only fail until they are gone.
-  const [deleteBlockedBy, setDeleteBlockedBy] = useState<string[]>([]);
   const [optionalOpen, setOptionalOpen] = useState(false);
   const [form, setForm] = useState<CreateForm>(defaultForm);
 
@@ -196,11 +209,6 @@ export function NetworksPage() {
     setForm({ ...defaultForm, cidr: suggested, type, ipMode: type === 'vxlan' ? 'dhcp' : defaultForm.ipMode });
     setOptionalOpen(false);
     setCreateOpen(true);
-  };
-
-  const openDelete = (network: NetworkType, connected: string[] = []) => {
-    setDeleteBlockedBy(connected);
-    setDeleteTarget(network);
   };
 
   const vxlans = networks?.filter((n) => n.type === 'vxlan') ?? [];
@@ -243,10 +251,10 @@ export function NetworksPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  // Read live for a bridge, so a VM removed meanwhile frees the button and one added blocks it.
-  const blockers = deleteTarget?.type === 'bridge'
-    ? bridgeStatus?.[deleteTarget.id]?.vms.map((v) => v.name) ?? []
-    : deleteBlockedBy;
+  // Delete can only fail until these are gone. Read live, so a VM removed meanwhile frees the
+  // button and one added blocks it. If it can't be read, the delete itself says.
+  const { vms: connected, checking: connectedLoading } = useConnectedVms(deleteTarget && deleteWaitsForVms(deleteTarget) ? deleteTarget.id : null);
+  const blockers = (connected ?? []).map((vm) => vm.name).sort((a, b) => a.localeCompare(b));
   const blockedNames = blockers.length > 1
     ? `${blockers.slice(0, -1).join(', ')} and ${blockers[blockers.length - 1]}`
     : blockers[0];
@@ -376,12 +384,12 @@ export function NetworksPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="table-head">
-                        {['Name', 'Type', 'CIDR', 'Bridge', 'Gateway', 'IPs', ''].map((h) => (
+                        {['Name', 'Type', 'Addresses', 'Bridge', ''].map((h, i) => (
                           <th
                             key={h}
                             className={cn(
-                              'whitespace-nowrap px-5 py-2.5 text-[12px] font-medium text-muted-foreground',
-                              h === '' ? 'text-right' : 'text-left'
+                              'whitespace-nowrap py-2.5 text-left text-[12px] font-medium text-muted-foreground',
+                              i === 0 ? 'pl-5 pr-3' : h === '' ? 'pl-3 pr-5' : 'px-3'
                             )}
                           >
                             {h}
@@ -395,14 +403,14 @@ export function NetworksPage() {
                           key={n.id}
                           network={n}
                           status={bridgeStatus?.[n.id]}
-                          onDelete={() => openDelete(n)}
+                          onDelete={() => setDeleteTarget(n)}
                         />
                       ))}
                     </tbody>
                     {/* The count in the list's own foot; the split by kind only when there is one. */}
                     <tfoot>
                       <tr className="border-t border-border bg-surface/60">
-                        <td colSpan={7} className="px-5 py-2.5 text-[12px] tabular-nums text-muted-foreground">
+                        <td colSpan={5} className="px-5 py-2.5 text-[12px] tabular-nums text-muted-foreground">
                           {others.length} {others.length === 1 ? 'network' : 'networks'}
                           {natCount > 0 && bridgeCount > 0 && <> · {natCount} NAT · {bridgeCount} bridged</>}
                         </td>
@@ -412,7 +420,7 @@ export function NetworksPage() {
                 </div>
               </Panel>
             )}
-            <VxlanPanel networks={vxlans} onNew={() => openCreate('vxlan')} onDelete={openDelete} />
+            <VxlanPanel networks={vxlans} onNew={() => openCreate('vxlan')} onDelete={setDeleteTarget} />
           </>
         )}
       </div>
@@ -629,7 +637,9 @@ export function NetworksPage() {
         onClose={() => setDeleteTarget(null)}
         title="Delete network"
         description={deleteTarget ? [deleteTarget.name, deleteTarget.vni !== undefined ? `VXLAN ID ${deleteTarget.vni}` : '', deleteTarget.cidr].filter(Boolean).join(' · ') : undefined}
-        note={blockers.length > 0 ? `${blockers.length} ${blockers.length === 1 ? 'VM is' : 'VMs are'} still connected.` : undefined}
+        note={connectedLoading
+          ? 'Checking for connected VMs…'
+          : blockers.length > 0 ? `${blockers.length} ${blockers.length === 1 ? 'VM is' : 'VMs are'} still connected.` : undefined}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setDeleteTarget(null)}>
@@ -639,7 +649,7 @@ export function NetworksPage() {
               size="sm"
               variant="danger"
               onClick={() => deleteTarget && handleDelete(deleteTarget)}
-              disabled={deleteNetwork.isPending || blockers.length > 0}
+              disabled={deleteNetwork.isPending || blockers.length > 0 || connectedLoading}
             >
               {deleteNetwork.isPending ? 'Deleting…' : 'Delete network'}
             </Button>

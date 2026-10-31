@@ -948,6 +948,7 @@ vmsRouter.delete('/:uuid/nics/:mac', requireUuidParam, async (req, res) => {
   const log = await logSubject(uuid);
   try {
     const output = await vmService.detachNic(uuid, mac);
+    await portForwardService.deletePortForwardsForNic(uuid, mac);
 
     const meta = await vmMetaService.getVmMeta(uuid);
     if (meta?.networks) {

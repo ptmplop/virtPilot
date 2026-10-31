@@ -13,6 +13,17 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.16.4',
+    date: '2026-10-31',
+    changes: [
+      { type: 'fixed', text: 'A NAT network can no longer be deleted with a VM on it, which left the VM unable to start. The delete is refused and names the VMs, as for a VXLAN or a bridge, and the dialog says so before you try.' },
+      { type: 'fixed', text: 'A port forward no longer outlives its NIC: it goes with the NIC, as does any IP locked for it. Before, nothing in the dashboard could remove it, and the NAT network could never be deleted. Deleting one clears any left over.' },
+      { type: 'fixed', text: 'The NAT and bridge table fits at 1024 px, with an Addresses column like the VXLAN table\'s: the CIDR, the gateway and a static pool\'s free count. The VXLAN table fits with ordinary names too, with a VM\'s address under its name.' },
+      { type: 'changed', text: 'A NAT network reads "NAT · DHCP" everywhere, like "Bridge · DHCP".' },
+      { type: 'changed', text: 'The Networks page asks libvirt less: the delete dialog asks which VMs are connected while it is open, rather than the page every 10 seconds.' },
+    ],
+  },
+  {
     version: '2.16.3',
     date: '2026-10-31',
     changes: [
