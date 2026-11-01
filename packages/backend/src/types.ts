@@ -14,9 +14,13 @@ export interface VmDisk {
 
 export interface VmNic {
   mac: string;
-  source: string;   // bridge name; a libvirt network's name on a NIC made outside VirtPilot
+  source: string;   // bridge name, however it is attached; a libvirt network VirtPilot doesn't know keeps its name
   /** How libvirt attaches it: 'bridge' for everything VirtPilot makes. */
   type?: string;
+  /** What the saved definition calls it, when that differs. On a libvirt network in bridge or macvtap mode, a running VM says 'bridge' or 'direct' and the saved one 'network'. */
+  savedType?: string;
+  /** In only one of a running VM's definitions: 'saved' from its next start, 'live' until then. VirtPilot's own NICs are in both. */
+  onlyIn?: 'live' | 'saved';
   model: string;
   target?: string;  // tap device
   inboundKbps?: number;   // average inbound rate limit, KiB/s (from guest perspective)

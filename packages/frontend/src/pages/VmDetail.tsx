@@ -1658,11 +1658,14 @@ function PortForwardsSection({
   networkId,
   networkName,
   mac,
+  untilNextStart,
 }: {
   vmUuid: string;
   networkId: string;
   networkName: string;
   mac: string;
+  /** Gone at the VM's next start, so the backend refuses it a new forward. */
+  untilNextStart?: boolean;
 }) {
   const { data: allForwards = [] } = useVmPortForwards(vmUuid);
   const forwards = allForwards.filter((f) => f.networkId === networkId && f.mac === mac);
@@ -1702,6 +1705,8 @@ function PortForwardsSection({
     Number(form.hostPort) < 1 ||
     Number(form.vmPort) < 1;
 
+  if (untilNextStart && forwards.length === 0) return null;
+
   return (
     <Panel className="overflow-hidden">
       <PanelHeader
@@ -1712,11 +1717,11 @@ function PortForwardsSection({
             {' '}on <span className="font-medium text-foreground">{networkName}</span>
           </>
         }
-        actions={
+        actions={untilNextStart ? undefined : (
           <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
             <Plus size={14} /> Add rule
           </Button>
-        }
+        )}
       />
 
       {forwards.length === 0 ? (
@@ -1837,14 +1842,15 @@ function IpCell({
   vmUuid: string;
 }) {
   const reservation = reservations.find((r) => r.mac === nic.mac);
-  const liveIp = ifAddrs[nic.mac];
+  // A NIC saved for its next start isn't connected, though an old lease may still name it.
+  const liveIp = nic.onlyIn === 'saved' ? undefined : ifAddrs[nic.mac];
 
   // For bridge/static — use meta IP (always known)
   const staticMetaIp = meta?.networks?.find((n) => n.mac === nic.mac && n.ip)?.ip;
 
   const displayIp = staticMetaIp ?? liveIp ?? reservation?.ip;
   const isReserved = !!reservation;
-  const canReserve = networkType === 'nat' && !!networkId && !!liveIp && !isReserved;
+  const canReserve = networkType === 'nat' && !!networkId && !!liveIp && !isReserved && !nic.onlyIn;
 
   const reserveIp = useReserveIp(networkId ?? '', vmUuid);
 
@@ -1860,9 +1866,12 @@ function IpCell({
   if (!displayIp) {
     return (
       <span className="text-[12.5px] text-muted-foreground">
-        {networkType === 'vxlan' && ipMode === 'none'
-          ? 'Set inside the VM'
-          : networkType ? 'DHCP · not resolved yet' : 'Unknown'}
+        {nic.onlyIn === 'saved'
+          ? 'Not connected yet'
+          // A static network with nothing allocated: a NIC VirtPilot didn't make, set by its guest.
+          : ipMode === 'none' || ipMode === 'static'
+            ? 'Set inside the VM'
+            : networkType ? 'DHCP · not resolved yet' : 'Unknown'}
       </span>
     );
   }
@@ -1926,13 +1935,21 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
   const handleRemoveNic = async () => {
     if (!removeNic) return;
     try {
-      await detachNic.mutateAsync(removeNic.mac);
-      toast.success('NIC removed');
+      const { pending } = await detachNic.mutateAsync(removeNic.mac);
+      toast.success(pending ? 'Removal sent. The NIC stays until the guest lets it go or the VM stops.' : 'NIC removed');
       setRemoveNic(null);
     } catch {
       toast.error('Failed to remove NIC');
     }
   };
+
+  // A MAC on a different network in each of a running VM's definitions is two rows, and one NIC.
+  const removeCopies = removeNic ? nics.filter((n) => n.mac === removeNic.mac) : [];
+  const removeNames = removeCopies.filter((c) => c.source).map((c) => networks?.find((n) => n.bridge === c.source)?.name ?? c.source);
+
+  // A limit goes by MAC, so on a NIC in both definitions, whichever row it was opened from.
+  const bandwidthCopies = bandwidthNic ? nics.filter((n) => n.mac === bandwidthNic.mac) : [];
+  const bandwidthOnlyIn = bandwidthCopies.length === 1 ? bandwidthCopies[0].onlyIn : undefined;
 
   const attachedBridges = new Set(nics.map((n) => n.source));
   const availableNetworks = (networks ?? []).filter((n) => !attachedBridges.has(n.bridge));
@@ -2035,36 +2052,41 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
-                <TableHead columns={['MAC address', 'Network', 'IP address', 'Model', 'Rate limit', '']} />
+                <TableHead columns={['MAC address', 'Network', 'IP address', 'Model', 'Rate limit', '']} pad="px-3 first:pl-5 last:pl-1 last:pr-5" />
                 <tbody className="divide-y divide-border">
                   {nics.map((nic) => {
                     const network = networks?.find((n) => n.bridge === nic.source);
                     const isPrimary = primaryMacs.has(nic.mac);
                     return (
-                      <tr key={nic.mac} className="table-row">
+                      <tr key={`${nic.mac}-${nic.onlyIn ?? 'both'}`} className="table-row">
                         {/* Cells may wrap (MAC over its marker, name over its type) so the
                             row actions never get pushed out of a narrow panel. */}
-                        <td className="px-5 py-2.5">
+                        <td className="py-2.5 pl-5 pr-3">
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                             <span className="whitespace-nowrap font-mono text-[12.5px] font-medium text-foreground">{nic.mac}</span>
                             {isPrimary && (
                               <span className="text-[12px] text-muted-foreground">primary</span>
                             )}
+                            {nic.onlyIn && (
+                              <span className="text-[12px] text-muted-foreground">
+                                {nic.onlyIn === 'saved' ? 'from its next start' : 'until its next start'}
+                              </span>
+                            )}
                           </div>
                         </td>
-                        <td className="px-5 py-2.5 text-[13px]">
+                        <td className="px-3 py-2.5 text-[13px]">
                           {network ? (
                             <span className="flex flex-wrap items-baseline gap-x-1.5">
-                              <span className="font-medium text-foreground">{network.name}</span>
+                              <span className="min-w-[5.5rem] font-medium text-foreground [overflow-wrap:anywhere]">{network.name}</span>
                               <span className="text-[12px] text-muted-foreground">
                                 {networkTypeLabel(network.type, network.ipMode, network.vni)}
                               </span>
                             </span>
                           ) : nic.source ? (
-                            <span className="font-mono text-[12px] text-muted-foreground">{nic.source}</span>
+                            <span className="block min-w-[5.5rem] font-mono text-[12px] text-muted-foreground [overflow-wrap:anywhere]">{nic.source}</span>
                           ) : <span className="text-muted-foreground">Unknown</span>}
                         </td>
-                        <td className="px-5 py-2.5">
+                        <td className="px-3 py-2.5">
                           <IpCell
                             nic={nic}
                             ifAddrs={ifAddrs}
@@ -2076,19 +2098,19 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
                             vmUuid={vmUuid}
                           />
                         </td>
-                        <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{nic.model}</td>
-                        <td className="px-5 py-2.5 text-[12.5px] text-muted-foreground">
+                        <td className="px-3 py-2.5 font-mono text-[12px] text-muted-foreground">{nic.model}</td>
+                        <td className="px-3 py-2.5 text-[12.5px] text-muted-foreground">
                           {nic.inboundKbps || nic.outboundKbps ? (
-                            <span className="whitespace-nowrap text-[12.5px] tabular-nums text-foreground">
-                              ↓ {nic.inboundKbps ? `${mbpsFromKbps(nic.inboundKbps)} MB/s` : 'unlimited'}
-                              <span className="text-muted-foreground">{' · '}</span>
-                              ↑ {nic.outboundKbps ? `${mbpsFromKbps(nic.outboundKbps)} MB/s` : 'unlimited'}
+                            // One over the other: side by side, they don't fit at 1024.
+                            <span className="block whitespace-nowrap text-[12.5px] tabular-nums text-foreground">
+                              <span className="block">↓ {nic.inboundKbps ? `${mbpsFromKbps(nic.inboundKbps)} MB/s` : 'unlimited'}</span>
+                              <span className="block">↑ {nic.outboundKbps ? `${mbpsFromKbps(nic.outboundKbps)} MB/s` : 'unlimited'}</span>
                             </span>
                           ) : (
                             'unlimited'
                           )}
                         </td>
-                        <td className="whitespace-nowrap px-5 py-1.5 text-right">
+                        <td className="whitespace-nowrap py-1.5 pl-1 pr-5 text-right">
                           <div className="inline-flex items-center justify-end gap-0.5">
                             <RowAction label="Edit rate limit" onClick={() => openBandwidth(nic)}>
                               <Gauge size={14} />
@@ -2125,11 +2147,13 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
         >
           <p className="text-[13.5px] leading-6 text-muted-foreground">
             Remove <span className="font-mono text-[13px] font-medium text-foreground">{removeNic?.mac}</span>
-            {removeNic?.source && (
-              <> from <span className="font-medium text-foreground">{networks?.find((n) => n.bridge === removeNic.source)?.name ?? removeNic.source}</span></>
+            {removeNames.length > 0 && (
+              <> from <span className="font-medium text-foreground">{removeNames.join(' and ')}</span></>
             )}?{' '}
-            A running VM loses this connection at once.
-            {networks?.find((n) => n.bridge === removeNic?.source)?.type === 'nat' && ' Its port forwards and any locked IP go with it.'}
+            {removeNic?.onlyIn === 'saved' && removeCopies.length === 1
+              ? "The running VM isn't touched: this only changes what it has from its next start."
+              : 'A running VM loses this connection at once.'}
+            {removeCopies.some((c) => networks?.find((n) => n.bridge === c.source)?.type === 'nat') && ' Its port forwards and any locked IP go with it.'}
           </p>
         </Dialog>
 
@@ -2139,7 +2163,8 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
           if (!network || network.type !== 'nat') return null;
           return (
             <PortForwardsSection
-              key={nic.mac}
+              key={`${nic.mac}-${network.id}`}
+              untilNextStart={nic.onlyIn === 'live'}
               vmUuid={vmUuid}
               networkId={network.id}
               networkName={network.name}
@@ -2259,8 +2284,12 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
           <p className="text-[13px] leading-5 text-muted-foreground">
             Cap traffic on{' '}
             <span className="font-mono text-[12.5px] text-foreground">{bandwidthNic?.mac}</span>. Leave a field blank for
-            unlimited. Inbound and outbound are from the guest's perspective. Limits apply live and persist
-            across reboots.
+            unlimited. Inbound and outbound are from the guest's perspective.{' '}
+            {bandwidthOnlyIn === 'saved'
+              ? 'Limits apply from its next start, as this NIC does.'
+              : bandwidthOnlyIn === 'live'
+                ? 'Limits apply now, and go with this NIC at its next start.'
+                : 'Limits apply live and persist across reboots.'}
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Input

@@ -1079,7 +1079,8 @@ async function _createBackupInner(
         memoryMb: vmInfo.memoryMb,
       },
       disks: diskEntries,
-      nics: nics.map((n) => ({ model: n.model, mac: n.mac, source: n.source })),
+      // What the saved definition holds, which is what a restore gets.
+      nics: nics.filter((n) => n.onlyIn !== 'live').map((n) => ({ model: n.model, mac: n.mac, source: n.source })),
       vmMeta: encodeMetaForManifest(vmMeta),
       libvirtXml: xml,
       retentionDays,

@@ -94,7 +94,8 @@ export function Dialog({ open, onClose, title, description, children, footer, no
         ref={panelRef}
         tabIndex={-1}
         className={cn(
-          'relative w-full rounded-[10px] border border-border bg-card outline-none animate-slide-up',
+          // break-words: a name can be 63 characters with nowhere to break.
+          'relative w-full break-words rounded-[10px] border border-border bg-card outline-none animate-slide-up',
           'shadow-pop',
           sizeClasses[size]
         )}

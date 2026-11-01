@@ -212,7 +212,7 @@ VLAN IDs belong to the VMs: VirtPilot doesn't assign or enforce them, and this h
 
 A VM's Firewall tab doesn't filter traffic inside a VXLAN: it passes through the bridge directly. Its rules apply to the VM's other NICs, and a VM that is only on VXLANs is refused. Use a firewall inside the VMs for that.
 
-On the host each VXLAN is a libvirt network with no forwarding (`virsh net-list`, bridge `vpbr<ID>`) and a kernel VXLAN device on that bridge (`ip -d link show vpx<ID>`). libvirt brings the bridge back at boot; the backend rebuilds the device, its remote hosts and its firewall rules from `networks.json` when it starts, and every 30 seconds puts back anything that has gone, including running VMs' connections if the bridge itself was restarted. No extra packages or privileges are involved: the backend's own `CAP_NET_ADMIN` covers it.
+On the host each VXLAN is a libvirt network with no forwarding (`virsh net-list`, bridge `vpbr<ID>`) and a kernel VXLAN device on that bridge (`ip -d link show vpx<ID>`). libvirt brings the bridge back at boot; the backend rebuilds the device, its remote hosts and its firewall rules from `networks.json` when it starts, and every 30 seconds puts back anything that has gone, including running VMs' connections if the bridge itself was restarted. No extra packages or privileges are involved: the backend's own `CAP_NET_ADMIN` covers it. A VM attached to it by that libvirt name, with `virsh` or virt-manager, counts like any other.
 
 ## Host requirements
 

@@ -91,10 +91,13 @@ ring is the left square of a 90:26 box, because the collapsed sidebar crops to i
 - **Keys and values**: label column `text-[12.5px] text-muted-foreground`, value `font-mono text-[12px]
   text-foreground`, rows ruled with `divide-y divide-border`.
 - **Tables fit at 1024 with the sidebar open** (a 702px column; measure `scrollWidth`, since shots hide
-  scrollbars and clipping). Narrower, a table scrolls inside its panel (`.panel:has(table)` in
-  `index.css`, at every width); it never clips the row actions. A path wraps only after a slash
-  (`PathText`); a setting such as a directory's default is a muted "(default)" beside the item, not a
-  column of its own.
+  scrollbars and clipping). Measure with the longest values the validators allow, not plausible ones: VM
+  and VXLAN names are 63 characters, an IPv4 address 15, a USB NIC's name 15. Narrower, a table scrolls inside its
+  panel (`.panel:has(table)` in `index.css`, at every width); it never clips the row actions. A path
+  wraps only after a slash (`PathText`); a name wraps anywhere, with a minimum width
+  (`min-w-[5.5rem] [overflow-wrap:anywhere]`); a cell's second fact goes under its first; a row's problem
+  is a row of its own; a setting such as a directory's default is a muted "(default)" beside the item,
+  not a column of its own.
 - **Clickable rows**: when a row opens something, the name's link is stretched over the row
   (`after:absolute after:inset-0`, row `relative`) and the actions cell sits above it (`relative z-10`).
   One tab stop per row. A row's hover must never promise a click that does nothing.

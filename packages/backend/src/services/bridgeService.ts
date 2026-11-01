@@ -180,7 +180,7 @@ export async function syncManagedBridges(networks: Network[]): Promise<{ network
       note(n.id, await restoreBridge(libvirtName, n.bridge));
       if (await bridgeExists(n.bridge)) await uplink(n);
     }
-    note(n.id, await reconnectIfRebuilt(n.bridge));
+    note(n.id, await reconnectIfRebuilt(current(n)));
   }
 
   lastProblems.clear();

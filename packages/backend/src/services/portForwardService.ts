@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
-import { getNetwork, parseCidr, enumerateUsableIps } from './networkService.js';
+import { getNetwork, ipInCidr, parseCidr, enumerateUsableIps } from './networkService.js';
 import { tokeniseIptablesRule, reassertForwardJumps } from './firewallService.js';
 import { run, runSafe, virsh } from './safeExec.js';
 import { parseDhcpLeases } from '../lib/vmAddresses.js';
@@ -132,17 +132,27 @@ async function ensureReservation(
     throw new Error('Port forwards are only supported on NAT networks');
   }
 
+  // Gone at the VM's next start, leaving what was made for it with no row to remove it from.
+  const nic = (await (await import('./vmService.js')).getVmNics(vmUuid)).find((n) => n.mac.toLowerCase() === mac && n.source === network.bridge);
+  if (nic?.onlyIn === 'live') throw new Error("This NIC is only on the VM until its next start, so it can't have a port forward or a locked IP.");
+
   const { first } = parseCidr(network.cidr);
   const firstNum = ipToNum(first);
   const dhcpStartNum = network.gateway === first ? firstNum + 1 : firstNum;
 
+  // Another VM's lease isn't free. A NIC with no address of its own, such as a stopped VM's,
+  // would be given it, and the forward would land on that VM.
+  const leases = parseDhcpLeases(await virsh(['net-dhcp-leases', network.libvirtName]).catch(() => ''));
   const takenIps = new Set([
     network.gateway,
     ...reservations.filter((r) => r.networkId === networkId).map((r) => r.ip),
+    ...[...leases].filter(([leasedTo]) => leasedTo !== mac).map(([, ip]) => ip),
   ]);
 
   const currentIp = await resolveCurrentVmIp(vmUuid, mac, network.libvirtName);
-  const available = (currentIp && !takenIps.has(currentIp))
+  // ARP knows a MAC whatever network it is on: a NIC moved here for its next start still has
+  // an address on the last one.
+  const available = (currentIp && ipInCidr(currentIp, network.cidr) && !takenIps.has(currentIp))
     ? currentIp
     : (() => {
         const usable = enumerateUsableIps(network.cidr);
@@ -303,7 +313,7 @@ function forwardRuleArgs(fwd: PortForward, op: '-I' | '-D' | '-C'): string[] {
   ];
 }
 
-async function addIptablesRules(fwd: PortForward): Promise<void> {
+async function addIptablesRules(fwd: PortForward, moveFirewallTo?: string): Promise<void> {
   // Resolve the ingress match once and pin it to the record, so a later -C/-D
   // reproduces exactly the vector we are about to install even if the default
   // route or the network has changed underneath us in the meantime. Refreshed
@@ -322,7 +332,7 @@ async function addIptablesRules(fwd: PortForward): Promise<void> {
   // VM's firewall chain. The firewall is the policy — put its jumps back on
   // top so the outcome doesn't depend on the order the operator happened to
   // configure the two features in.
-  await reassertForwardJumps(fwd.vmUuid, fwd.vmIp).catch(() => { /* no firewall configured */ });
+  await reassertForwardJumps(fwd.vmUuid, fwd.vmIp, moveFirewallTo).catch(() => { /* no firewall configured */ });
 }
 
 // Belt and braces: delete every PREROUTING rule still carrying this forward's
@@ -404,7 +414,11 @@ export async function createPortForward(opts: {
   };
 
   try {
-    await addIptablesRules(forward);
+    // A new reservation can give the NIC a new address, and if it is the NIC the firewall filters,
+    // the firewall goes with it. Asked before any rule goes in, so nothing waits on libvirt with
+    // this forward's ACCEPT above the firewall.
+    const firewallNic = reservationCreated ? await (await import('./vmService.js')).firewallNicMac(vmUuid) : undefined;
+    await addIptablesRules(forward, firewallNic === mac ? vmIp : undefined);
     await writeForwards([...forwards, forward]);
   } catch (err) {
     // The DNAT rule may already be live while the record never reached

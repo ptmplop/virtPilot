@@ -961,7 +961,9 @@ vmsRouter.delete('/:uuid/nics/:mac', requireUuidParam, async (req, res) => {
     }
 
     void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'success', output, durationMs: Date.now() - start });
-    res.json({ ok: true });
+    // virsh gives up waiting after about 5 seconds, whether or not the guest has let it go.
+    const pending = (await vmService.getVmNics(uuid)).some((n) => n.mac.toLowerCase() === mac.toLowerCase());
+    res.json({ ok: true, pending });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });
@@ -1165,9 +1167,16 @@ vmsRouter.post('/:uuid/firewall/apply', requireUuidParam, async (req, res) => {
     // static address to fall back on, and a deny-all inbound policy applied a
     // moment ago is exactly what stops ARP resolving — which used to leave the
     // operator unable to apply any further rules, including the ones undoing it.
-    const { ip, vxlanOnly } = await vmService.resolveFirewallTarget(uuid);
+    const { ip, vxlanOnly, routedLater } = await vmService.resolveFirewallTarget(uuid);
     if (vxlanOnly) {
-      return res.status(409).json({ error: "This VM is only on VXLANs, and their traffic goes straight through the bridge, so there is nothing here for these rules to filter. Use a firewall inside the VM." });
+      const refused = 'This VM is only on VXLANs, and their traffic goes straight through the bridge, so there is nothing here for these rules to filter';
+      // A NIC saved for its next start would be filtered again by rules already in place.
+      if (routedLater) return res.status(409).json({ error: `${refused}. Use a firewall inside the VM.` });
+      // Rules from before it was only on VXLANs, or from a version that didn't see it was. They
+      // filter nothing here, and their FORWARD jumps sit above libvirt's isolation of the network.
+      await firewallService.removeVmFirewall(uuid);
+      void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'error', output: 'Refused: only on VXLANs. Any rules from before were removed.', durationMs: Date.now() - start });
+      return res.status(409).json({ error: `${refused}, and none are in force. Use a firewall inside the VM.` });
     }
     if (!ip) return res.status(400).json({ error: 'Could not resolve VM IP - ensure the VM is running' });
     const cfg = await firewallService.getFirewallConfig(uuid);

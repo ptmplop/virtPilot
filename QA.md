@@ -318,7 +318,7 @@ A VM attached with `virsh attach-interface <vm> network virtpilot-<id> --config`
 
 A port forward on a NAT NIC, then remove the NIC: the DNAT rule (`iptables -t nat -S PREROUTING`), the record, the host port and the locked address (`virsh net-dumpxml`) all go. Remove a NIC with `virsh detach-interface` instead, leaving its forward stranded as older versions did: deleting the network clears it, rule and all.
 
-The NAT and bridge table fits at 1024 px with the sidebar open (`scrollWidth` of the table against its box, 702 px): a static pool of 65024, a 15-character gateway, a 15-character NIC name with no link (`enx00e04c680001`, how a USB NIC is called), a long network name. Delete is in view on every row. The VXLAN table does too, with an ordinary row: `staging-api-01` at `192.168.100.25`.
+The NAT and bridge table fits at 1024 px with the sidebar open (`scrollWidth` of the table against its box, 702 px): a static pool of 65024, a 15-character gateway, a 15-character NIC name with no link (`enx00e04c680001`, how a USB NIC is called), a long network name. Delete is in view on every row. For the VXLAN table, see section 19.
 
 ---
 
@@ -657,6 +657,25 @@ Needs VT-x or AMD-V for speed, and a second machine on the internet for the tunn
 **Reboot.** Two VMs on autostart, a remote host listed, then reboot.
 
 28. With nobody touching it: VMs running, devices back on their bridges in the right state, flood entry, rules and jump in place, VMs reach each other at full size, the tunnel works, and a VM left off starts on its VXLAN.
+
+**Attached outside VirtPilot.** Attach a VM by the network's name, not its bridge: `virsh attach-interface <VM> network virtpilot-<id> --config`.
+
+29. Stopped, or running with the NIC defined before it started: it is in the panel's Connected VMs with its lease, and Connect a VM no longer offers it. Its Network tab names the network and its type, and Add NIC doesn't offer that network again. `GET /api/vms/<uuid>`: `source` is `vpbr<ID>`, and `type` is `network`.
+30. `ip link delete vpbr<ID>` with it running: within 35 seconds the bridge is back with its tap on it, and it reaches the others again. With it stopped: Power on brings the bridge back, and it starts.
+31. A VM only on a VXLAN by name: the Firewall tab says the rules don't apply, and Apply gets a 409.
+32. Remove NIC names the network, and `virsh domiflist` no longer lists it. On a NAT network by name, its Port forwards section is there. A libvirt network VirtPilot doesn't know, such as `default`, shows under its own name. A static network with nothing allocated says "Set inside the VM".
+33. On a running VM, `--config` as above: the NIC shows only under `virsh domiflist --inactive`. The panel says "From its next start", its Network tab row says "from its next start" and "Not connected yet", and Reboot doesn't change that: only a shutdown and start does. The delete is refused naming the VM, a rate limit goes in, and Remove NIC says the running VM isn't touched, then takes it off the saved definition with no error.
+34. On a running VM, with no flags and `--model virtio`: the NIC shows only in the live listing, marked "until its next start". The delete is refused. A rate limit goes in and reads back. A port forward and Lock IP are refused, and the Port forwards section isn't there. Remove NIC takes it off once the guest answers, with the saved definition untouched.
+35. Start with its network stopped or undefined: a network of VirtPilot's names its bridge and the Networks page; one it doesn't know says `virsh net-start`, or that it no longer exists. Neither shows `Command failed`.
+36. A VM only on a VXLAN by name, with chains `VP-IN-<id>` and `VP-OUT-<id>` left from before and FORWARD jumps to them: Firewall Apply gets a 409 saying none are in force, and the chains and jumps are gone. With a NAT NIC saved for its next start: still a 409, and they stay.
+37. With `virsh edit` on a running VM, move a NIC's saved copy to another network: two rows with one MAC, the VM on both networks' lists, and neither network can be deleted. Remove NIC names both and takes both. On a libvirt network with `<forward mode='bridge'/>`, a running VM's `domiflist` says `bridge` and `--inactive` says `network`: one row, unmarked, and Remove NIC takes it from both.
+38. A VM with a NAT NIC under deny-all, with a forward added on a second NAT NIC: `iptables -S FORWARD` still has its jumps on the first NIC's address, above the forward's ACCEPT. The same after `systemctl restart virtpilot`. A forward on the first NIC whose reservation gives it a new address: the jumps go to that address.
+39. A port forward on a NIC with no address, with another VM holding the network's lowest address by lease: the forward takes the next address. On a NIC moved here for its next start, with ARP still naming its address on the old network: the forward gets an address on this one.
+40. Clone a running VM with a NIC saved for its next start and another plugged in until then: the clone has the saved one with a new MAC, and not the other. Suspend a VM and `ip link delete vpbr<ID>`: its tap goes back on the bridge. `virsh define` a VM with a space in its name on a network: the delete is refused naming it.
+
+**Width.**
+
+41. At 1024 with the sidebar open, the table's `scrollWidth` is at most 702 with the longest values allowed: ID 16777215, VM and network names of 63 characters with nowhere to break, a 15-character VM address and remote host, and a CIDR such as `192.168.100.128/25`. Names wrap, nothing is clipped, and Delete is in view. The same names on a VM's Network tab fit too, with a 15-character address and a rate limit, and stay inside every dialog they appear in: measure the text with a Range, since a long word overflows its paragraph without the paragraph's box growing.
 
 **Uninstall.** `uninstall.sh`: no `vpx*`, no `vpbr*`, no `VP-VXLAN`, no `virtpilot-*` libvirt network.
 

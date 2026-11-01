@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Trash2, Waypoints } from 'lucide-react';
 import { toast } from 'sonner';
@@ -17,7 +17,7 @@ import { useVms } from '@/hooks/useVms';
 import { formatBytes } from '@/lib/format';
 import type { Network, VxlanStatus } from '@/types';
 
-const COLUMNS = ['Name', 'ID', 'Connected VMs', 'Addresses', 'Remote hosts', ''];
+const COLUMNS = ['Name', 'Connected VMs', 'Addresses', 'Remote hosts', ''];
 /** A VXLAN can hold a lot of VMs: the row stays a row until asked. */
 const VMS_SHOWN = 5;
 
@@ -39,9 +39,9 @@ function Addresses({ network }: { network: Network }) {
   return (
     <>
       <div className="whitespace-nowrap font-mono text-[12.5px] text-foreground">{network.cidr}</div>
-      <div className="mt-0.5 whitespace-nowrap text-[12px] text-muted-foreground">
+      <div className="mt-0.5 text-[12px] text-muted-foreground">
         {network.ipMode === 'dhcp'
-          ? <>DHCP from <span className="font-mono">{network.gateway}</span></>
+          ? <>DHCP from <span className="whitespace-nowrap font-mono">{network.gateway}</span></>
           : <StaticPool networkId={network.id} />}
       </div>
     </>
@@ -60,16 +60,22 @@ function ConnectedVms({ network, status, onConnect }: { network: Network; status
       {vms.length === 0 ? (
         <p className="text-[12.5px] text-muted-foreground">None yet</p>
       ) : (
-        // The address under the name, not beside it: side by side they don't fit at 1024.
-        <ul className="space-y-1.5">
+        // The address under the name, not beside it: side by side they don't fit at 1024. A name
+        // can be 63 characters with nowhere to break, so it wraps rather than widens the table.
+        <ul className="min-w-[7rem] space-y-1.5">
           {shown.map((vm) => (
-            <li key={vm.mac} className="whitespace-nowrap">
-              <span className="flex items-center gap-2">
-                <StatusGlyph status={vm.status} size={7} />
+            <li key={`${vm.mac}-${vm.onlyIn ?? 'both'}`}>
+              <span className="flex items-start gap-2">
+                <StatusGlyph status={vm.status} size={7} className="mt-[6px]" />
                 <span className="sr-only">{statusLabels[vm.status]}:</span>
-                <Link to={`/vms/${vm.id}?tab=network`} className="text-[13px] text-primary underline-offset-2 hover:underline">{vm.name}</Link>
+                <Link to={`/vms/${vm.id}?tab=network`} className="text-[13px] text-primary underline-offset-2 [overflow-wrap:anywhere] hover:underline">{vm.name}</Link>
               </span>
-              {vm.ip && <div className="ml-[15px] font-mono text-[12px] text-muted-foreground">{vm.ip}</div>}
+              {vm.onlyIn !== 'saved' && vm.ip && <div className="ml-[15px] whitespace-nowrap font-mono text-[12px] text-muted-foreground">{vm.ip}</div>}
+              {vm.onlyIn && (
+                <div className="ml-[15px] text-[12px] text-muted-foreground">
+                  {vm.onlyIn === 'saved' ? 'From its next start' : 'Until its next start'}
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -80,7 +86,7 @@ function ConnectedVms({ network, status, onConnect }: { network: Network; status
             type="button"
             aria-expanded={showAll}
             onClick={() => setShowAll((v) => !v)}
-            className="text-[12px] tabular-nums text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            className="whitespace-nowrap text-[12px] tabular-nums text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
           >
             {showAll ? 'Show fewer' : `and ${hidden} more`}
           </button>
@@ -89,7 +95,7 @@ function ConnectedVms({ network, status, onConnect }: { network: Network; status
           type="button"
           onClick={onConnect}
           aria-label={`Connect a VM to ${network.name}`}
-          className="text-[12.5px] font-medium text-primary underline-offset-2 hover:underline"
+          className="whitespace-nowrap text-[12.5px] font-medium text-primary underline-offset-2 hover:underline"
         >
           Connect a VM
         </button>
@@ -102,15 +108,15 @@ function RemoteHosts({ status, network }: { status?: VxlanStatus; network: Netwo
   const peers = network.peers ?? [];
   if (peers.length === 0) return <span className="whitespace-nowrap text-[12.5px] text-muted-foreground">This host only</span>;
   return (
-    <ul className="space-y-1">
+    <ul className="space-y-1.5">
       {peers.map((address) => {
         const machines = status?.peers.find((p) => p.address === address)?.machines ?? 0;
         return (
-          <li key={address} className="flex flex-wrap items-baseline gap-x-2 whitespace-nowrap">
-            <span className="font-mono text-[12.5px] text-foreground">{address}</span>
-            <span className="text-[12px] tabular-nums text-muted-foreground">
+          <li key={address} className="whitespace-nowrap">
+            <div className="font-mono text-[12.5px] text-foreground">{address}</div>
+            <div className="mt-0.5 text-[12px] tabular-nums text-muted-foreground">
               {machines > 0 ? `${machines} ${machines === 1 ? 'machine' : 'machines'} seen` : 'Nothing received yet'}
-            </span>
+            </div>
           </li>
         );
       })}
@@ -322,40 +328,52 @@ export function VxlanPanel({
                     ]
                   : [];
                 return (
-                  <tr key={n.id} className="table-row align-top">
-                    <td className="py-3 pl-5 pr-3">
-                      <div className="text-[13.5px] font-semibold text-foreground">{n.name}</div>
-                      <div className="mt-0.5 whitespace-nowrap font-mono text-[12px] text-muted-foreground">{n.bridge}</div>
-                      {problems.map((p) => (
-                        <p key={p} className="mt-1.5 flex max-w-[34ch] items-start gap-1.5 text-[12px] leading-[1.45] text-amber-800 dark:text-amber-200">
-                          <WarnGlyph className="mt-[3px] shrink-0" />{p}
-                        </p>
-                      ))}
-                    </td>
-                    <td className="px-3 py-3 font-mono text-[12.5px] text-foreground">{n.vni}</td>
-                    <td className="px-3 py-3">
-                      {isLoading
-                        ? <Skeleton className="h-4 w-24" />
-                        : <ConnectedVms network={n} status={status} onConnect={() => setConnectTo(n)} />}
-                    </td>
-                    <td className="px-3 py-3"><Addresses network={n} /></td>
-                    <td className="px-3 py-3"><RemoteHosts network={n} status={status} /></td>
-                    <td className="whitespace-nowrap py-1.5 pl-1 pr-5 text-right">
-                      <div className="inline-flex items-center justify-end gap-0.5">
-                        <RowAction label={`Remote hosts of ${n.name}`} tooltip="Remote hosts" onClick={() => setHostsFor(n)}>
-                          <Waypoints size={14} />
-                        </RowAction>
-                        <RowAction
-                          label={`Delete network ${n.name}`}
-                          tooltip="Delete network"
-                          danger
-                          onClick={() => onDelete(n)}
-                        >
-                          <Trash2 size={14} />
-                        </RowAction>
-                      </div>
-                    </td>
-                  </tr>
+                  <Fragment key={n.id}>
+                    <tr className="table-row align-top">
+                      <td className="py-3 pl-5 pr-3">
+                        <div className="min-w-[5.5rem] text-[13.5px] font-semibold text-foreground [overflow-wrap:anywhere]">{n.name}</div>
+                        {/* Side by side when there is room. An 8-digit ID needs the width of a column at 1024. */}
+                        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[12px] text-muted-foreground">
+                          <span className="whitespace-nowrap">ID <span className="font-mono text-foreground">{n.vni}</span></span>
+                          <span className="whitespace-nowrap font-mono">{n.bridge}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        {isLoading
+                          ? <Skeleton className="h-4 w-24" />
+                          : <ConnectedVms network={n} status={status} onConnect={() => setConnectTo(n)} />}
+                      </td>
+                      <td className="px-3 py-3"><Addresses network={n} /></td>
+                      <td className="px-3 py-3"><RemoteHosts network={n} status={status} /></td>
+                      <td className="whitespace-nowrap py-1.5 pl-1 pr-5 text-right">
+                        <div className="inline-flex items-center justify-end gap-0.5">
+                          <RowAction label={`Remote hosts of ${n.name}`} tooltip="Remote hosts" onClick={() => setHostsFor(n)}>
+                            <Waypoints size={14} />
+                          </RowAction>
+                          <RowAction
+                            label={`Delete network ${n.name}`}
+                            tooltip="Delete network"
+                            danger
+                            onClick={() => onDelete(n)}
+                          >
+                            <Trash2 size={14} />
+                          </RowAction>
+                        </div>
+                      </td>
+                    </tr>
+                    {/* A row of its own, as in the NAT and bridge table: the name's cell would squeeze it to a few words per line. */}
+                    {problems.length > 0 && (
+                      <tr className="!border-t-0">
+                        <td colSpan={COLUMNS.length} className="px-5 pb-3">
+                          {problems.map((p) => (
+                            <p key={p} className="flex max-w-[min(80ch,calc(100vw-5rem))] items-start gap-1.5 text-[12px] leading-[1.45] text-amber-800 dark:text-amber-200">
+                              <WarnGlyph className="mt-[3px] shrink-0" />{p}
+                            </p>
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>

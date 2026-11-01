@@ -13,6 +13,19 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.16.5',
+    date: '2026-11-01',
+    changes: [
+      { type: 'fixed', text: 'A VM attached by the libvirt network\'s name, with virsh or virt-manager, is now treated like any other. It shows in a VXLAN\'s Connected VMs, its Network tab names the network and lists its port forwards, its address is found, and it starts and gets its network back when the bridge has been rebuilt.' },
+      { type: 'fixed', text: 'A NIC in only one of a running VM\'s definitions now counts. One saved for its next start reads "from its next start", and its network can\'t be deleted from under it, which left the VM unable to start. Remove NIC and rate limits work on either kind.' },
+      { type: 'fixed', text: 'A port forward no longer moves a VM\'s firewall. On a VM with two NICs it left the NIC the firewall protected unfiltered until the next Apply. Nor can a forward land on an address another VM holds by lease.' },
+      { type: 'fixed', text: 'Firewall rules are refused on a VM only on VXLANs however it was attached, as they filter nothing there, and applying clears any left from before.' },
+      { type: 'fixed', text: 'The VXLAN table fits at 1024 px with the longest values allowed. The ID moved under the network\'s name, beside its bridge, and long names wrap rather than widen a table or run out of a dialog. A VM\'s Network tab fits too.' },
+      { type: 'fixed', text: 'A paused VM gets its network back when its bridge is rebuilt. A clone of a running VM gets a new MAC on a NIC saved for its next start. A VM with a space in its name counts as connected.' },
+      { type: 'fixed', text: 'A VXLAN\'s problem has a row of its own, errors are clearer when a VM\'s network isn\'t there, and a NIC on a static network with no address allocated says "Set inside the VM".' },
+    ],
+  },
+  {
     version: '2.16.4',
     date: '2026-10-31',
     changes: [

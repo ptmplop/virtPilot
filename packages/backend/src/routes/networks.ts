@@ -40,6 +40,7 @@ interface VxlanVm {
   status: string;
   mac: string;
   ip?: string;
+  onlyIn?: 'live' | 'saved';
 }
 
 // The live state of every VXLAN, read from the host and libvirt on each call: what
@@ -49,7 +50,7 @@ networksRouter.get('/vxlan/status', async (_req, res) => {
     const networks = (await networkService.listNetworks()).filter((n) => n.type === 'vxlan');
     const status: Record<string, VxlanRuntime & { vms: VxlanVm[] }> = {};
     if (networks.length > 0) {
-      const [runtime, vms, metas] = await Promise.all([readVxlanRuntime(networks), vmService.listVmsWithNics(), listVmMetas()]);
+      const [runtime, vms, metas] = await Promise.all([readVxlanRuntime(networks), vmService.listVmsWithNics(networks), listVmMetas()]);
       const staticIp = new Map(metas.flatMap((m) => (m.networks ?? []).map((a) => [a.mac.toLowerCase(), a.ip] as const)));
       for (const n of networks) {
         const onThis = vms.flatMap((vm) => vm.nics.filter((nic) => nic.source === n.bridge).map((nic) => ({ vm, nic })));
@@ -60,7 +61,7 @@ networksRouter.get('/vxlan/status', async (_req, res) => {
           ...runtime.get(n.id)!,
           vms: onThis.map(({ vm, nic }) => {
             const mac = nic.mac.toLowerCase();
-            return { id: vm.id, name: vm.name, status: vm.status, mac, ip: staticIp.get(mac) ?? leases.get(mac) };
+            return { id: vm.id, name: vm.name, status: vm.status, mac, ip: staticIp.get(mac) ?? leases.get(mac), onlyIn: nic.onlyIn };
           }),
         };
       }
@@ -88,11 +89,12 @@ networksRouter.get('/bridge/status', async (_req, res) => {
 // can't say this fails, and the delete itself, which asks again, refuses.
 networksRouter.get('/connected', async (_req, res) => {
   try {
-    const [networks, vms] = await Promise.all([networkService.listNetworks(), vmService.listVmsWithNics()]);
+    const networks = await networkService.listNetworks();
+    const vms = await vmService.listVmsWithNics(networks);
     res.json({
       connected: Object.fromEntries(networks.map((n) => [
         n.id,
-        vms.filter((vm) => vm.nics.some((nic) => networkService.nicIsOnNetwork(nic, n))).map(({ id, name, status }) => ({ id, name, status })),
+        vms.filter((vm) => vm.nics.some((nic) => nic.source === n.bridge)).map(({ id, name, status }) => ({ id, name, status })),
       ])),
     });
   } catch (err: unknown) {

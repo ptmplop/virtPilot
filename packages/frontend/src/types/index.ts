@@ -16,6 +16,8 @@ export interface VmNic {
   mac: string;
   source: string;
   model: string;
+  /** In only one of a running VM's definitions: 'saved' from its next start, 'live' until then. */
+  onlyIn?: 'live' | 'saved';
   target?: string;
   inboundKbps?: number;
   outboundKbps?: number;
@@ -209,7 +211,7 @@ export interface VxlanStatus {
   /** What other hosts have to list to reach this one. */
   localAddress: string | null;
   problems: string[];
-  vms: Array<{ id: string; name: string; status: VmStatus; mac: string; ip?: string }>;
+  vms: Array<{ id: string; name: string; status: VmStatus; mac: string; ip?: string; onlyIn?: 'live' | 'saved' }>;
 }
 
 export interface BridgeStatus {

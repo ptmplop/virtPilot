@@ -167,7 +167,7 @@ export async function syncVxlanNetworks(networks: readonly Network[]): Promise<M
       mine.push(...await restoreBridge(n.libvirtName, n.bridge));
       bridgeUp = await bridgeExists(n.bridge);
     }
-    if (bridgeUp) mine.push(...await reconnectIfRebuilt(n.bridge));
+    if (bridgeUp) mine.push(...await reconnectIfRebuilt(n));
 
     const device = vxlanDeviceName(n.vni);
     const have = links.find((l) => l.name === device);

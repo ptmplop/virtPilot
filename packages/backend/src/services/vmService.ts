@@ -4,7 +4,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import * as storageDirService from './storageDirService.js';
 import { listVmMetas } from './vmMetaService.js';
-import { ensureBridges, listNetworks } from './networkService.js';
+import { ensureBridges, listNetworks, type Network } from './networkService.js';
 import { getRecentVmCpu, guestMemory } from './vmMetricsService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
@@ -70,20 +70,26 @@ export async function listVms(): Promise<VmSummary[]> {
   return vms;
 }
 
-/** Every VM with the NICs it is defined with, running or not, as cheaply as that can be read. */
-export async function listVmsWithNics(): Promise<Array<{ id: string; name: string; status: VmStatus; nics: VmNic[] }>> {
+/**
+ * Every VM with the NICs it is defined with, running or not, as cheaply as that can be read.
+ * Takes the networks its caller already holds: read again here, a failure would leave a NIC
+ * under its libvirt name, and a guard comparing bridges would pass it.
+ */
+export async function listVmsWithNics(networks: readonly NetworkRef[]): Promise<Array<{ id: string; name: string; status: VmStatus; nics: VmNic[] }>> {
   const [table, names] = await Promise.all([virsh(['list', '--all']), virsh(['list', '--all', '--uuid', '--name'])]);
   const states = new Map(
     table.split('\n').slice(2).map((line) => line.trim().split(/\s{2,}/)).filter((p) => p.length >= 3).map((p) => [p[1].trim(), p[2].trim()]),
   );
-  const rows = names.split('\n').map((line) => line.trim().split(/\s+/)).filter((p) => p.length === 2);
-  return Promise.all(rows.map(async ([id, name]) => ({
-    id,
-    name,
-    status: parseStatus(states.get(name) ?? ''),
+  // A name made outside VirtPilot can have spaces, and a VM skipped here would pass the guard.
+  const rows = names.split('\n').flatMap((line) => {
+    const m = line.trim().match(/^(\S+)\s+(.+)$/);
+    return m ? [[m[1], m[2]]] : [];
+  });
+  return Promise.all(rows.map(async ([id, name]) => {
+    const status = parseStatus(states.get(name) ?? '');
     // Not caught: "no NICs" would pass the guard on deleting a network with a VM still on it.
-    nics: parseDomIfList(await virsh(['domiflist', name])),
-  })));
+    return { id, name, status, nics: await readNics(id, networks, status !== 'stopped') };
+  }));
 }
 
 export async function listVmsRaw(): Promise<VmSummary[]> {
@@ -288,16 +294,59 @@ function parseDomIfList(out: string): VmNic[] {
   return nics;
 }
 
+/**
+ * A running VM has two definitions, and they can differ. `virsh attach-interface --config` saves
+ * a NIC for its next start, which plain `domiflist` doesn't show, and with no flags it plugs one
+ * in until then. virt-manager or `virsh edit` can leave a MAC on one network now and another
+ * next time, which is two rows here. A NIC in either is on that network: take the network away
+ * and the VM loses it now or can't start later. Sources must already be bridges, or the same NIC
+ * could differ only in how it is written.
+ */
+export function mergeNicDefinitions(live: VmNic[], saved: VmNic[]): VmNic[] {
+  const same = (a: VmNic, b: VmNic) => a.mac.toLowerCase() === b.mac.toLowerCase() && a.source === b.source;
+  return [
+    ...live.map((n): VmNic => {
+      const copy = saved.find((s) => same(n, s));
+      if (!copy) return { ...n, onlyIn: 'live' };
+      return copy.type === n.type ? n : { ...n, savedType: copy.type };
+    }),
+    ...saved.filter((s) => !live.some((n) => same(n, s))).map((n): VmNic => ({ ...n, onlyIn: 'saved' })),
+  ];
+}
+
+type NetworkRef = Pick<Network, 'bridge' | 'libvirtName'>;
+
+/** A stopped VM has the one definition, so `running: false` saves asking twice. */
+async function readNics(name: string, networks: readonly NetworkRef[], running = true): Promise<VmNic[]> {
+  const read = async (...flags: string[]) => withBridgeSources(parseDomIfList(await virsh(['domiflist', name, ...flags])), networks);
+  const now = await read();
+  return running ? mergeNicDefinitions(now, await read('--inactive')) : now;
+}
+
+/**
+ * A NIC made outside VirtPilot, with virsh or virt-manager, names the libvirt network where
+ * VirtPilot's own name its bridge. Everything after this, the browser too, knows a network by
+ * its bridge, so the difference is dealt with where NICs are read. `type` still says how the
+ * NIC is attached, and a libvirt network VirtPilot doesn't know keeps its name.
+ */
+export function withBridgeSources(nics: VmNic[], networks: readonly NetworkRef[]): VmNic[] {
+  return nics.map((nic) => {
+    const network = nic.type === 'network' ? networks.find((n) => n.libvirtName === nic.source) : undefined;
+    return network ? { ...nic, source: network.bridge } : nic;
+  });
+}
+
 export async function getVmNics(nameOrId: string): Promise<VmNic[]> {
   const name = validateVmName(nameOrId);
   try {
-    const nics = parseDomIfList(await virsh(['domiflist', name]));
+    const nics = await readNics(name, await listNetworks());
 
     try {
-      const xml = await virsh(['dumpxml', name, '--inactive']);
-      const bandwidthByMac = parseNicBandwidthFromXml(xml);
+      const saved = parseNicBandwidthFromXml(await virsh(['dumpxml', name, '--inactive']));
+      // A NIC only on the running VM isn't in the saved XML. Worth asking only for one of those.
+      const live = nics.some((n) => n.onlyIn === 'live') ? parseNicBandwidthFromXml(await virsh(['dumpxml', name])) : saved;
       for (const nic of nics) {
-        const bw = bandwidthByMac.get(nic.mac.toLowerCase());
+        const bw = (nic.onlyIn === 'live' ? live : saved).get(nic.mac.toLowerCase());
         if (bw) {
           if (bw.inboundKbps !== undefined) nic.inboundKbps = bw.inboundKbps;
           if (bw.outboundKbps !== undefined) nic.outboundKbps = bw.outboundKbps;
@@ -354,7 +403,8 @@ export async function getVmInterfaceIps(nameOrId: string): Promise<Record<string
   try {
     // A lease outlives a stopped VM by its whole lease time: an address it doesn't have.
     const running = parseStatus(await virsh(['domstate', name]).catch(() => '')) !== 'stopped';
-    const missing = running ? (await getVmNics(name)).filter((nic) => !result[nic.mac.toLowerCase()]) : [];
+    // A NIC saved for its next start isn't connected, though an old lease may still name it.
+    const missing = running ? (await getVmNics(name)).filter((nic) => nic.onlyIn !== 'saved' && !result[nic.mac.toLowerCase()]) : [];
     if (missing.length > 0) {
       for (const net of await listNetworks()) {
         if (!net.libvirtName || !missing.some((nic) => nic.source === net.bridge)) continue;
@@ -416,7 +466,7 @@ export async function resolveVmIp(nameOrId: string): Promise<string | null> {
   //    `domifaddr --source lease` does not always find it; the per-network
   //    listing does.
   try {
-    const nics = await getVmNics(id);
+    const nics = (await getVmNics(id)).filter((n) => n.onlyIn !== 'saved');
     const macs = nics.map((n) => n.mac.toLowerCase());
     const networks = await listNetworks();
     for (const net of networks) {
@@ -435,21 +485,36 @@ export async function resolveVmIp(nameOrId: string): Promise<string | null> {
 }
 
 /**
- * The address VirtPilot's firewall filters: a NIC whose traffic is routed through this
- * host, the primary one if it can be. Never a VXLAN's: its traffic goes straight through
- * the bridge, so rules there filter nothing, and the FORWARD jumps they need sit above
- * libvirt's isolation of the network, so they would let other networks in.
+ * The NIC VirtPilot's firewall filters: one whose traffic is routed through this host, the
+ * primary one if it can be. Never a VXLAN's: its traffic goes straight through the bridge, so
+ * rules there filter nothing, and the FORWARD jumps they need sit above libvirt's isolation
+ * of the network, so they would let other networks in.
  */
-export async function resolveFirewallTarget(nameOrId: string): Promise<{ ip: string | null; vxlanOnly: boolean }> {
-  const id = validateVmName(nameOrId);
-  const [nics, networks, metas] = await Promise.all([getVmNics(id), listNetworks(), listVmMetas().catch(() => [])]);
+async function findFirewallNic(id: string) {
+  const [defined, networks, metas] = await Promise.all([getVmNics(id), listNetworks(), listVmMetas().catch(() => [])]);
+  // A NIC saved for its next start has no traffic yet, and no address to filter.
+  const nics = defined.filter((n) => n.onlyIn !== 'saved');
   const vxlanBridges = new Set(networks.filter((n) => n.type === 'vxlan').map((n) => n.bridge));
   const routed = nics.filter((n) => !vxlanBridges.has(n.source));
-  if (nics.length > 0 && routed.length === 0) return { ip: null, vxlanOnly: true };
-
   const allocs = metas.find((m) => m.uuid === id.toLowerCase())?.networks ?? [];
   const primaryMac = allocs.find((a) => a.isPrimary)?.mac.toLowerCase();
-  const target = routed.find((n) => n.mac.toLowerCase() === primaryMac) ?? routed[0];
+  return {
+    target: routed.find((n) => n.mac.toLowerCase() === primaryMac) ?? routed[0],
+    vxlanOnly: nics.length > 0 && routed.length === 0,
+    routedLater: defined.some((n) => !vxlanBridges.has(n.source)),
+    allocs,
+  };
+}
+
+export async function firewallNicMac(nameOrId: string): Promise<string | undefined> {
+  return (await findFirewallNic(validateVmName(nameOrId))).target?.mac.toLowerCase();
+}
+
+/** The address VirtPilot's firewall filters: that of the NIC above. */
+export async function resolveFirewallTarget(nameOrId: string): Promise<{ ip: string | null; vxlanOnly: boolean; routedLater?: boolean }> {
+  const id = validateVmName(nameOrId);
+  const { target, vxlanOnly, routedLater, allocs } = await findFirewallNic(id);
+  if (vxlanOnly) return { ip: null, vxlanOnly: true, routedLater };
   if (!target) return { ip: null, vxlanOnly: false };
   const mac = target.mac.toLowerCase();
   const fixed = allocs.find((a) => a.mac.toLowerCase() === mac)?.ip;
@@ -478,6 +543,22 @@ export async function startVm(nameOrId: string): Promise<string> {
 }
 
 /**
+ * What libvirt says when a NIC's network isn't there, in words. A NIC on a bridge fails one way,
+ * and a NIC attached by the network's name two others: stopped, or gone altogether.
+ */
+export function explainMissingNetwork(raw: string, networks: readonly NetworkRef[]): string | null {
+  const m = raw.match(/Cannot get interface MTU on '([^']+)'|network '([^']+)' is not active|no network with matching name '([^']+)'/);
+  if (!m) return null;
+  const libvirtName = m[2] ?? m[3];
+  const bridge = m[1] ?? networks.find((n) => n.libvirtName === libvirtName)?.bridge;
+  if (bridge) return `This VM has a NIC on ${bridge}, and that network is not running on this host. Check it on the Networks page, or remove the NIC.`;
+  // Not one of VirtPilot's, so the Networks page has nothing to say about it.
+  return m[2]
+    ? `This VM has a NIC on the libvirt network ${libvirtName}, which is not running. Start it with virsh net-start ${libvirtName}, or remove the NIC.`
+    : `This VM has a NIC on the libvirt network ${libvirtName}, which no longer exists on this host. Remove the NIC on its Network tab.`;
+}
+
+/**
  * Every start VirtPilot makes goes through here.
  *
  * First the cached backing chain is dropped from the saved definition. libvirt
@@ -500,8 +581,8 @@ async function startDomain(name: string, trace: TraceEntry[]): Promise<void> {
     const why = await deviceService.explainStartFailure(err);
     if (why) throw new DeviceError(why, 409);
     const raw = String((err as { stderr?: string })?.stderr || (err instanceof Error ? err.message : err));
-    const bridge = raw.match(/Cannot get interface MTU on '([^']+)'/)?.[1];
-    if (bridge) throw new DeviceError(`This VM has a NIC on ${bridge}, and that network is not running on this host. Check it on the Networks page, or remove the NIC.`, 409);
+    const missing = explainMissingNetwork(raw, await listNetworks());
+    if (missing) throw new DeviceError(missing, 409);
     throw err;
   }
 }
@@ -720,9 +801,21 @@ export async function detachNic(nameOrId: string, mac: string): Promise<string> 
   const name = validateVmName(nameOrId);
   const m = validateMac(mac);
   const trace: TraceEntry[] = [];
-  // A NIC made outside VirtPilot may be of another type, and virsh wants the right one.
-  const type = (await getVmNics(name)).find((n) => n.mac.toLowerCase() === m)?.type ?? 'bridge';
-  await virsh(['detach-interface', name, type, '--mac', m, '--persistent'], trace);
+  // A NIC made outside VirtPilot may be of another type, and virsh wants the right one. It may
+  // also be in only one of a running VM's definitions, where --persistent fails: on a saved one
+  // after having removed it, on a live one with nothing done. A NIC called something else in
+  // each definition, or on a different network in each, is taken from each in turn.
+  const copies = (await getVmNics(name)).filter((n) => n.mac.toLowerCase() === m);
+  const detach = (type: string | undefined, where: string) => virsh(['detach-interface', name, type ?? 'bridge', '--mac', m, where], trace);
+  if (copies.length === 0) await detach('bridge', '--persistent');
+  for (const nic of copies) {
+    if (nic.savedType) {
+      await detach(nic.savedType, '--config');
+      await detach(nic.type, '--live');
+    } else {
+      await detach(nic.type, nic.onlyIn === 'saved' ? '--config' : nic.onlyIn === 'live' ? '--live' : '--persistent');
+    }
+  }
   return formatTrace(trace);
 }
 
@@ -738,8 +831,12 @@ export async function setNicBandwidth(
   const outboundKbps = validateNonNegativeInt(bandwidth.outboundKbps ?? 0, 100_000_000);
   const trace = existingTrace ?? [];
   const state = await virsh(['domstate', name]);
-  const isRunning = parseStatus(state) === 'running';
-  const scope = isRunning ? ['--live', '--config'] : ['--config'];
+  const status = parseStatus(state);
+  const copies = (await getVmNics(name)).filter((n) => n.mac.toLowerCase() === m);
+  // Not found counts as in both: libvirt says so if it isn't. A paused VM's NIC is as live as a running one's.
+  const inLive = copies.length === 0 || copies.some((n) => n.onlyIn !== 'saved');
+  const inSaved = copies.length === 0 || copies.some((n) => n.onlyIn !== 'live');
+  const scope = [...((status === 'running' || status === 'paused') && inLive ? ['--live'] : []), ...(inSaved ? ['--config'] : [])];
 
   await virsh([
     'domiftune', name, m,

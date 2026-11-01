@@ -8,6 +8,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { virshMessage } from '../lib/passthroughErrors.js';
+import type { Network } from './networkService.js';
 import { runSafe, virsh } from './safeExec.js';
 
 export function plainError(err: unknown): string {
@@ -53,19 +54,23 @@ export async function removeLibvirtNetwork(libvirtName: string): Promise<void> {
 const knownIfindex = new Map<string, string>();
 const reconnecting = new Set<string>();
 
-async function reconnectRunningVms(bridge: string): Promise<string[]> {
+type BridgeNetwork = Pick<Network, 'bridge' | 'libvirtName'>;
+
+async function reconnectRunningVms(network: BridgeNetwork): Promise<string[]> {
+  const { bridge } = network;
   let vms: Awaited<ReturnType<typeof import('./vmService.js')['listVmsWithNics']>>;
   try {
     // Lazy import: vmService imports networkService, which imports this module.
-    vms = await (await import('./vmService.js')).listVmsWithNics();
+    vms = await (await import('./vmService.js')).listVmsWithNics([network]);
   } catch (err) {
     return [`Its bridge was rebuilt, and running VMs on it can't be put back until libvirt can list them: ${plainError(err)}`];
   }
   const lost: string[] = [];
   for (const vm of vms) {
-    if (vm.status !== 'running') continue;
+    // A paused VM's tap is off the bridge too, and it wouldn't be told again on resuming.
+    if (vm.status === 'stopped') continue;
     for (const nic of vm.nics) {
-      if (nic.source !== bridge || !nic.target || nic.target === '-') continue;
+      if (nic.source !== bridge || nic.onlyIn === 'saved' || !nic.target || nic.target === '-') continue;
       if ((await runSafe('ip', ['link', 'set', nic.target, 'master', bridge])) === null) lost.push(vm.name);
     }
   }
@@ -77,14 +82,15 @@ async function reconnectRunningVms(bridge: string): Promise<string[]> {
  * back when the network starts again. Every pass calls this: a new ifindex says it happened,
  * from sysfs alone, even if the restart fell between two passes. Kept up until it works.
  */
-export async function reconnectIfRebuilt(bridge: string): Promise<string[]> {
+export async function reconnectIfRebuilt(network: BridgeNetwork): Promise<string[]> {
+  const { bridge } = network;
   const ifindex = await fs.readFile(`/sys/class/net/${bridge}/ifindex`, 'utf8').then((s) => s.trim(), () => null);
   if (ifindex === null) return [];
   const known = knownIfindex.get(bridge);
   knownIfindex.set(bridge, ifindex);
   if (known !== undefined && known !== ifindex) reconnecting.add(bridge);
   if (!reconnecting.has(bridge)) return [];
-  const said = await reconnectRunningVms(bridge);
+  const said = await reconnectRunningVms(network);
   if (said.length === 0) reconnecting.delete(bridge);
   return said;
 }

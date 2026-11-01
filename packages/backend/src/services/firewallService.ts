@@ -212,16 +212,34 @@ async function removeForwardJumps(chains: readonly string[]): Promise<void> {
  * a matching allow rule, which is visible and fixable — unlike a firewall that
  * silently is not in force.
  *
+ * They keep the address they have, which needn't be the forward's: on a VM with two NICs, the
+ * forward's would leave the one the firewall filters unfiltered. `moveTo` says otherwise, for a
+ * new reservation that has given that NIC a new address. A jump that has gone comes back.
+ *
  * No-op when the VM has no firewall chains, i.e. no policy has been applied.
  */
-export async function reassertForwardJumps(vmUuid: string, vmIpRaw: string): Promise<void> {
-  const vmIp = validateIpv4(vmIpRaw);
+export async function reassertForwardJumps(vmUuid: string, forwardIp: string, moveTo?: string): Promise<void> {
   const inC = inChain(vmUuid);
   const outC = outChain(vmUuid);
   if ((await iptablesSafe(['-S', inC])) === null) return;
+  const held = moveTo ? null : await jumpAddress([inC, outC]);
+  const vmIp = validateIpv4(moveTo ?? held ?? forwardIp);
   await removeForwardJumps([inC, outC]);
   await iptablesSafe(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
   await iptablesSafe(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
+}
+
+/** The address a VM's firewall is on, from its jumps in FORWARD. */
+async function jumpAddress(chains: readonly string[]): Promise<string | null> {
+  const dump = await iptablesSafe(['-S', 'FORWARD']);
+  for (const line of dump?.split('\n') ?? []) {
+    const tokens = tokeniseIptablesRule(line.trim());
+    const jump = tokens.lastIndexOf('-j');
+    if (tokens[0] !== '-A' || tokens[1] !== 'FORWARD' || jump === -1 || !chains.includes(tokens[jump + 1])) continue;
+    const match = tokens.findIndex((t) => t === '-d' || t === '-s');
+    if (match !== -1) return tokens[match + 1].replace(/\/32$/, '');
+  }
+  return null;
 }
 
 async function destroyChains(chains: readonly string[]): Promise<void> {

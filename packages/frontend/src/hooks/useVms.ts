@@ -203,9 +203,14 @@ export function useDetachNic(uuid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (mac: string) => {
-      await api.delete(`/api/vms/${uuid}/nics/${mac}`);
+      const { data } = await api.delete<{ pending?: boolean }>(`/api/vms/${uuid}/nics/${mac}`);
+      return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.vm(uuid) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.vm(uuid) });
+      // Its port forwards went with it.
+      qc.invalidateQueries({ queryKey: ['port-forwards', 'vm', uuid] });
+    },
   });
 }
 

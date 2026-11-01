@@ -167,7 +167,7 @@ function cidrsOverlap(a: string, b: string): boolean {
   return aStart <= bEnd && bStart <= aEnd;
 }
 
-function ipInCidr(ip: string, cidr: string): boolean {
+export function ipInCidr(ip: string, cidr: string): boolean {
   if (!cidr) return false;
   const { networkAddr, broadcast } = parseCidr(cidr);
   const n = ipToNum(ip);
@@ -637,11 +637,6 @@ export async function ensureBridges(bridges: readonly string[], waitMs = 15_000)
   clearTimeout(timer);
 }
 
-/** A VM made outside VirtPilot can name the libvirt network where VirtPilot names its bridge. */
-export function nicIsOnNetwork(nic: { source: string }, n: Pick<Network, 'bridge' | 'libvirtName'>): boolean {
-  return nic.source === n.bridge || (!!n.libvirtName && nic.source === n.libvirtName);
-}
-
 export function deleteNetwork(id: string): Promise<void> {
   return serialized(() => deleteNetworkNow(id));
 }
@@ -657,8 +652,8 @@ async function deleteNetworkNow(id: string): Promise<void> {
   // when its record goes, so a VM on one is fine. Lazy import: vmService imports this module.
   // It throws if libvirt can't say, and that refuses the delete.
   if (network.type === 'nat' || network.type === 'vxlan' || bridgeService.isManagedBridge(network)) {
-    const all = await (await import('./vmService.js')).listVmsWithNics();
-    const vms = all.filter((vm) => vm.nics.some((nic) => nicIsOnNetwork(nic, network))).map((vm) => vm.name);
+    const all = await (await import('./vmService.js')).listVmsWithNics([network]);
+    const vms = all.filter((vm) => vm.nics.some((nic) => nic.source === network.bridge)).map((vm) => vm.name);
     if (vms.length > 0) {
       const kind = network.type === 'vxlan' ? 'VXLAN' : network.type === 'nat' ? 'NAT network' : 'bridge';
       throw new NetworkError(`${vms.join(', ')} ${vms.length === 1 ? 'is' : 'are'} still connected to this ${kind}. Remove ${vms.length === 1 ? 'its NIC' : 'their NICs'} first.`, 409);

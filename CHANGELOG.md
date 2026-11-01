@@ -3,6 +3,30 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.16.5] - 2026-11-01
+
+### Fixed
+
+- **A VM attached by the libvirt network's name is now treated like any other** (`virsh attach-interface`, virt-manager). It was missing from a VXLAN's Connected VMs, and Connect a VM still offered it. Its Network tab showed `virtpilot-...` instead of the network, Add NIC offered that network again, and a NAT network's port forwards weren't there. Its address wasn't found in the network's leases. It wouldn't start while its bridge was gone, where a VM attached by VirtPilot brings the bridge back. If it was running when the bridge was rebuilt it stayed cut off from that network until restarted. The API now reports such a NIC on its bridge in `source`, and `type` still says `network`.
+- **A NIC in only one of a running VM's definitions now counts.** With `virsh attach-interface --config` on a running VM the NIC was invisible, so its network could be deleted, and the VM then failed at its next start. It is now listed, marked "from its next start", and the delete is refused. A NIC plugged in with no flags is marked "until its next start". A NIC moved to another network for the next start, with `virsh edit` or virt-manager, shows on both.
+- **Remove NIC works on those NICs.** It reported a failure on either kind: on a NIC saved for the next start, having removed it anyway and left its port forwards behind; on a NIC plugged in until then, having done nothing. The same went for a running VM's NIC on a libvirt network in bridge or macvtap mode, which it calls something else than its saved definition does. A rate limit reaches them too, and reads back. If a guest hasn't let go of a NIC when VirtPilot stops waiting, Remove NIC now says so.
+- **A port forward no longer moves a VM's firewall off the NIC it protects.** Adding one, or restarting the backend with one in place, moved the firewall's rules to the forward's address. On a VM with two NICs and a forward on the other one, that left the NIC the firewall protected unfiltered until the next Apply. In since 2.7.0. A forward on the NIC the firewall filters still takes the rules with it.
+- **A port forward can't land on another VM.** A NIC with no address of its own, such as a stopped VM's, could be given one another VM holds by lease, sending the forward's traffic to that VM. Leased addresses are now skipped.
+- **A NIC gone at the next start can't have a port forward or a locked IP**, which would have been left with nothing to remove them by.
+- **Firewall rules are refused on a VM only on VXLANs however it was attached**, as they filter nothing there. Applying now also clears rules from before: from a version that didn't see the VM was only on VXLANs, or from a NIC it no longer has. They stay if a NIC they would filter is saved for its next start.
+- **A clone of a running VM gets new MACs on every NIC it copies**, including one saved for the next start, which kept the source's MAC. It no longer gets a network config for a NIC plugged in only until the next start. A backup records the same NICs.
+- **A paused VM gets its network back when its bridge is rebuilt**, and a rate limit reaches its live NIC.
+- **A VM with a space in its name** (made outside VirtPilot) now counts as connected, so its network can't be deleted from under it.
+- **The VXLAN table fits at 1024 px with the longest values allowed:** an 8-digit ID, VM and network names of 63 characters and the longest IPv4 addresses. It no longer scrolls inside its panel at that width. The ID moved under the network's name, beside its bridge, and long names wrap rather than widen the table. A VM's Network tab fits too, with a rate limit stacked in its cell.
+- **A long name no longer runs out of a dialog**, in any dialog.
+- **A VXLAN's problem has a row of its own**, as on the NAT and bridge table. In the name's cell it was squeezed to a few words per line.
+- **Clearer errors when a VM's network isn't there.** A VM attached by name got libvirt's own words, and a network VirtPilot doesn't know no longer sends you to the Networks page, which doesn't list it.
+- **A NIC on a static network with no address allocated** says "Set inside the VM", not "DHCP · not resolved yet".
+
+### Changed
+
+- **A remote host's status sits under its address** in the VXLAN table, as a VM's address sits under its name, which leaves the width for the Addresses column.
+
 ## [2.16.4] - 2026-10-31
 
 ### Fixed

@@ -434,7 +434,8 @@ async function cloneVmInner(
       });
       consistency = running ? (copy.consistent ? 'app-consistent' : 'crash-consistent') : 'offline';
     },
-    sourceNics: source.nics,
+    // What the saved definition holds, which is what gets copied.
+    sourceNics: source.nics.filter((n) => n.onlyIn !== 'live'),
     sourceMeta,
     newName: opts.newName,
     storageDirId: opts.storageDirId,
