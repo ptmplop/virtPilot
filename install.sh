@@ -104,6 +104,9 @@ apt-get install -y -qq \
   build-essential \
   pciutils \
   python3
+# Before taking a static pool's address, VirtPilot asks who answers for it. The two arping packages
+# conflict, so one an administrator chose stays. The pool works without it, so nothing fails here.
+command -v arping >/dev/null 2>&1 || apt-get install -y -qq iputils-arping || warn "Could not install iputils-arping: static pools can't check an address is free before taking it"
 
 # ─── Node.js 20 ───────────────────────────────────────────────────────────────
 NODE_MAJOR=20

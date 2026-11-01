@@ -288,6 +288,7 @@ vmsRouter.post('/', async (req, res) => {
   const start = Date.now();
   // Addresses taken from a pool under this ID are given back if the VM never appears.
   let allocatedFor: string | undefined;
+  let releaseNetworks: (() => void) | undefined;
   try {
     const {
       name, cpus, memoryMb, diskGb,
@@ -400,6 +401,9 @@ vmsRouter.post('/', async (req, res) => {
     const nicCloudInit: NicCloudInit[] = [];
     const metaNetworks: vmMetaService.VmNetworkAlloc[] = [];
 
+    // Until libvirt has heard of it, nothing else keeps its networks here.
+    releaseNetworks = await networkService.holdNetworks(networkList.map((n) => n.networkId), name);
+
     // Everything the loop below can refuse, refused before any address is taken.
     for (const req of networkList) {
       const network = await networkService.getNetwork(req.networkId);
@@ -497,6 +501,8 @@ vmsRouter.post('/', async (req, res) => {
     });
     if (err instanceof networkService.NetworkError) return res.status(err.status).json({ error: err.message });
     res.status(500).json({ error: String(err) });
+  } finally {
+    releaseNetworks?.();
   }
 });
 
@@ -883,6 +889,7 @@ vmsRouter.post('/:uuid/nics', requireUuidParam, async (req, res) => {
   const start = Date.now();
   const { uuid } = req.params;
   const log = await logSubject(uuid);
+  let releaseNetwork: (() => void) | undefined;
   try {
     const { networkId, model, staticIp, inboundKbps, outboundKbps } = req.body as {
       networkId: string;
@@ -893,6 +900,7 @@ vmsRouter.post('/:uuid/nics', requireUuidParam, async (req, res) => {
     };
     if (!networkId) return res.status(400).json({ error: 'networkId is required' });
 
+    releaseNetwork = await networkService.holdNetworks([networkId], log.subject);
     const network = await networkService.getNetwork(networkId);
     if (!network) return res.status(400).json({ error: `Network ${networkId} not found` });
 
@@ -930,6 +938,8 @@ vmsRouter.post('/:uuid/nics', requireUuidParam, async (req, res) => {
     void logService.appendLog({ type: 'vm.nic.attach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     if (err instanceof networkService.NetworkError) return res.status(err.status).json({ error: err.message });
     res.status(500).json({ error: String(err) });
+  } finally {
+    releaseNetwork?.();
   }
 });
 
@@ -938,6 +948,9 @@ vmsRouter.delete('/:uuid/nics/:mac', requireUuidParam, async (req, res) => {
   const { uuid, mac } = req.params;
   const log = await logSubject(uuid);
   try {
+    // Read first: which network it was on is about to go.
+    const nics = await vmService.getVmNics(uuid);
+    const onNetwork = nics.find((n) => n.mac.toLowerCase() === mac.toLowerCase())?.source;
     const output = await vmService.detachNic(uuid, mac);
     await portForwardService.deletePortForwardsForNic(uuid, mac);
 
@@ -954,7 +967,15 @@ vmsRouter.delete('/:uuid/nics/:mac', requireUuidParam, async (req, res) => {
     void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'success', output, durationMs: Date.now() - start });
     // virsh gives up waiting after about 5 seconds, whether or not the guest has let it go.
     // If libvirt can't say, "sent" is still true and "gone" might not be.
-    const pending = await vmService.getVmNics(uuid).then((nics) => nics.some((n) => n.mac.toLowerCase() === mac.toLowerCase()), () => true);
+    const pending = await vmService.getVmNics(uuid).then((left) => left.some((n) => n.mac.toLowerCase() === mac.toLowerCase()), () => true);
+    // A jump left on its address would filter whichever VM gets that address next. Not while the
+    // guest still has it, and not with another NIC of this VM on that network.
+    if (!pending && onNetwork && !nics.some((n) => n.mac.toLowerCase() !== mac.toLowerCase() && n.source === onNetwork)) {
+      const network = (await networkService.listNetworks()).find((n) => n.bridge === onNetwork);
+      for (const ip of (network?.cidr && await firewallService.firewallAddresses(uuid)) || []) {
+        if (networkService.ipInCidr(ip, network!.cidr)) await firewallService.removeFirewallAddress(uuid, ip);
+      }
+    }
     res.json({ ok: true, pending });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
@@ -1124,7 +1145,8 @@ vmsRouter.post('/:uuid/snapshots/:snapshot/to-template', requireUuidParam, async
 vmsRouter.get('/:uuid/firewall', requireUuidParam, async (req, res) => {
   try {
     const cfg = await firewallService.getFirewallConfig(req.params.uuid);
-    res.json(cfg);
+    // What is saved isn't always in force: nothing puts rules back after the host restarts.
+    res.json({ ...cfg, ...(await firewallService.getFirewallStatus(req.params.uuid, cfg)) });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
@@ -1171,11 +1193,14 @@ vmsRouter.post('/:uuid/firewall/apply', requireUuidParam, async (req, res) => {
       void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'error', output: 'Refused: only on VXLANs. Any rules from before were removed.', durationMs: Date.now() - start });
       return res.status(409).json({ error: `${refused}, and none are in force. Use a firewall inside the VM.` });
     }
-    if (!ip) return res.status(400).json({ error: 'Could not resolve VM IP - ensure the VM is running' });
+    // Every forward's address too: its ACCEPT is below the firewall's jumps only on an address they
+    // name. They are known when the NIC's isn't, and a forward shouldn't wait on that for its rules.
+    const ips = [...new Set([...(ip ? [ip] : []), ...(await portForwardService.getPortForwardsForVm(uuid)).map((f) => f.vmIp)])];
+    if (ips.length === 0) return res.status(400).json({ error: 'Could not resolve VM IP - ensure the VM is running' });
     const cfg = await firewallService.getFirewallConfig(uuid);
-    await firewallService.applyFirewallRules(uuid, ip, cfg);
-    void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'success', output: `Applied ${cfg.rules.length} rule(s) to ${ip}`, durationMs: Date.now() - start });
-    res.json({ ok: true });
+    await firewallService.applyFirewallRules(uuid, ips, cfg);
+    void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'success', output: `Applied ${cfg.rules.length} rule(s) to ${ips.join(', ')}`, durationMs: Date.now() - start });
+    res.json({ ok: true, ...(ip ? {} : { warning: `Applied to its port forwards only (${ips.join(', ')}). Its main NIC has no address yet: apply again once it has.` }) });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
     res.status(500).json({ error: String(err) });

@@ -50,3 +50,24 @@ export function pickVmIp(addresses: readonly NicAddress[], primaryMac?: string):
   const own = primary ? addresses.find((a) => a.mac === primary) : undefined;
   return own?.ip ?? addresses[0]?.ip ?? null;
 }
+
+/**
+ * `ip -4 neigh show dev <bridge>`: what the host has heard from on that bridge lately. Not STALE:
+ * on a quiet host that can outlast a deleted VM until reboot, and an address in this list isn't
+ * offered, with no way to type it in. Whoever really holds one is found when it is taken. An entry
+ * with no MAC was asked for and never answered.
+ */
+export function parseNeighbours(output: string): NicAddress[] {
+  return [...output.matchAll(/^(\d{1,3}(?:\.\d{1,3}){3}) lladdr ([0-9a-f]{2}(?::[0-9a-f]{2}){5})\b.*\b(REACHABLE|DELAY|PROBE|PERMANENT)\s*$/gim)]
+    .map(([, ip, mac]) => ({ ip, mac: mac.toLowerCase() }));
+}
+
+/**
+ * Who answered `arping -D` for this address. Only a reply naming it counts: the other `arping`
+ * package on Debian and Ubuntu reads the same options differently and exits 1 for nobody, and an
+ * address that looks taken when it isn't would stop a VM being made.
+ */
+export function parseArpingReply(output: string, ip: string): string | null {
+  const m = output.match(/reply from (\S+) \[([0-9a-f]{2}(?::[0-9a-f]{2}){5})\]/i);
+  return m && m[1] === ip ? m[2].toLowerCase() : null;
+}

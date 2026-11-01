@@ -254,10 +254,17 @@ export function NetworksPage() {
   // Delete can only fail until these are gone. Read live, so a VM removed meanwhile frees the
   // button and one added blocks it. If it can't be read, the delete itself says.
   const { vms: connected, checking: connectedLoading } = useConnectedVms(deleteTarget && deleteWaitsForVms(deleteTarget) ? deleteTarget.id : null);
-  const blockers = (connected ?? []).map((vm) => vm.name).sort((a, b) => a.localeCompare(b));
-  const blockedNames = blockers.length > 1
-    ? `${blockers.slice(0, -1).join(', ')} and ${blockers[blockers.length - 1]}`
-    : blockers[0];
+  const namesOf = (status: 'adding' | 'connected') => (connected ?? [])
+    .filter((vm) => (vm.status === 'adding') === (status === 'adding'))
+    .map((vm) => vm.name)
+    .sort((a, b) => a.localeCompare(b));
+  const listed = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]);
+  const blockers = namesOf('connected');
+  const adding = namesOf('adding');
+  const blockedSaying = [
+    blockers.length > 0 ? `${listed(blockers)} ${blockers.length === 1 ? 'is' : 'are'} still connected. Remove ${blockers.length === 1 ? 'its NIC on its' : 'their NICs on each VM\'s'} Network tab first.` : '',
+    adding.length > 0 ? `${listed(adding)} ${adding.length === 1 ? 'is' : 'are'} being added to this network. Wait for that to finish.` : '',
+  ].filter(Boolean).join(' ');
 
   // Each kind has its own default way of giving out addresses, and a VXLAN's "none"
   // means nothing on a bridge.
@@ -639,7 +646,8 @@ export function NetworksPage() {
         description={deleteTarget ? [deleteTarget.name, deleteTarget.vni !== undefined ? `VXLAN ID ${deleteTarget.vni}` : '', deleteTarget.cidr].filter(Boolean).join(' · ') : undefined}
         note={connectedLoading
           ? 'Checking for connected VMs…'
-          : blockers.length > 0 ? `${blockers.length} ${blockers.length === 1 ? 'VM is' : 'VMs are'} still connected.` : undefined}
+          : blockers.length > 0 ? `${blockers.length} ${blockers.length === 1 ? 'VM is' : 'VMs are'} still connected.`
+          : adding.length > 0 ? `${adding.length} ${adding.length === 1 ? 'VM is' : 'VMs are'} being added.` : undefined}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setDeleteTarget(null)}>
@@ -649,7 +657,7 @@ export function NetworksPage() {
               size="sm"
               variant="danger"
               onClick={() => deleteTarget && handleDelete(deleteTarget)}
-              disabled={deleteNetwork.isPending || blockers.length > 0 || connectedLoading}
+              disabled={deleteNetwork.isPending || blockers.length > 0 || adding.length > 0 || connectedLoading}
             >
               {deleteNetwork.isPending ? 'Deleting…' : 'Delete network'}
             </Button>
@@ -657,8 +665,8 @@ export function NetworksPage() {
         }
       >
         <p className="text-sm text-foreground">
-          {blockers.length > 0
-            ? `${blockedNames} ${blockers.length === 1 ? 'is' : 'are'} still connected. Remove ${blockers.length === 1 ? 'its NIC on its' : 'their NICs on each VM\'s'} Network tab first.`
+          {blockedSaying
+            ? blockedSaying
             : deleteTarget?.type === 'vxlan'
             ? 'This will destroy its bridge and tunnel.'
             : deleteTarget?.type === 'nat'

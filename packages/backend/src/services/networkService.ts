@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { run, runSafe, virsh } from './safeExec.js';
 import { validateBridgeName, validateNicName, validateNetworkName, validateIpv4, escapeXml } from '../lib/validate.js';
+import { parseArpingReply, parseNeighbours } from '../lib/vmAddresses.js';
 import { managedBridgeXml, planUplink } from '../lib/managedBridge.js';
 import {
   VxlanInputError,
@@ -127,16 +128,69 @@ function serialized<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// VMs on their way onto a network, which libvirt hasn't heard of yet. Making or cloning one can
+// take hours, `virsh define` is happy with a bridge that has gone, and the next network made
+// would take that bridge's name, with the VM on it.
+const arriving = new Set<{ networks: readonly string[]; vm: string }>();
+// Deletes under way, known by the same names. A hold from before one is marked is seen by its
+// check of `arriving`, and one from after it waits to see how it ends.
+const leaving = new Set<{ names: readonly string[]; done: Promise<void> }>();
+
+const namesOf = (n: Pick<Network, 'id' | 'bridge' | 'libvirtName'>): string[] => [n.id, n.bridge, ...(n.libvirtName ? [n.libvirtName] : [])];
+
+/**
+ * Keeps these networks here until the returned function is called. Each is known by its ID, its
+ * bridge or its libvirt name, as a VM's XML has them. A delete of one under way finishes first,
+ * so look the networks up after this, not before; nothing else waits, and a queue held up by a
+ * stalled libvirt must not hold up a VM being made.
+ */
+export async function holdNetworks(networks: readonly string[], vm: string): Promise<() => void> {
+  for (;;) {
+    const blocking = [...leaving].filter((d) => d.names.some((name) => networks.includes(name)));
+    if (blocking.length === 0) break;
+    await Promise.all(blocking.map((d) => d.done));
+  }
+  const hold = { networks, vm };
+  arriving.add(hold);
+  return () => { arriving.delete(hold); };
+}
+
+export function vmsArriving(network: Pick<Network, 'id' | 'bridge' | 'libvirtName'>): string[] {
+  const names = namesOf(network);
+  return [...new Set([...arriving].filter((hold) => hold.networks.some((name) => names.includes(name))).map((hold) => hold.vm))];
+}
+
 async function readAllocations(): Promise<IpAllocation[]> {
+  let raw: string;
   try {
-    return JSON.parse(await fs.readFile(allocationsPath(), 'utf8'));
+    raw = await fs.readFile(allocationsPath(), 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+  try {
+    return JSON.parse(raw);
   } catch {
+    // Not from here, as writes are atomic. Kept, as the next write would replace it.
+    console.warn(`[network] ${allocationsPath()} can't be read as JSON: copying it to .corrupt and starting empty`);
+    await fs.copyFile(allocationsPath(), `${allocationsPath()}.corrupt`).catch(() => {});
     return [];
   }
 }
 
 async function writeAllocations(allocations: IpAllocation[]): Promise<void> {
-  await fs.writeFile(allocationsPath(), JSON.stringify(allocations, null, 2), 'utf8');
+  const tmp = `${allocationsPath()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(allocations, null, 2), 'utf8');
+  await fs.rename(tmp, allocationsPath());
+}
+
+// One change at a time, read to write. Measured with VMs made at the same moment: one address
+// given to two of them, rows lost, and now and then every other pool's rows erased.
+let allocationChanges: Promise<unknown> = Promise.resolve();
+function changeAllocations(change: (current: IpAllocation[]) => IpAllocation[]): Promise<void> {
+  const run = allocationChanges.then(async () => writeAllocations(change(await readAllocations())));
+  allocationChanges = run.catch(() => {});
+  return run;
 }
 
 function ipToNum(ip: string): number {
@@ -638,24 +692,40 @@ export async function ensureBridges(bridges: readonly string[], waitMs = 15_000)
 }
 
 export function deleteNetwork(id: string): Promise<void> {
-  return serialized(() => deleteNetworkNow(id));
+  return serialized(() => deleteNetworkHolding(id));
 }
 
-async function deleteNetworkNow(id: string): Promise<void> {
+async function deleteNetworkHolding(id: string): Promise<void> {
   const networks = await readNetworks();
   const network = networks.find((n) => n.id === id);
   if (!network) throw new NetworkError(`Network ${id} not found`, 404);
+  let finished = () => {};
+  const mark = { names: namesOf(network), done: new Promise<void>((resolve) => { finished = resolve; }) };
+  leaving.add(mark);
+  try {
+    await deleteNetworkNow(network, networks);
+  } finally {
+    leaving.delete(mark);
+    finished();
+  }
+}
 
+async function deleteNetworkNow(network: Network, networks: Network[]): Promise<void> {
+  const { id } = network;
   let allocations = await readAllocations();
 
   // A VM left on a deleted network of VirtPilot's would refuse to start. An OS bridge stays
   // when its record goes, so a VM on one is fine. Lazy import: vmService imports this module.
   // It throws if libvirt can't say, and that refuses the delete.
   if (network.type === 'nat' || network.type === 'vxlan' || bridgeService.isManagedBridge(network)) {
+    const kind = network.type === 'vxlan' ? 'VXLAN' : network.type === 'nat' ? 'NAT network' : 'bridge';
+    const coming = vmsArriving(network);
+    if (coming.length > 0) {
+      throw new NetworkError(`${coming.join(', ')} ${coming.length === 1 ? 'is' : 'are'} being added to this ${kind}. Wait for that to finish.`, 409);
+    }
     const all = await (await import('./vmService.js')).listVmsWithNics([network]);
     const vms = all.filter((vm) => vm.nics.some((nic) => nic.source === network.bridge)).map((vm) => vm.name);
     if (vms.length > 0) {
-      const kind = network.type === 'vxlan' ? 'VXLAN' : network.type === 'nat' ? 'NAT network' : 'bridge';
       throw new NetworkError(`${vms.join(', ')} ${vms.length === 1 ? 'is' : 'are'} still connected to this ${kind}. Remove ${vms.length === 1 ? 'its NIC' : 'their NICs'} first.`, 409);
     }
     // No VM is on it, so what is left in the pool belongs to VMs that are gone: nothing
@@ -663,9 +733,8 @@ async function deleteNetworkNow(id: string): Promise<void> {
     // being made right now, which holds an address before libvirt has heard of it. Read
     // again: this file has writers outside the queue, and asking libvirt took a while.
     const settled = Date.now() - 5 * 60_000;
-    const held = await readAllocations();
-    allocations = held.filter((a) => a.networkId !== id || Date.parse(a.allocatedAt) > settled);
-    if (allocations.length !== held.length) await writeAllocations(allocations);
+    await changeAllocations((held) => held.filter((a) => a.networkId !== id || Date.parse(a.allocatedAt) > settled));
+    allocations = await readAllocations();
   }
 
   if (allocations.some((a) => a.networkId === id)) {
@@ -710,47 +779,130 @@ async function deleteNetworkNow(id: string): Promise<void> {
   if (network.type === 'vxlan') await vxlanService.syncVxlanNetworks(remaining);
 }
 
-export async function getNetworkIpStatus(id: string): Promise<{ ip: string; allocated: boolean; vmUuid?: string }[]> {
+/** The host's own addresses on a bridge. It never hears its own ARP, so no probe can find these. */
+async function hostAddresses(bridge: string): Promise<string[]> {
+  const out = await runSafe('ip', ['-4', '-o', 'addr', 'show', 'dev', validateBridgeName(bridge)], { timeout: 5_000 });
+  return [...(out ?? '').matchAll(/\binet (\d{1,3}(?:\.\d{1,3}){3})\//g)].map((m) => m[1]);
+}
+
+/** libvirt's answer if it comes in a few seconds. It only ever adds to what is known, and a guest's hung agent can hold it up. */
+function guestsOnSoon(network: Network) {
+  return Promise.race([
+    import('./vmService.js').then((vmService) => vmService.guestsOn(network)).catch(() => null),
+    new Promise<null>((resolve) => { setTimeout(() => resolve(null), 5_000).unref(); }),
+  ]);
+}
+
+/**
+ * Addresses in use on a pool's bridge that it didn't hand out, as a guest can set its own: the
+ * host's own, what its neighbour table has, and what guest agents report. A VM's UUID where one
+ * can be told. Costs a few processes and is read when a pool is shown, not on a timer. Never holds
+ * that up for long: libvirt only adds to what is known, and taking an address probes it anyway.
+ */
+async function addressesInUse(network: Network): Promise<Map<string, string | undefined>> {
+  const guests = await guestsOnSoon(network);
+  const neighbours = parseNeighbours(await runSafe('ip', ['-4', 'neigh', 'show', 'dev', validateBridgeName(network.bridge)], { timeout: 5_000 }) ?? '');
+  const inUse = new Map<string, string | undefined>();
+  for (const ip of await hostAddresses(network.bridge)) inUse.set(ip, undefined);
+  for (const { ip, mac } of [...neighbours, ...(guests?.addresses ?? [])]) inUse.set(ip, guests?.owner.get(mac) ?? inUse.get(ip));
+  return inUse;
+}
+
+export async function getNetworkIpStatus(id: string): Promise<{ ip: string; allocated: boolean; vmUuid?: string; inUse?: boolean }[]> {
   const networks = await readNetworks();
   const network = networks.find((n) => n.id === id);
   if (!network || !usesStaticIps(network)) return [];
 
+  const inUse = await addressesInUse(network).catch(() => new Map<string, string | undefined>());
   const allocations = await readAllocations();
   const mine = allocations.filter((a) => a.networkId === id);
   const usable = enumerateUsableIps(network.cidr).filter((ip) => ip !== network.gateway);
 
   return usable.map((ip) => {
     const alloc = mine.find((a) => a.ip === ip);
-    return { ip, allocated: !!alloc, vmUuid: alloc?.vmUuid };
+    if (alloc) return { ip, allocated: true, vmUuid: alloc.vmUuid };
+    return inUse.has(ip) ? { ip, allocated: true, inUse: true, vmUuid: inUse.get(ip) } : { ip, allocated: false };
   });
 }
 
+/**
+ * Who answers for an address on a bridge, by ARP, which a guest's own firewall doesn't touch.
+ * Needs no address on the bridge, as `-D` asks from 0.0.0.0. It takes a second when nobody does.
+ * Null too where it can't tell: no arping on this host, or the bridge is down.
+ */
+async function arpHolder(bridge: string, ip: string): Promise<string | null> {
+  try {
+    await run('arping', ['-D', '-c', '1', '-w', '1', '-I', validateBridgeName(bridge), validateIpv4(ip)], { timeout: 4_000 });
+    return null;
+  } catch (err) {
+    return parseArpingReply(String((err as { stdout?: unknown }).stdout ?? ''), ip);
+  }
+}
+
+/** A guest with no agent that set its own address, or any other machine on a bridge to a LAN. */
+async function refuseIfInUse(network: Network, ip: string): Promise<void> {
+  if ((await hostAddresses(network.bridge)).includes(ip)) {
+    throw new NetworkError(`${ip} is this host's own address on ${network.name}. Choose another.`, 409);
+  }
+  const holder = await arpHolder(network.bridge, ip);
+  if (!holder) return;
+  // A router doing proxy ARP answers for the whole subnet, and everything would look taken.
+  if (network.gateway && (await arpHolder(network.bridge, network.gateway)) === holder) return;
+  const vm = await guestsOnSoon(network);
+  const uuid = vm?.owner.get(holder);
+  const name = uuid ? vm?.names.get(uuid) : undefined;
+  throw new NetworkError(`${ip} is already in use on ${network.name}: ${name ?? `a machine with MAC ${holder}`} answers for it. Choose another.`, 409);
+}
+
 export async function allocateSpecificIp(networkId: string, vmUuid: string, mac: string, ip: string): Promise<void> {
+  try {
+    validateIpv4(ip);
+  } catch {
+    throw new NetworkError(`${ip} is not an IPv4 address.`);
+  }
   const network = await getNetwork(networkId);
-  if (network?.type === 'vxlan') {
+  if (network) {
     const { networkAddr, broadcast } = parseCidr(network.cidr);
-    const n = ipToNum(validateIpv4(ip));
+    const n = ipToNum(ip);
     if (n <= ipToNum(networkAddr) || n >= ipToNum(broadcast) || ip === network.gateway) {
       throw new NetworkError(`${ip} is not a free address on ${network.name} (${network.cidr}).`);
     }
+    // Ahead of the file, as this takes a second.
+    await refuseIfInUse(network, ip);
   }
-  const allocations = await readAllocations();
-  const conflict = allocations.find((a) => a.networkId === networkId && a.ip === ip);
-  if (conflict) throw new NetworkError(`IP ${ip} is already allocated to VM "${conflict.vmUuid}"`, 409);
-  await writeAllocations([
-    ...allocations,
-    { networkId, ip, vmUuid, mac, allocatedAt: new Date().toISOString() },
-  ]);
+  await changeAllocations((allocations) => {
+    const conflict = allocations.find((a) => a.networkId === networkId && a.ip === ip);
+    if (conflict) throw new NetworkError(`IP ${ip} is already allocated to VM "${conflict.vmUuid}"`, 409);
+    return [...allocations, { networkId, ip, vmUuid, mac, allocatedAt: new Date().toISOString() }];
+  });
 }
 
-export async function deallocateVmIps(vmUuid: string): Promise<void> {
-  const allocations = await readAllocations();
-  await writeAllocations(allocations.filter((a) => a.vmUuid !== vmUuid));
+const started = Date.now();
+
+/**
+ * Called once the backend is listening. A restart ends any VM being made, and its address would
+ * stay taken for good, as nothing else clears a row whose VM never arrived: on an OS bridge's pool
+ * that also blocks deleting the record. Only rows from before this start, as any later one may
+ * be a VM on its way, and only for what libvirt says it has no record of.
+ */
+export async function dropAllocationsOfMissingVms(): Promise<void> {
+  const vmService = await import('./vmService.js');
+  const older = (await readAllocations()).filter((a) => Date.parse(a.allocatedAt) < started);
+  const missing = new Set<string>();
+  for (const vmUuid of new Set(older.map((a) => a.vmUuid))) {
+    if ((await vmService.findVm(vmUuid).catch(() => undefined)) === null) missing.add(vmUuid);
+  }
+  if (missing.size === 0) return;
+  await changeAllocations((current) => current.filter((a) => !(missing.has(a.vmUuid) && Date.parse(a.allocatedAt) < started)));
+  console.log(`[network] Freed the addresses of ${missing.size} VM(s) that never arrived or no longer exist`);
 }
 
-export async function deallocateByMac(mac: string): Promise<void> {
-  const allocations = await readAllocations();
-  await writeAllocations(allocations.filter((a) => a.mac !== mac));
+export function deallocateVmIps(vmUuid: string): Promise<void> {
+  return changeAllocations((allocations) => allocations.filter((a) => a.vmUuid !== vmUuid));
+}
+
+export function deallocateByMac(mac: string): Promise<void> {
+  return changeAllocations((allocations) => allocations.filter((a) => a.mac !== mac));
 }
 
 export async function listPhysicalNics(): Promise<HostNic[]> {

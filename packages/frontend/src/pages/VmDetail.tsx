@@ -2446,7 +2446,10 @@ function FirewallRulesTable({
 
 function FirewallTab({ vmUuid, vmStatus, nics }: { vmUuid: string; vmStatus: VmStatus; nics: VmNic[] }) {
   const { data: networks } = useNetworks();
-  const onVxlan = nics.some((nic) => networks?.find((n) => n.bridge === nic.source)?.type === 'vxlan');
+  const networkOf = (nic: VmNic) => networks?.find((n) => n.bridge === nic.source)?.type;
+  const onVxlan = nics.some((nic) => networkOf(nic) === 'vxlan');
+  const onlyOnVxlans = nics.length > 0 && nics.every((nic) => networkOf(nic) === 'vxlan');
+  const onBridge = nics.some((nic) => networkOf(nic) === 'bridge' || networkOf(nic) === 'existing-bridge');
   const [addDirection, setAddDirection] = useState<'inbound' | 'outbound' | null>(null);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleForm>(defaultRuleForm);
@@ -2615,8 +2618,9 @@ function FirewallTab({ vmUuid, vmStatus, nics }: { vmUuid: string; vmStatus: VmS
 
   const handleApply = async () => {
     try {
-      await applyFirewall.mutateAsync();
-      toast.success('Firewall rules applied');
+      const applied = await applyFirewall.mutateAsync();
+      if (applied?.warning) toast.warning(applied.warning);
+      else toast.success('Firewall rules applied');
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -2650,6 +2654,26 @@ function FirewallTab({ vmUuid, vmStatus, nics }: { vmUuid: string; vmStatus: VmS
           </Button>
         </Tooltip>
       </SectionHeading>
+
+      {/* What is saved isn't always what is in force, and nothing else says which. No rules at all
+          has no chains to find, and nothing to be out of force. On a VM only on VXLANs, Apply can
+          only refuse, and the callout below says why. */}
+      {!isLoading && !onlyOnVxlans && (cfg?.inForceOn?.length ? (
+        <p className="text-[13px] text-muted-foreground">
+          Applied to <span className="font-mono text-[12.5px] text-foreground">{cfg.inForceOn.join(', ')}</span>.
+          {cfg.unapplied && <span className="text-foreground"> The rules below have changes that aren't in force until you press Apply rules.</span>}
+        </p>
+      ) : cfg?.inForceOn && (current.rules.length > 0 || current.defaultInbound === 'drop' || current.defaultOutbound === 'drop') && (
+        <Callout>
+          These rules are saved but not in force. A host restart clears them, and VirtPilot doesn't put them back yet. Press Apply rules with the VM running.
+        </Callout>
+      ))}
+
+      {onBridge && cfg && !cfg.bridgedFiltered && (
+        <Callout>
+          These rules don't filter a NIC on a bridge: its traffic goes straight through the bridge without reaching them, as this host doesn't have br_netfilter on. To restrict it, use a firewall inside the VM.
+        </Callout>
+      )}
 
       {onVxlan && (
         <Callout>

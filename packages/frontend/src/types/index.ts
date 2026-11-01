@@ -227,15 +227,19 @@ export interface BridgeStatus {
 }
 
 export interface ConnectedVm {
+  /** Empty while `adding`: libvirt hasn't heard of it yet. */
   id: string;
   name: string;
-  status: VmStatus;
+  status: VmStatus | 'adding';
 }
 
 export interface NetworkIpStatus {
   ip: string;
+  /** Not on offer, whether the pool handed it out or `inUse`. */
   allocated: boolean;
   vmUuid?: string;
+  /** In use by something the pool didn't hand it to, such as a guest that set its own. */
+  inUse?: boolean;
 }
 
 export interface HostNic {
@@ -288,6 +292,12 @@ export interface FirewallConfig {
   defaultOutbound: 'allow' | 'drop';
   allowEstablishedInbound?: boolean;
   allowEstablishedOutbound?: boolean;
+  /** Read only: the addresses these rules were applied to and still are. Null if that can't be read. */
+  inForceOn?: string[] | null;
+  /** Read only: what is saved isn't what was last applied. */
+  unapplied?: boolean;
+  /** Read only: bridged traffic reaches these rules on this host, which takes br_netfilter. */
+  bridgedFiltered?: boolean;
 }
 
 export interface BackupSettings {

@@ -30,8 +30,8 @@ import { createSshWss } from './ssh.js';
 import { createVncWss } from './vnc.js';
 import { ensureDirs } from './services/storageService.js';
 import { seedDefault as seedDefaultStorageDir } from './services/storageDirService.js';
-import { applyAllRules } from './services/portForwardService.js';
-import { applyBridgeNetworks, applyVxlanNetworks, startNetworkWatch } from './services/networkService.js';
+import { applyAllRules, startExtendingMovedFirewalls } from './services/portForwardService.js';
+import { applyBridgeNetworks, applyVxlanNetworks, dropAllocationsOfMissingVms, startNetworkWatch } from './services/networkService.js';
 import { startSampling } from './services/statsService.js';
 import { startVmMetricsSampling } from './services/vmMetricsService.js';
 import { startBackupScheduler } from './services/backupSchedulerService.js';
@@ -391,6 +391,8 @@ async function main() {
     ready = true;
     const proto = tlsAvailable ? 'https' : 'http';
     console.log(`VirtPilot backend listening on ${proto}://${config.bindAddress}:${config.port}`);
+    startExtendingMovedFirewalls();
+    void dropAllocationsOfMissingVms().catch((err) => console.warn('Could not check IP allocations:', err));
   });
 }
 

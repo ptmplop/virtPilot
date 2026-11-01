@@ -4,7 +4,8 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { getNetwork, ipInCidr, parseCidr, enumerateUsableIps, NetworkError } from './networkService.js';
-import { tokeniseIptablesRule, reassertForwardJumps } from './firewallService.js';
+import { addFirewallAddress, firewallAddresses, removeFirewallAddress, tokeniseIptablesRule, reassertForwardJumps } from './firewallService.js';
+import * as logService from './logService.js';
 import { run, runSafe, virsh } from './safeExec.js';
 import { parseDhcpLeases } from '../lib/vmAddresses.js';
 import {
@@ -44,6 +45,15 @@ export interface DhcpReservation {
   ip: string;
   vmUuid: string;
   createdAt: string;
+}
+
+// A forward's record, its reservation and its rules change together, around slow libvirt calls.
+// One at a time, or two overlapping lose a record, or bring back one just deleted.
+let forwardChanges: Promise<unknown> = Promise.resolve();
+function oneChangeAtATime<T>(change: () => Promise<T>): Promise<T> {
+  const run = forwardChanges.then(change, change);
+  forwardChanges = run.catch(() => {});
+  return run;
 }
 
 const forwardsPath = () => path.join(config.storageRoot, 'port-forwards.json');
@@ -316,7 +326,7 @@ function forwardRuleArgs(fwd: PortForward, op: '-I' | '-D' | '-C'): string[] {
   ];
 }
 
-async function addIptablesRules(fwd: PortForward, moveFirewallTo?: string): Promise<void> {
+async function addIptablesRules(fwd: PortForward, firewallKeepOnly?: readonly string[]): Promise<void> {
   // Resolve the ingress match once and pin it to the record, so a later -C/-D
   // reproduces exactly the vector we are about to install even if the default
   // route or the network has changed underneath us in the meantime. Refreshed
@@ -335,7 +345,7 @@ async function addIptablesRules(fwd: PortForward, moveFirewallTo?: string): Prom
   // VM's firewall chain. The firewall is the policy — put its jumps back on
   // top so the outcome doesn't depend on the order the operator happened to
   // configure the two features in.
-  await reassertForwardJumps(fwd.vmUuid, fwd.vmIp, moveFirewallTo).catch(() => { /* no firewall configured */ });
+  await reassertForwardJumps(fwd.vmUuid, fwd.vmIp, firewallKeepOnly);
 }
 
 // Belt and braces: delete every PREROUTING rule still carrying this forward's
@@ -378,7 +388,7 @@ export async function getPortForwardsForVm(vmUuid: string): Promise<PortForward[
   return forwards.filter((f) => f.vmUuid === vmUuid);
 }
 
-export async function createPortForward(opts: {
+interface NewForward {
   networkId: string;
   vmUuid: string;
   mac: string;
@@ -386,7 +396,13 @@ export async function createPortForward(opts: {
   hostPort: number;
   vmPort: number;
   description?: string;
-}): Promise<PortForward> {
+}
+
+export function createPortForward(opts: NewForward): Promise<PortForward> {
+  return oneChangeAtATime(() => createPortForwardNow(opts));
+}
+
+async function createPortForwardNow(opts: NewForward): Promise<PortForward> {
   const vmUuid = validateVmUuid(opts.vmUuid);
   const mac = validateMac(opts.mac);
   const protocol = validateProtocol(opts.protocol);
@@ -418,10 +434,11 @@ export async function createPortForward(opts: {
 
   try {
     // A new reservation can give the NIC a new address, and if it is the NIC the firewall filters,
-    // the firewall goes with it. Asked before any rule goes in, so nothing waits on libvirt with
-    // this forward's ACCEPT above the firewall.
+    // the firewall leaves the old one, which may pass to another VM. Other forwards' addresses
+    // stay. Asked before any rule goes in, so nothing waits on libvirt with this forward's ACCEPT
+    // above the firewall.
     const firewallNic = reservationCreated ? await (await import('./vmService.js')).firewallNicMac(vmUuid) : undefined;
-    await addIptablesRules(forward, firewallNic === mac ? vmIp : undefined);
+    await addIptablesRules(forward, firewallNic === mac ? forwards.filter((f) => f.vmUuid === vmUuid).map((f) => f.vmIp) : undefined);
     await writeForwards([...forwards, forward]);
   } catch (err) {
     // The DNAT rule may already be live while the record never reached
@@ -438,14 +455,31 @@ export async function createPortForward(opts: {
   return forward;
 }
 
-export async function deletePortForward(id: string): Promise<void> {
-  const forwards = await readForwards();
-  const forward = forwards.find((f) => f.id === id);
-  if (!forward) throw new Error(`Port forward ${id} not found`);
+export function deletePortForward(id: string): Promise<void> {
+  return oneChangeAtATime(async () => {
+    const forwards = await readForwards();
+    const forward = forwards.find((f) => f.id === id);
+    if (!forward) throw new Error(`Port forward ${id} not found`);
 
-  await removeIptablesRules(forward);
-  await writeForwards(forwards.filter((f) => f.id !== id));
-  await releaseReservationIfUnused(forward.networkId, forward.mac);
+    await removeIptablesRules(forward);
+    await writeForwards(forwards.filter((f) => f.id !== id));
+    await releaseFirewallAddress(forward);
+    await releaseReservationIfUnused(forward.networkId, forward.mac);
+  });
+}
+
+/**
+ * With its forward gone, an address is free to pass to another VM, which would then be filtered
+ * by this one's rules. Not the last address, nor that of the NIC the firewall is there for, and
+ * if libvirt can't say which that is, it stays: a jump too many only filters this VM.
+ */
+async function releaseFirewallAddress(forward: PortForward): Promise<void> {
+  const others = await readForwards();
+  if (others.some((f) => f.vmUuid === forward.vmUuid && f.vmIp === forward.vmIp)) return;
+  const held = await firewallAddresses(forward.vmUuid);
+  if (!held || held.length < 2 || !held.includes(forward.vmIp)) return;
+  const nic = await (await import('./vmService.js')).firewallNicMac(forward.vmUuid).catch(() => forward.mac);
+  if (nic !== forward.mac) await removeFirewallAddress(forward.vmUuid, forward.vmIp);
 }
 
 async function deleteForwardsWhere(match: (f: PortForward) => boolean): Promise<void> {
@@ -457,12 +491,13 @@ async function deleteForwardsWhere(match: (f: PortForward) => boolean): Promise<
   }
   await writeForwards(forwards.filter((f) => !match(f)));
   for (const fwd of mine) {
+    await releaseFirewallAddress(fwd);
     await releaseReservationIfUnused(fwd.networkId, fwd.mac);
   }
 }
 
-export async function deletePortForwardsForVm(vmUuid: string): Promise<void> {
-  await deleteForwardsWhere((f) => f.vmUuid === vmUuid);
+export function deletePortForwardsForVm(vmUuid: string): Promise<void> {
+  return oneChangeAtATime(() => deleteForwardsWhere((f) => f.vmUuid === vmUuid));
 }
 
 /**
@@ -470,12 +505,14 @@ export async function deletePortForwardsForVm(vmUuid: string): Promise<void> {
  * the dashboard to remove them by: their list is drawn per NIC. The DNAT rule would stay live,
  * the host port taken, and the network undeletable.
  */
-export async function deletePortForwardsForNic(vmUuid: string, macRaw: string): Promise<void> {
+export function deletePortForwardsForNic(vmUuid: string, macRaw: string): Promise<void> {
   const mac = validateMac(macRaw);
-  await deleteForwardsWhere((f) => f.vmUuid === vmUuid && f.mac.toLowerCase() === mac);
-  for (const r of await readReservations()) {
-    if (r.vmUuid === vmUuid && r.mac === mac) await releaseReservationIfUnused(r.networkId, r.mac);
-  }
+  return oneChangeAtATime(async () => {
+    await deleteForwardsWhere((f) => f.vmUuid === vmUuid && f.mac.toLowerCase() === mac);
+    for (const r of await readReservations()) {
+      if (r.vmUuid === vmUuid && r.mac === mac) await releaseReservationIfUnused(r.networkId, r.mac);
+    }
+  });
 }
 
 /**
@@ -483,15 +520,17 @@ export async function deletePortForwardsForNic(vmUuid: string, macRaw: string): 
  * that has gone. Ahead of the network, as a DNAT rule is built from the network's bridge, and
  * once that has gone nothing can construct the matching `-D`.
  */
-export async function deletePortForwardsForNetwork(networkId: string): Promise<void> {
-  await deleteForwardsWhere((f) => f.networkId === networkId);
-  for (const r of await readReservations()) {
-    if (r.networkId === networkId) await releaseReservationIfUnused(r.networkId, r.mac);
-  }
+export function deletePortForwardsForNetwork(networkId: string): Promise<void> {
+  return oneChangeAtATime(async () => {
+    await deleteForwardsWhere((f) => f.networkId === networkId);
+    for (const r of await readReservations()) {
+      if (r.networkId === networkId) await releaseReservationIfUnused(r.networkId, r.mac);
+    }
+  });
 }
 
-export async function reserveVmIp(networkId: string, vmUuid: string, mac: string): Promise<string> {
-  return (await ensureReservation(networkId, vmUuid, mac)).ip;
+export function reserveVmIp(networkId: string, vmUuid: string, mac: string): Promise<string> {
+  return oneChangeAtATime(async () => (await ensureReservation(networkId, vmUuid, mac)).ip);
 }
 
 export async function getReservationsForVm(vmUuid: string): Promise<DhcpReservation[]> {
@@ -515,6 +554,63 @@ async function reconcileNatRules(): Promise<void> {
     if (commentIdx === -1 || !tokens[commentIdx + 1]?.startsWith('virtpilot-')) continue;
     await runSafe('iptables', [...WAIT, '-t', 'nat', '-D', ...tokens.slice(1)]);
   }
+}
+
+/**
+ * Every version from 2.7.0 to 2.16.4 moved a VM's firewall to the address of its newest port
+ * forward, so the NIC it filters went unfiltered until the next Apply. On that evidence alone, a
+ * firewall only on forwards' addresses with the NIC it filters not among them, that NIC's address
+ * joins them. It leaves none: taking one away would open that forward to the world. Where else a
+ * firewall sits is for Apply to say. Only asks libvirt on finding that. True while one waits for
+ * its VM to have an address.
+ */
+async function extendMovedFirewalls(): Promise<boolean> {
+  const forwards = await readForwards();
+  let waiting = false;
+  for (const vmUuid of new Set(forwards.map((f) => f.vmUuid))) {
+    try {
+      const mine = forwards.filter((f) => f.vmUuid === vmUuid);
+      const held = await firewallAddresses(vmUuid);
+      if (held === null) {
+        waiting = true;
+        continue;
+      }
+      if (held.length === 0 || !held.every((ip) => mine.some((f) => f.vmIp === ip))) continue;
+      const vmService = await import('./vmService.js');
+      if ((await vmService.findVm(vmUuid)) === null) continue;
+      const nic = await vmService.firewallNicMac(vmUuid);
+      if (nic && mine.some((f) => f.mac === nic && held.includes(f.vmIp))) continue;
+      const { ip } = await vmService.resolveFirewallTarget(vmUuid);
+      if (!nic || !ip) {
+        waiting = true;
+        continue;
+      }
+      if (held.includes(ip)) continue;
+      await addFirewallAddress(vmUuid, ip);
+      void logService.appendLog({
+        type: 'vm.firewall.extend',
+        subject: await lookupVmName(vmUuid),
+        subjectUuid: vmUuid,
+        status: 'success',
+        output: `Firewall now also on ${ip}, the NIC it filters. An older version had left it only on ${held.join(', ')}, a port forward's address on another NIC. It stays there too.`,
+      });
+    } catch {
+      waiting = true;
+    }
+  }
+  return waiting;
+}
+
+/** After the backend is listening: it may ask libvirt, which can take a while at boot. */
+export function startExtendingMovedFirewalls(): void {
+  let wait = 30_000;
+  const pass = async () => {
+    if (await extendMovedFirewalls().catch(() => true)) {
+      setTimeout(() => void pass(), wait).unref();
+      wait = Math.min(wait * 2, 5 * 60_000);
+    }
+  };
+  void pass();
 }
 
 export async function applyAllRules(): Promise<void> {

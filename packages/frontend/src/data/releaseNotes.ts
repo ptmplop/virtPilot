@@ -13,6 +13,18 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.16.7',
+    date: '2026-11-01',
+    changes: [
+      { type: 'fixed', text: 'A VM\'s firewall now covers the NIC it filters and every port forward\'s address. Older versions moved it to the newest forward, leaving its NIC unfiltered, and 2.16.5 and 2.16.6 let a forward on another NIC go around it. Nothing needs pressing after upgrading, and nothing that was filtered stops being filtered. A forward or NIC that only worked because the firewall left it uncovered now follows the rules, so if one stops answering, add an allow rule.' },
+      { type: 'fixed', text: 'The Firewall tab says what is in force: the addresses, any changes not yet applied, and when rules are saved but not in force, as after a host restart, so press Apply rules after one. It also says when a NIC on a bridge isn\'t filtered, as on a host without br_netfilter its traffic never reaches these rules.' },
+      { type: 'fixed', text: 'Remove NIC takes its address off the firewall, and an allow default no longer lets in what libvirt would refuse (from the next Apply). Overlapping port forward changes can\'t lose a record.' },
+      { type: 'fixed', text: 'A static pool no longer offers or hands out an address something else is using: a guest that set its own, or another machine on a bridged LAN. It leaves out what the host and guest agents know of, and taking an address asks who answers for it by ARP. A clone moves on to the next free one.' },
+      { type: 'fixed', text: 'Two VMs made at the same moment can\'t get one address or lose each other\'s records, and a wrong static address is refused on every kind of network.' },
+      { type: 'fixed', text: 'A network can\'t be deleted from under a VM being made, cloned or restored, or a NIC being added, which left the VM on a bridge that had gone. The delete is refused naming the VM. A clone says it has no address to give before copying its disks.' },
+    ],
+  },
+  {
     version: '2.16.6',
     date: '2026-11-01',
     changes: [

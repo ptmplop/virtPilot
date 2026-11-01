@@ -3,6 +3,23 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.16.7] - 2026-11-01
+
+### Fixed
+
+- **A VM's firewall now covers the NIC it filters and every port forward's address.** It sat on one address, so something was always left out. Versions from 2.7.0 to 2.16.4 moved it to the newest forward's address, leaving the NIC it was applied to unfiltered until the next Apply. 2.16.5 and 2.16.6 kept it on that NIC, which let a forward on another NIC go around it. **After upgrading, nothing needs pressing:** when the backend starts, every forward's address joins the firewall, and a firewall an older version moved also goes back on its NIC, which the activity log records. Nothing that was filtered stops being filtered. **A forward or a NIC that only worked because the firewall had left it uncovered will now follow the rules**, so if one stops answering after this upgrade, add an allow rule for it.
+- **The Firewall tab says what is in force**, which it never did: the addresses the rules are applied to, when what is saved has changes not yet applied, and when rules are saved but not in force. That is the state after a host restart: iptables is emptied and VirtPilot doesn't put a VM's rules back yet, so press Apply rules after one. Apply no longer needs the main NIC's address to cover a VM's port forwards.
+- **The tab says when a NIC on a bridge isn't filtered.** Its traffic goes straight through the bridge and never reaches these rules on a host without `br_netfilter`, as measured. Nothing said so, and "Firewall rules applied" read as if it had worked.
+- **Remove NIC takes its address off the firewall**, which would otherwise have gone on filtering whichever VM got that address next.
+- **An allow default no longer lets in what libvirt would refuse.** It ended in ACCEPT above libvirt's own rules, so one drop rule on an otherwise open firewall opened every other port of that address to other networks. It now leaves the decision to the rules below it, and forwards work as before. This takes effect at the next Apply.
+- **Overlapping port forward changes can't lose a record or bring one back.** They now go one at a time.
+- **A static pool no longer offers or hands out an address something else is using.** A pool only knew what it had handed out, so a guest that set its own address, or any other machine on a bridged LAN, could end up sharing one with a new VM. The pool now leaves out the host's own addresses on the bridge, what its neighbour table has heard from lately, and what guest agents report. Taking an address also asks who answers for it on the network by ARP, which works with no address on the bridge and whatever firewall the guest has, and a refusal names the machine. A clone moves on to the next free address. This uses `arping`, installed from `iputils-arping` unless the host already has an `arping`. Without it a pool works as before.
+- **Two VMs made at the same moment can't get one address or lose each other's records.** The file behind every static pool was read and rewritten with no lock and could be read half written, so requests close together could give one address to two VMs, lose rows or, now and then, erase every pool's records. Changes now go one at a time and the file is replaced whole.
+- **A network can't be deleted from under a VM being made.** A new VM, a clone or a restore as a new VM can take minutes or hours before libvirt hears of it, and in that time the delete guard couldn't see it. The VM was then defined on a bridge that had gone, or that the next network had taken. The delete is now refused naming the VM, and its dialog says it is being added. The same goes for Add NIC. A delete already under way finishes first, and a new VM behind it is told the network has gone. A clone or a restore whose network has gone says so in its warnings.
+- **A wrong static address is refused on every kind of network**: one outside its range, the gateway, or something that isn't an address. Only a VXLAN checked this.
+- **A clone says it has no address to give before copying its disks**, not after hours of copying.
+- **A restart during a clone no longer leaves an address taken for good.** At each start, addresses held for a VM libvirt says it has no record of are freed.
+
 ## [2.16.6] - 2026-11-01
 
 ### Fixed

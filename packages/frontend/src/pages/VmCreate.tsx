@@ -875,6 +875,7 @@ function NetworkCard({
   onSetPrimary,
   onSetIp,
   ipOptions: availableIps,
+  ipsLoading,
 }: {
   network: import('@/types').Network;
   selection: NetworkSelection | undefined;
@@ -882,6 +883,7 @@ function NetworkCard({
   onSetPrimary: () => void;
   onSetIp: (ip: string) => void;
   ipOptions: Array<{ ip: string; allocated: boolean }>;
+  ipsLoading: boolean;
 }) {
   const checked = !!selection;
   const needsIp = isStaticBridge(network);
@@ -941,7 +943,9 @@ function NetworkCard({
           </label>
 
           {needsIp && (
-            availableIps.length === 0 ? (
+            ipsLoading ? (
+              <p className="text-[12.5px] text-muted-foreground">Checking which addresses are free…</p>
+            ) : availableIps.length === 0 ? (
               <div className="space-y-1.5">
                 <p className="text-[12.5px] font-medium text-foreground">IP address</p>
                 <p className="rounded-md border border-destructive/30 bg-destructive/[0.06] px-3.5 py-2.5 text-[12.5px] text-red-800 dark:text-red-200">
@@ -1145,6 +1149,7 @@ function NetworkCardWithIps({
       onSetPrimary={onSetPrimary}
       onSetIp={onSetIp}
       ipOptions={availableIps}
+      ipsLoading={!!selection && isStaticBridge(network) && !detail}
     />
   );
 }

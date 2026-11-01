@@ -4,7 +4,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import * as storageDirService from './storageDirService.js';
 import { listVmMetas } from './vmMetaService.js';
-import { ensureBridges, listNetworks, NetworkError, type Network } from './networkService.js';
+import { ensureBridges, ipInCidr, listNetworks, NetworkError, type Network } from './networkService.js';
 import { getRecentVmCpu, guestMemory } from './vmMetricsService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
@@ -406,6 +406,30 @@ export function withBridgeSources(nics: VmNic[], networks: readonly NetworkRef[]
   });
 }
 
+/** Whether a NIC's source is on this host, as a device or a libvirt network, known to VirtPilot or not. */
+export async function nicSourceExists(source: string): Promise<boolean> {
+  if ((await listNetworks()).some((n) => n.bridge === source || n.libvirtName === source)) return true;
+  if (!isBatchWord(source)) return true;
+  if (await fs.access(`/sys/class/net/${source}`).then(() => true, () => false)) return true;
+  // Only for what libvirt says it has no record of: if it can't say, this is no time to warn.
+  return virsh(['net-info', source]).then(() => true, (err: { stderr?: unknown }) => !/Network not found/i.test(String(err?.stderr ?? '')));
+}
+
+/** Running VMs' NICs on a network, by MAC, and what those guests' agents say those NICs hold. */
+export async function guestsOn(network: NetworkRef): Promise<{ owner: Map<string, string>; names: Map<string, string>; addresses: NicAddress[] }> {
+  const owner = new Map<string, string>();
+  const names = new Map<string, string>();
+  const vms = (await listVmsWithNics([network])).filter((vm) => vm.status === 'running' && vm.nics.some((nic) => nic.source === network.bridge));
+  for (const vm of vms) {
+    names.set(vm.id, vm.name);
+    for (const nic of vm.nics) {
+      if (nic.source === network.bridge && nic.onlyIn !== 'saved') owner.set(nic.mac.toLowerCase(), vm.id);
+    }
+  }
+  const answers = await virshBatch(vms.map((vm) => ['domifaddr', vm.id, '--source', 'agent']));
+  return { owner, names, addresses: answers.flatMap((answer) => parseDomIfAddr(answer ?? '')).filter((a) => owner.has(a.mac)) };
+}
+
 /** The bridge `virsh net-info` names, which a network in macvtap mode doesn't have. */
 export function parseNetInfoBridge(info: string): string | null {
   return info.match(/^Bridge:\s*(\S+)/m)?.[1] ?? null;
@@ -632,7 +656,16 @@ export async function resolveFirewallTarget(nameOrId: string): Promise<{ ip: str
   if (!target) return { ip: null, vxlanOnly: false };
   const mac = target.mac.toLowerCase();
   const fixed = allocs.find((a) => a.mac.toLowerCase() === mac)?.ip;
-  return { ip: fixed ?? (await getVmInterfaceIps(id))[mac] ?? null, vxlanOnly: false };
+  if (fixed) return { ip: fixed, vxlanOnly: false };
+  const seen = (await getVmInterfaceIps(id))[mac] ?? null;
+  // ARP knows a MAC whatever network it was on, and a firewall on that address filters whoever
+  // has it now. The network's own lease knows better.
+  const network = (await listNetworks()).find((n) => n.bridge === target.source);
+  if (seen && network?.cidr && !ipInCidr(seen, network.cidr)) {
+    const leases = network.libvirtName ? parseDhcpLeases(await virsh(['net-dhcp-leases', network.libvirtName]).catch(() => '')) : new Map<string, string>();
+    return { ip: leases.get(mac) ?? null, vxlanOnly: false };
+  }
+  return { ip: seen, vxlanOnly: false };
 }
 
 // ─── Mutating operations ──────────────────────────────────────────────────────

@@ -184,17 +184,30 @@ async function deriveNetworking(
 
     if (needsStatic && alloc) {
       const status = await networkService.getNetworkIpStatus(alloc.networkId);
-      const free = status.find((s) => !s.allocated && s.ip !== network!.gateway);
+      // The list can't know of a guest with no agent that set its own address. Taking one asks
+      // who answers for it, and the next free one is as good. So many refused in a row is
+      // something else, such as a device answering for the whole network, which it says.
+      let free: string | undefined;
+      let refused = '';
+      for (const { ip } of status.filter((s) => !s.allocated && s.ip !== network!.gateway).slice(0, 16)) {
+        try {
+          await networkService.allocateSpecificIp(alloc.networkId, newUuid, newMac, ip);
+          free = ip;
+          break;
+        } catch (err) {
+          if (!(err instanceof networkService.NetworkError && err.status === 409)) throw err;
+          refused = err.message;
+        }
+      }
       if (!free) {
         throw new Error(
-          `Network "${network!.name}" has no free IP addresses left - free one before creating another VM on it`,
+          `Network "${network!.name}" has no free IP addresses left - free one before creating another VM on it${refused ? `. The last one tried: ${refused}` : ''}`,
         );
       }
-      await networkService.allocateSpecificIp(alloc.networkId, newUuid, newMac, free.ip);
-      cloudInitNics.push(nicCloudInitFor(network!, newMac, isPrimary, free.ip));
-      metaNetworks.push({ networkId: alloc.networkId, mac: newMac, ip: free.ip, isPrimary });
-      if (alloc.ip && alloc.ip !== free.ip) {
-        warnings.push(`NIC ${index + 1} was given ${free.ip} (the source VM keeps ${alloc.ip}).`);
+      cloudInitNics.push(nicCloudInitFor(network!, newMac, isPrimary, free));
+      metaNetworks.push({ networkId: alloc.networkId, mac: newMac, ip: free, isPrimary });
+      if (alloc.ip && alloc.ip !== free) {
+        warnings.push(`NIC ${index + 1} was given ${free} (the source VM keeps ${alloc.ip}).`);
       }
     } else {
       cloudInitNics.push(network ? nicCloudInitFor(network, newMac, isPrimary) : { mac: newMac, isPrimary, ipConfig: { mode: 'dhcp' } });
@@ -255,7 +268,26 @@ async function provisionDerivedVm(opts: ProvisionOptions): Promise<ProvisionResu
   const trace: TraceEntry[] = [];
   const warnings: string[] = [];
 
+  // Until libvirt has heard of it, nothing else keeps its networks here, and a copy can take hours.
+  const sourceNics = vmService.parseInterfacesFromXml(opts.sourceXml);
+  const releaseNetworks = await networkService.holdNetworks(sourceNics.map((n) => n.source), newName);
+
   try {
+    // After the hold, or a delete under way would be missed. Restoring a VM whose network has gone
+    // is still worth having: its NIC can be replaced once it is here.
+    for (const [index, nic] of sourceNics.entries()) {
+      if (nic.source !== '-' && !(await vmService.nicSourceExists(nic.source))) {
+        warnings.push(`NIC ${index + 1} is on ${nic.source}, which is no longer on this host. The VM won't start until that NIC is removed.`);
+      }
+    }
+
+    // ── Networking ──────────────────────────────────────────────────────────
+    // Ahead of the disks: a pool with nothing to give should say so before an hours-long copy.
+    // From the XML being rewritten, not a list read separately: every MAC it holds has to change,
+    // and a list that came back empty would leave two VMs with the same one, without a word.
+    const net = await deriveNetworking(sourceNics, opts.sourceMeta, uuid);
+    warnings.push(...net.warnings);
+
     await storageService.ensureDirs();
     await storageService.ensureSystemVmDir(uuid);
 
@@ -267,11 +299,6 @@ async function provisionDerivedVm(opts: ProvisionOptions): Promise<ProvisionResu
     }
     await opts.copyDisks(placements);
 
-    // ── Networking ──────────────────────────────────────────────────────────
-    // From the XML being rewritten, not a list read separately: every MAC it holds has to change,
-    // and a list that came back empty would leave two VMs with the same one, without a word.
-    const net = await deriveNetworking(vmService.parseInterfacesFromXml(opts.sourceXml), opts.sourceMeta, uuid);
-    warnings.push(...net.warnings);
     const passedThrough = parseHostdevs(opts.sourceXml).length;
     if (passedThrough > 0) {
       warnings.push(`The source's ${passedThrough === 1 ? 'passed-through device stays' : `${passedThrough} passed-through devices stay`} with it: the new VM has none. Attach others on its Devices tab.`);
@@ -341,6 +368,8 @@ async function provisionDerivedVm(opts: ProvisionOptions): Promise<ProvisionResu
     // never learned about.
     await rollbackPartialVm(uuid);
     throw err;
+  } finally {
+    releaseNetworks();
   }
 }
 

@@ -331,10 +331,13 @@ export function useSaveFirewall(uuid: string) {
 }
 
 export function useApplyFirewall(uuid: string) {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      await api.post(`/api/vms/${uuid}/firewall/apply`);
+      const { data } = await api.post<{ warning?: string }>(`/api/vms/${uuid}/firewall/apply`);
+      return data;
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: [...KEYS.vm(uuid), 'firewall'] }),
   });
 }
 

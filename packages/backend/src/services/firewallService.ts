@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { config } from '../config.js';
 import { run, runSafe } from './safeExec.js';
 import {
@@ -123,11 +123,56 @@ export function validateFirewallConfig(cfg: FirewallConfig): void {
 export async function saveFirewallConfig(vmUuid: string, cfg: FirewallConfig): Promise<void> {
   validateFirewallConfig(cfg);
   const withIds = cfg.rules.map((r) => ({ ...r, id: r.id || randomUUID() }));
+  const { appliedHash } = await readAppliedHash(vmUuid);
   await fs.writeFile(
     firewallPath(vmUuid),
-    JSON.stringify({ ...cfg, rules: withIds }, null, 2),
+    JSON.stringify({ ...cfg, rules: withIds, appliedHash }, null, 2),
     'utf8'
   );
+}
+
+// What Apply last put in force, to tell it from what is saved. Undefined on a file from before
+// this, which says nothing either way. Null from when an Apply starts until it succeeds.
+function firewallHash(cfg: FirewallConfig): string {
+  const rules = cfg.rules.map(({ id: _id, ...rule }) => rule);
+  return createHash('sha256')
+    .update(JSON.stringify([rules, cfg.defaultInbound, cfg.defaultOutbound, !!cfg.allowEstablishedInbound, !!cfg.allowEstablishedOutbound]))
+    .digest('hex');
+}
+
+async function readAppliedHash(vmUuid: string): Promise<{ appliedHash?: string | null }> {
+  try {
+    const { appliedHash } = JSON.parse(await fs.readFile(firewallPath(vmUuid), 'utf8')) as { appliedHash?: string | null };
+    return { appliedHash };
+  } catch {
+    return {};
+  }
+}
+
+async function writeAppliedHash(vmUuid: string, appliedHash: string | null): Promise<void> {
+  try {
+    const saved = JSON.parse(await fs.readFile(firewallPath(vmUuid), 'utf8')) as object;
+    await fs.writeFile(firewallPath(vmUuid), JSON.stringify({ ...saved, appliedHash }, null, 2), 'utf8');
+  } catch { /* no saved rules to say this of */ }
+}
+
+export interface FirewallStatus {
+  /** The addresses its jumps name: empty if none, null if iptables couldn't be read. */
+  inForceOn: string[] | null;
+  /** What is saved isn't what Apply last put in force, or an Apply failed. */
+  unapplied: boolean;
+  /** Bridged frames reach iptables at all. Without br_netfilter a bridged NIC isn't filtered. */
+  bridgedFiltered: boolean;
+}
+
+export async function getFirewallStatus(vmUuid: string, cfg: FirewallConfig): Promise<FirewallStatus> {
+  const { appliedHash } = await readAppliedHash(vmUuid);
+  const sysctl = await fs.readFile('/proc/sys/net/bridge/bridge-nf-call-iptables', 'utf8').catch(() => '0');
+  return {
+    inForceOn: await firewallAddresses(vmUuid),
+    unapplied: appliedHash === null || (appliedHash !== undefined && appliedHash !== firewallHash(cfg)),
+    bridgedFiltered: sysctl.trim() === '1',
+  };
 }
 
 export async function deleteFirewallConfig(vmUuid: string): Promise<void> {
@@ -197,6 +242,28 @@ async function removeForwardJumps(chains: readonly string[]): Promise<void> {
   }
 }
 
+// Apply rebuilds a VM's chains and jumps, and nothing should change them while it does.
+let jumpChanges: Promise<unknown> = Promise.resolve();
+function oneAtATime<T>(change: () => Promise<T>): Promise<T> {
+  const run = jumpChanges.then(change, change);
+  jumpChanges = run.catch(() => {});
+  return run;
+}
+
+// Until none are left: nothing stops a rule being there twice. iptables failing ends it too.
+async function dropJumps(vmUuid: string, ip: string): Promise<void> {
+  for (const [flag, chain] of [['-d', inChain(vmUuid)], ['-s', outChain(vmUuid)]]) {
+    while ((await iptablesSafe(['-D', 'FORWARD', flag, ip, '-j', chain])) !== null) { /* next */ }
+  }
+}
+
+// Throws if a jump can't go in: a forward with its ACCEPT in place and no firewall above it is open.
+async function putJumps(vmUuid: string, ip: string): Promise<void> {
+  await dropJumps(vmUuid, ip);
+  await iptables(['-I', 'FORWARD', '-d', ip, '-j', inChain(vmUuid)]);
+  await iptables(['-I', 'FORWARD', '-s', ip, '-j', outChain(vmUuid)]);
+}
+
 /**
  * Puts this VM's firewall jumps back at the head of FORWARD.
  *
@@ -212,34 +279,67 @@ async function removeForwardJumps(chains: readonly string[]): Promise<void> {
  * a matching allow rule, which is visible and fixable — unlike a firewall that
  * silently is not in force.
  *
- * They keep the address they have, which needn't be the forward's: on a VM with two NICs, the
- * forward's would leave the one the firewall filters unfiltered. `moveTo` says otherwise, for a
- * new reservation that has given that NIC a new address. A jump that has gone comes back.
+ * So the forward's address joins the addresses the firewall is on, and no other is touched. Moving
+ * it there instead would leave the NIC it filters unfiltered, and leaving it out would let a
+ * forward on another NIC go around it: both have happened. `keepOnly`, for a new reservation that
+ * has given the firewall's NIC a new address, drops the old one, keeping only those listed.
  *
  * No-op when the VM has no firewall chains, i.e. no policy has been applied.
  */
-export async function reassertForwardJumps(vmUuid: string, forwardIp: string, moveTo?: string): Promise<void> {
-  const inC = inChain(vmUuid);
-  const outC = outChain(vmUuid);
-  if ((await iptablesSafe(['-S', inC])) === null) return;
-  const held = moveTo ? null : await jumpAddress([inC, outC]);
-  const vmIp = validateIpv4(moveTo ?? held ?? forwardIp);
-  await removeForwardJumps([inC, outC]);
-  await iptablesSafe(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
-  await iptablesSafe(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
+export function reassertForwardJumps(vmUuid: string, forwardIp: string, keepOnly?: readonly string[]): Promise<void> {
+  return oneAtATime(async () => {
+    if ((await iptablesSafe(['-S', inChain(vmUuid)])) === null) return;
+    const ip = validateIpv4(forwardIp);
+    await repairJumps(vmUuid);
+    if (keepOnly) {
+      for (const held of (await firewallAddresses(vmUuid)) ?? []) {
+        if (held !== ip && !keepOnly.includes(held)) await dropJumps(vmUuid, held);
+      }
+    }
+    await putJumps(vmUuid, ip);
+  });
 }
 
-/** The address a VM's firewall is on, from its jumps in FORWARD. */
-async function jumpAddress(chains: readonly string[]): Promise<string | null> {
+/** Puts the firewall on one more address. No-op with no chains. */
+export function addFirewallAddress(vmUuid: string, ipRaw: string): Promise<void> {
+  return oneAtATime(async () => {
+    if ((await iptablesSafe(['-S', inChain(vmUuid)])) === null) return;
+    await putJumps(vmUuid, validateIpv4(ipRaw));
+  });
+}
+
+/** Takes the firewall off an address, which is free to pass to a VM these rules aren't for. */
+export function removeFirewallAddress(vmUuid: string, ipRaw: string): Promise<void> {
+  return oneAtATime(() => dropJumps(vmUuid, validateIpv4(ipRaw)));
+}
+
+/** The addresses a VM's firewall is on, from its jumps in FORWARD: none if it isn't, null if that can't be read. */
+export async function firewallAddresses(vmUuid: string): Promise<string[] | null> {
+  const jumps = await readJumps(vmUuid);
+  return jumps && [...new Set([...jumps.inbound, ...jumps.outbound])];
+}
+
+async function readJumps(vmUuid: string): Promise<{ inbound: string[]; outbound: string[] } | null> {
   const dump = await iptablesSafe(['-S', 'FORWARD']);
-  for (const line of dump?.split('\n') ?? []) {
+  if (dump === null) return null;
+  const inbound: string[] = [];
+  const outbound: string[] = [];
+  for (const line of dump.split('\n')) {
     const tokens = tokeniseIptablesRule(line.trim());
     const jump = tokens.lastIndexOf('-j');
-    if (tokens[0] !== '-A' || tokens[1] !== 'FORWARD' || jump === -1 || !chains.includes(tokens[jump + 1])) continue;
+    if (tokens[0] !== '-A' || tokens[1] !== 'FORWARD' || jump === -1) continue;
+    const list = tokens[jump + 1] === inChain(vmUuid) ? inbound : tokens[jump + 1] === outChain(vmUuid) ? outbound : null;
     const match = tokens.findIndex((t) => t === '-d' || t === '-s');
-    if (match !== -1) return tokens[match + 1].replace(/\/32$/, '');
+    if (list && match !== -1) list.push(tokens[match + 1].replace(/\/32$/, ''));
   }
-  return null;
+  return { inbound, outbound };
+}
+
+// One of a pair lost to a crash or a failed call leaves an address filtered one way only.
+async function repairJumps(vmUuid: string): Promise<void> {
+  const jumps = await readJumps(vmUuid);
+  for (const ip of jumps?.outbound.filter((a) => !jumps.inbound.includes(a)) ?? []) await iptablesSafe(['-I', 'FORWARD', '-d', ip, '-j', inChain(vmUuid)]);
+  for (const ip of jumps?.inbound.filter((a) => !jumps.outbound.includes(a)) ?? []) await iptablesSafe(['-I', 'FORWARD', '-s', ip, '-j', outChain(vmUuid)]);
 }
 
 async function destroyChains(chains: readonly string[]): Promise<void> {
@@ -274,8 +374,18 @@ function portArgs(portRange: string): string[] {
   return ['--dport', range];
 }
 
-export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: FirewallConfig): Promise<void> {
-  const vmIp = validateIpv4(vmIpRaw);
+export function applyFirewallRules(vmUuid: string, vmIpsRaw: readonly string[], cfg: FirewallConfig): Promise<void> {
+  return oneAtATime(() => applyFirewallRulesNow(vmUuid, vmIpsRaw, cfg));
+}
+
+async function applyFirewallRulesNow(vmUuid: string, vmIpsRaw: readonly string[], cfg: FirewallConfig): Promise<void> {
+  await writeAppliedHash(vmUuid, null);
+  await rebuildFirewall(vmUuid, vmIpsRaw, cfg);
+  await writeAppliedHash(vmUuid, firewallHash(cfg));
+}
+
+async function rebuildFirewall(vmUuid: string, vmIpsRaw: readonly string[], cfg: FirewallConfig): Promise<void> {
+  const vmIps = [...new Set(vmIpsRaw.map((ip) => validateIpv4(ip)))];
   const { rules, defaultInbound, defaultOutbound, allowEstablishedInbound, allowEstablishedOutbound } = cfg;
   const inC = inChain(vmUuid);
   const outC = outChain(vmUuid);
@@ -295,8 +405,10 @@ export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: F
     ? ['-m', 'comment', '--comment', `virtpilot-fw-${uuidShort(vmUuid)}`]
     : [];
 
-  const inDefault = defaultInbound === 'allow' ? 'ACCEPT' : 'DROP';
-  const outDefault = defaultOutbound === 'allow' ? 'ACCEPT' : 'DROP';
+  // Allow means these rules have no objection, and no more: libvirt's rules and a forward's ACCEPT
+  // are below the jumps. ACCEPT here would let in whatever libvirt refuses, on every port.
+  const inDefault = defaultInbound === 'allow' ? 'RETURN' : 'DROP';
+  const outDefault = defaultOutbound === 'allow' ? 'RETURN' : 'DROP';
 
   const ruleArgs: string[][] = isNoop ? [] : rules.map((rule) => {
     const chain = rule.direction === 'inbound' ? inC : outC;
@@ -354,8 +466,10 @@ export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: F
     await iptables(['-A', inC, '-j', inDefault]);
     await iptables(['-A', outC, '-j', outDefault]);
 
-    await iptables(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
-    await iptables(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
+    for (const vmIp of vmIps) {
+      await iptables(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
+      await iptables(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
+    }
   } catch (err) {
     // Half-built chains are worse than none — an incomplete allow-list can both
     // leak and black-hole traffic. But rolling back to *nothing* is worse still:
@@ -373,8 +487,10 @@ export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: F
       }
       await iptablesSafe(['-A', inC, '-j', inDefault]);
       await iptablesSafe(['-A', outC, '-j', outDefault]);
-      await iptablesSafe(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
-      await iptablesSafe(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
+      for (const vmIp of vmIps) {
+        await iptablesSafe(['-I', 'FORWARD', '-d', vmIp, '-j', inC]);
+        await iptablesSafe(['-I', 'FORWARD', '-s', vmIp, '-j', outC]);
+      }
       console.warn(`[firewall] Apply failed for ${vmUuid} - fell back to the declared default policy (in=${inDefault}, out=${outDefault})`);
     } catch (fallbackErr) {
       console.error('[firewall] Could not install the default-policy fallback after a failed apply:', fallbackErr);
@@ -383,12 +499,14 @@ export async function applyFirewallRules(vmUuid: string, vmIpRaw: string, cfg: F
   }
 }
 
-export async function removeVmFirewall(vmUuid: string, _vmIpRaw?: string | null): Promise<void> {
+export function removeVmFirewall(vmUuid: string, _vmIpRaw?: string | null): Promise<void> {
   const inC = inChain(vmUuid);
   const outC = outChain(vmUuid);
   // Sweep FORWARD by jump target rather than by the VM's IP: the caller's idea
   // of the IP can be stale (or absent), and any jump we leave behind keeps
   // filtering traffic for whoever inherits that address next.
-  await removeForwardJumps([inC, outC]);
-  await destroyChains([inC, outC]);
+  return oneAtATime(async () => {
+    await removeForwardJumps([inC, outC]);
+    await destroyChains([inC, outC]);
+  });
 }

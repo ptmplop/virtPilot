@@ -92,10 +92,11 @@ networksRouter.get('/connected', async (_req, res) => {
     const networks = await networkService.listNetworks();
     const vms = await vmService.listVmsWithNics(networks);
     res.json({
-      connected: Object.fromEntries(networks.map((n) => [
-        n.id,
-        vms.filter((vm) => vm.nics.some((nic) => nic.source === n.bridge)).map(({ id, name, status }) => ({ id, name, status })),
-      ])),
+      connected: Object.fromEntries(networks.map((n) => {
+        const on = vms.filter((vm) => vm.nics.some((nic) => nic.source === n.bridge)).map(({ id, name, status }) => ({ id, name, status: status as string }));
+        const coming = networkService.vmsArriving(n).filter((name) => !on.some((vm) => vm.name === name));
+        return [n.id, [...on, ...coming.map((name) => ({ id: '', name, status: 'adding' }))]];
+      })),
     });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });

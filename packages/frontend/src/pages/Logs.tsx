@@ -58,6 +58,7 @@ const LOG_TYPE_LABELS: Record<string, string> = {
   'vm.snapshot.revert': 'Revert snapshot',
   'vm.snapshot.export': 'Export snapshot',
   'vm.firewall.apply': 'Apply firewall',
+  'vm.firewall.extend': 'Extend firewall',
   'vm.boot-order.set': 'Set boot order',
   'vm.boot-once': 'Boot once',
   'backup.create': 'Back up VM',
