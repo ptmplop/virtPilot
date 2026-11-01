@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { deriveDomainXml, toHostname } from './vmDeriveService.js';
+import { parseInterfacesFromXml } from './vmService.js';
 
 // A realistic inactive dump: UEFI with NVRAM, two disks, a cloud-init seed on
 // sda, a shared ISO on sdb, a NIC, and the seclabel/backingStore/alias cruft
@@ -192,5 +193,17 @@ describe('toHostname', () => {
 
   it('bounds each label to 63 characters', () => {
     expect(toHostname('a'.repeat(100)).length).toBe(63);
+  });
+});
+
+describe('a NIC list read apart from the XML', () => {
+  it('cannot leave a clone with the MACs of its source: each one in the XML has a new one', () => {
+    const nicMacs = parseInterfacesFromXml(SOURCE_XML).map((n, i) => ({ oldMac: n.mac, newMac: `52:54:00:ff:ff:0${i}` }));
+    expect(nicMacs.length).toBeGreaterThan(0);
+    const out = deriveDomainXml({ sourceXml: SOURCE_XML, newUuid: 'u', newName: 'n', diskPathByTarget: new Map(), nicMacs, cloudInitIsoPath: null });
+    for (const { oldMac, newMac } of nicMacs) {
+      expect(out).not.toContain(oldMac);
+      expect(out).toContain(newMac);
+    }
   });
 });

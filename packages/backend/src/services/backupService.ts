@@ -4,7 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { config, VERSION } from '../config.js';
 import { getUserSettings } from './userSettingsService.js';
-import { getVmInfo, getVmXml, getVmNics, getVmDisks, refreshDomainBackingChain } from './vmService.js';
+import { findVm, getVmInfo, getVmXml, getVmDisks, parseInterfacesFromXml, refreshDomainBackingChain } from './vmService.js';
 import { getVmMeta, type VmMeta } from './vmMetaService.js';
 import { appendLog } from './logService.js';
 import { qemuImg } from './safeExec.js';
@@ -649,19 +649,11 @@ export async function listAllVmBackupSummaries(): Promise<BackupVmSummary[]> {
     const unusable = scan.unusable;
     const totalSizeBytes = backups.reduce((s, b) => s + b.sizeBytes, 0);
     const lastBackupAt = backups.length > 0 ? backups[0].createdAt : null;
-    const vmExists = await getVmInfo(vmUuid).then(() => true).catch(() => false);
+    // Undefined is libvirt not answering, which doesn't make a VM an orphan.
+    const live = await findVm(vmUuid).catch(() => undefined);
+    const vmExists = live !== null;
     // Resolve a friendly name in this priority: live VM > most recent manifest > schedule
-    let vmName = vmUuid;
-    try {
-      if (vmExists) {
-        const info = await getVmInfo(vmUuid);
-        vmName = info.name;
-      } else if (backups.length > 0) {
-        vmName = backups[0].vmName;
-      } else if (schedules[vmUuid]?.vmName) {
-        vmName = schedules[vmUuid].vmName;
-      }
-    } catch { /* fall through to UUID display */ }
+    const vmName = live?.name ?? backups[0]?.vmName ?? schedules[vmUuid]?.vmName ?? vmUuid;
     summaries.push({
       vmUuid,
       vmName,
@@ -842,9 +834,8 @@ export async function createBackup(vmUuid: string, opts: CreateBackupOptions): P
   // The friendly name is captured at backup time; fallback to UUID if lookup fails.
   let vmName = vmUuid;
   try {
-    const info = await getVmInfo(vmUuid);
-    vmName = info.name;
-  } catch { /* VM may already be undefined — proceed with UUID as the label */ }
+    vmName = (await findVm(vmUuid))?.name ?? vmUuid;
+  } catch { /* proceed with UUID as the label */ }
   backupsInProgress.set(vmUuid, { vmName, startedAt: new Date().toISOString(), triggerType: opts.triggerType });
 
   try {
@@ -1053,7 +1044,6 @@ async function _createBackupInner(
       });
     }
 
-    const nics = await getVmNics(vmUuid);
     const vmMeta = await getVmMeta(vmUuid);
 
     const manifest: BackupManifest = {
@@ -1079,8 +1069,9 @@ async function _createBackupInner(
         memoryMb: vmInfo.memoryMb,
       },
       disks: diskEntries,
-      // What the saved definition holds, which is what a restore gets.
-      nics: nics.filter((n) => n.onlyIn !== 'live').map((n) => ({ model: n.model, mac: n.mac, source: n.source })),
+      // What the saved definition holds, which is what a restore gets. From the XML kept below,
+      // so a libvirt hiccup with the disks already copied can't leave a backup saying it had none.
+      nics: parseInterfacesFromXml(xml),
       vmMeta: encodeMetaForManifest(vmMeta),
       libvirtXml: xml,
       retentionDays,
@@ -1352,8 +1343,10 @@ export async function restoreBackup(sourceVmUuid: string, id: string, targetVmUu
   // The restore target's UUID must be a valid UUID — never a free-form name.
   const targetVmUuid = validateVmUuid(targetVmUuidArg ?? sourceVmUuid);
 
-  const vmInfo = await getVmInfo(targetVmUuid).catch(() => null);
-  if (vmInfo?.status === 'running') {
+  // Only a VM libvirt says it doesn't have goes on as gone. If it can't say this throws, as this
+  // replaces the disks of a VM that may be running. A paused VM has its disks open as well.
+  const vmInfo = (await findVm(targetVmUuid)) ? await getVmInfo(targetVmUuid) : null;
+  if (vmInfo && vmInfo.status !== 'stopped') {
     throw new Error(`VM "${targetVmUuid}" must be stopped before restoring`);
   }
 
@@ -1888,7 +1881,7 @@ export async function sweepAbandonedBackupDirs(vmUuid: string): Promise<string[]
   }
 
   if (swept.length > 0) {
-    const vmName = await getVmInfo(vmUuid).then((i) => i.name).catch(() => vmUuid);
+    const vmName = await findVm(vmUuid).then((i) => i?.name ?? vmUuid, () => vmUuid);
     await appendLog({
       type: 'backup.sweep',
       subject: vmName,

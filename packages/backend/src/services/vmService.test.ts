@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { explainMissingNetwork, mergeNicDefinitions, parseDiskBusesFromXml, withBridgeSources } from './vmService.js';
+import { explainMissingNetwork, isNoSuchVm, mergeNicDefinitions, parseDiskBusesFromXml, parseDomainLists, parseInterfacesFromXml, parseNetInfoBridge, saysNoSuchVm, withBridgeSources } from './vmService.js';
+import { NetworkError } from './networkService.js';
 
 // `virsh domblklist --details` prints "Type Device Target Source", and its Type is the
 // source kind (file/block/network) — the Disks tab used to show "file" as every
@@ -65,9 +66,21 @@ describe('withBridgeSources', () => {
     expect(withBridgeSources([nic('network', 'virtpilot-6adce98d')], networks)).toEqual([nic('network', 'vpbr100')]);
   });
 
-  it('leaves a NIC on a bridge alone, even one called what a libvirt network is called', () => {
-    expect(withBridgeSources([nic('bridge', 'vpbr100'), nic('bridge', 'virtpilot-6adce98d')], networks))
-      .toEqual([nic('bridge', 'vpbr100'), nic('bridge', 'virtpilot-6adce98d')]);
+  it('leaves a NIC on a bridge alone', () => {
+    expect(withBridgeSources([nic('bridge', 'vpbr100'), nic('bridge', 'br0')], networks)).toEqual([nic('bridge', 'vpbr100'), nic('bridge', 'br0')]);
+  });
+
+  // A device can't be called this: `virtpilot-<id>` is over the kernel's 15 characters, and a foreign
+  // network with the name of a real device is left out of the list by osBridgeOwners.
+  it('knows a running VM says bridge of a NIC on a libvirt network in bridge mode, and keeps it one row', () => {
+    const owner = [{ bridge: 'br0', libvirtName: 'host-bridge' }];
+    expect(withBridgeSources([nic('bridge', 'host-bridge')], owner)).toEqual([nic('bridge', 'br0')]);
+    expect(mergeNicDefinitions(withBridgeSources([nic('bridge', 'host-bridge')], owner), withBridgeSources([nic('network', 'host-bridge')], owner)))
+      .toEqual([{ ...nic('bridge', 'br0'), savedType: 'network' }]);
+  });
+
+  it('never takes a macvtap NIC for a bridge', () => {
+    expect(withBridgeSources([nic('direct', 'macv')], [{ bridge: 'br0', libvirtName: 'macv' }])).toEqual([nic('direct', 'macv')]);
   });
 
   it('keeps the name of a libvirt network VirtPilot doesn\'t know', () => {
@@ -154,5 +167,95 @@ describe('explainMissingNetwork', () => {
 
   it('has nothing to say about any other failure', () => {
     expect(explainMissingNetwork('error: internal error: qemu unexpectedly closed the monitor', networks)).toBeNull();
+  });
+});
+
+describe('parseNetInfoBridge', () => {
+  it('reads the bridge of a libvirt network', () => {
+    expect(parseNetInfoBridge('Name:           rig\nUUID:           x\nActive:         yes\nBridge:         rigos0\n')).toBe('rigos0');
+  });
+  it('finds none on a network in macvtap mode', () => {
+    expect(parseNetInfoBridge('Name:           macv\nActive:         yes\nPersistent:     yes\n')).toBeNull();
+  });
+});
+
+describe('parseInterfacesFromXml', () => {
+  it('reads every NIC in the order the XML has them, however it is attached', () => {
+    const xml = `<domain><devices>
+      <disk type='file'><source file='/x'/><target dev='vda'/></disk>
+      <interface type='network'><mac address='52:54:00:00:00:01'/><source network='virtpilot-1'/><model type='virtio'/></interface>
+      <interface type='bridge'><mac address="52:54:00:00:00:02"/><source bridge="vp0"/><model type="e1000"/></interface>
+      <interface type='direct'><mac address='52:54:00:00:00:03'/><source dev='eth0' mode='bridge'/></interface>
+      <interface type='user'><mac address='52:54:00:00:00:04'/></interface>
+    </devices></domain>`;
+    expect(parseInterfacesFromXml(xml)).toEqual([
+      { mac: '52:54:00:00:00:01', model: 'virtio', source: 'virtpilot-1' },
+      { mac: '52:54:00:00:00:02', model: 'e1000', source: 'vp0' },
+      { mac: '52:54:00:00:00:03', model: '-', source: 'eth0' },
+      { mac: '52:54:00:00:00:04', model: '-', source: '-' },
+    ]);
+  });
+  it('has nothing to say of a VM with no NICs', () => {
+    expect(parseInterfacesFromXml('<domain><devices></devices></domain>')).toEqual([]);
+  });
+});
+
+describe('saysNoSuchVm', () => {
+  it('knows what virsh prints for a VM it has no record of', () => {
+    expect(saysNoSuchVm("error: failed to get domain 'web-01'\n")).toBe(true);
+    expect(saysNoSuchVm("\nerror: failed to get domain 'web-01'\nerror: Domain not found: no domain with matching name 'web-01'\n")).toBe(true);
+  });
+
+  it('never reads a libvirt that can\'t say as a VM that has gone', () => {
+    expect(saysNoSuchVm('')).toBe(false);
+    expect(saysNoSuchVm("error: failed to connect to the hypervisor\nerror: Failed to connect socket to '/run/libvirt/libvirt-sock': No such file or directory\n")).toBe(false);
+    expect(saysNoSuchVm("error: failed to get domain 'web-01'\nerror: End of file while reading data: Input/output error\n")).toBe(false);
+    expect(saysNoSuchVm('error: Disconnected from qemu:///system due to end of file')).toBe(false);
+  });
+});
+
+describe('isNoSuchVm', () => {
+  it('goes by what virsh printed, and a timeout printed nothing', () => {
+    expect(isNoSuchVm({ stderr: "error: failed to get domain 'web-01'" })).toBe(true);
+    expect(isNoSuchVm({ killed: true, stderr: '' })).toBe(false);
+    expect(isNoSuchVm(new Error('libvirt could not list the NICs of web-01'))).toBe(false);
+    expect(isNoSuchVm(new NetworkError('There is no VM web-01.', 404))).toBe(true);
+  });
+});
+
+describe('parseDomainLists', () => {
+  const table = (...rows: string[]) => [' Id   Name   State', '------------------', ...rows].join('\n');
+
+  it('joins the two listings, running or not', () => {
+    expect(parseDomainLists(table(' 2    db-01          running', ' -    build-runner   shut off', ' 5    held           paused'),
+      '061280f2-abab-454b-b016-b02d42778de2 db-01\n111-222 build-runner\n333-444 held')).toEqual([
+      { id: '061280f2-abab-454b-b016-b02d42778de2', name: 'db-01', status: 'running' },
+      { id: '111-222', name: 'build-runner', status: 'stopped' },
+      { id: '333-444', name: 'held', status: 'paused' },
+    ]);
+  });
+
+  it('keeps names with spaces, however many, apart', () => {
+    expect(parseDomainLists(table(' -    lab      shut off', ' -    lab  a   shut off', ' 7    lab  b   running', ' -    one two  shut off'),
+      'u1 lab\nu2 lab  a\nu3 lab  b\nu4 one two')).toEqual([
+      { id: 'u1', name: 'lab', status: 'stopped' },
+      { id: 'u2', name: 'lab  a', status: 'stopped' },
+      { id: 'u3', name: 'lab  b', status: 'running' },
+      { id: 'u4', name: 'one two', status: 'stopped' },
+    ]);
+  });
+
+  it('has nothing to say of a host with no VMs, whose second listing prints nothing', () => {
+    expect(parseDomainLists(table(), null)).toEqual([]);
+  });
+
+  it('throws where a listing failed or the two don\'t add up, as a VM dropped here would pass a guard', () => {
+    expect(() => parseDomainLists(null, 'u1 db-01')).toThrow('could not list');
+    expect(() => parseDomainLists(table(' 2    db-01   running'), null)).toThrow('could not list');
+    expect(() => parseDomainLists(table(' 2    db-01   running', ' -    b       shut off'), 'u1 db-01')).toThrow('could not list');
+  });
+
+  it('calls a state it doesn\'t know unknown, which counts as not stopped', () => {
+    expect(parseDomainLists(table(' 3    a   in shutdown', ' 4    b   pmsuspended'), 'u1 a\nu2 b').map((v) => v.status)).toEqual(['unknown', 'unknown']);
   });
 });

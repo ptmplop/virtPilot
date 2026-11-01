@@ -26,7 +26,7 @@ import {
 import { createVmFromBackup } from '../services/vmDeriveService.js';
 import * as vmMetaService from '../services/vmMetaService.js';
 import * as logService from '../services/logService.js';
-import { getVmInfo, startVm } from '../services/vmService.js';
+import { findVm, startVm } from '../services/vmService.js';
 import { plainDashes } from '../lib/plainDashes.js';
 
 export const backupsRouter = Router();
@@ -95,9 +95,9 @@ function errorMessage(err: unknown): string {
 // is mostly the fallback for orphaned-VM display.
 async function resolveVmName(vmUuid: string): Promise<string> {
   try {
-    const info = await getVmInfo(vmUuid);
-    return info.name;
-  } catch { /* VM may have been deleted */ }
+    const info = await findVm(vmUuid);
+    if (info) return info.name;
+  } catch { /* fall back on what is on record */ }
   try {
     const meta = await vmMetaService.getVmMeta(vmUuid);
     if (meta?.name) return meta.name;

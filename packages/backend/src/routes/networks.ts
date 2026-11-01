@@ -289,7 +289,8 @@ networksRouter.post('/:id/port-forwards', async (req, res) => {
       output: String(err),
       durationMs: Date.now() - start,
     });
-    res.status(500).json({ error: String(err) });
+    const { status, error } = failure(err);
+    res.status(status).json({ error });
   }
 });
 
@@ -313,6 +314,7 @@ networksRouter.post('/:id/reserve', async (req, res) => {
     const ip = await portForwardService.reserveVmIp(req.params.id, vmUuid, mac);
     res.json({ ip });
   } catch (err: unknown) {
-    res.status(500).json({ error: String(err) });
+    const { status, error } = failure(err);
+    res.status(status).json({ error });
   }
 });

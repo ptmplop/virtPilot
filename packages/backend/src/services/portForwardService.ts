@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
-import { getNetwork, ipInCidr, parseCidr, enumerateUsableIps } from './networkService.js';
+import { getNetwork, ipInCidr, parseCidr, enumerateUsableIps, NetworkError } from './networkService.js';
 import { tokeniseIptablesRule, reassertForwardJumps } from './firewallService.js';
 import { run, runSafe, virsh } from './safeExec.js';
 import { parseDhcpLeases } from '../lib/vmAddresses.js';
@@ -123,18 +123,21 @@ async function ensureReservation(
   macRaw: string
 ): Promise<{ ip: string; created: boolean }> {
   const mac = validateMac(macRaw);
+  const network = await getNetwork(networkId);
+  if (!network || network.type !== 'nat' || !network.libvirtName) {
+    throw new NetworkError('Port forwards are only supported on NAT networks');
+  }
+
+  // Ahead of any reservation already held, which says only that a NIC was here once. A forward
+  // for anything else would send traffic to an address that isn't this VM's.
+  const nic = (await (await import('./vmService.js')).getVmNics(vmUuid)).find((n) => n.mac.toLowerCase() === mac && n.source === network.bridge);
+  if (!nic) throw new NetworkError(`This VM has no NIC with MAC ${mac} on ${network.name}.`);
+  // Gone at the VM's next start, leaving what was made for it with no row to remove it from.
+  if (nic.onlyIn === 'live') throw new NetworkError("This NIC is only on the VM until its next start, so it can't have a port forward or a locked IP.", 409);
+
   const reservations = await readReservations();
   const existing = reservations.find((r) => r.networkId === networkId && r.mac === mac);
   if (existing) return { ip: existing.ip, created: false };
-
-  const network = await getNetwork(networkId);
-  if (!network || network.type !== 'nat' || !network.libvirtName) {
-    throw new Error('Port forwards are only supported on NAT networks');
-  }
-
-  // Gone at the VM's next start, leaving what was made for it with no row to remove it from.
-  const nic = (await (await import('./vmService.js')).getVmNics(vmUuid)).find((n) => n.mac.toLowerCase() === mac && n.source === network.bridge);
-  if (nic?.onlyIn === 'live') throw new Error("This NIC is only on the VM until its next start, so it can't have a port forward or a locked IP.");
 
   const { first } = parseCidr(network.cidr);
   const firstNum = ipToNum(first);
@@ -160,7 +163,7 @@ async function ensureReservation(
       })();
 
   if (!available) {
-    throw new Error('No free IP addresses available in this NAT network for a DHCP reservation');
+    throw new NetworkError('No free IP addresses available in this NAT network for a DHCP reservation', 409);
   }
 
   // Build the XML using only validated values — no string interpolation of raw
@@ -395,7 +398,7 @@ export async function createPortForward(opts: {
   const conflict = forwards.find((f) => f.hostPort === hostPort && f.protocol === protocol);
   if (conflict) {
     const conflictName = await lookupVmName(conflict.vmUuid);
-    throw new Error(`Host port ${hostPort}/${protocol} is already forwarded to VM "${conflictName}"`);
+    throw new NetworkError(`Host port ${hostPort}/${protocol} is already forwarded to VM "${conflictName}"`, 409);
   }
 
   const { ip: vmIp, created: reservationCreated } = await ensureReservation(opts.networkId, vmUuid, mac);

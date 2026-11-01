@@ -92,14 +92,21 @@ downloadsRouter.get('/disk', async (req, res) => {
   // stopped, but a sysadmin could have started it in the intervening seconds.
   // Streaming a live qcow2 yields a torn copy, so block it here too.
   let displayName = vmUuid;
+  let vmInfo: Awaited<ReturnType<typeof vmService.findVm>>;
   try {
-    const vmInfo = await vmService.getVmInfo(vmUuid);
+    vmInfo = await vmService.findVm(vmUuid);
+  } catch {
+    // A libvirt that can't say is no orphan: this could be a running VM's disk.
+    res.status(503).json({ error: 'libvirt is not answering, so it can\'t be told whether this VM is running. Try again.' });
+    return;
+  }
+  if (vmInfo) {
     displayName = vmInfo.name;
     if (vmInfo.status !== 'stopped') {
       res.status(409).json({ error: 'VM must be stopped before downloading its disk' });
       return;
     }
-  } catch {
+  } else {
     // VM is undefined (orphaned disk) — allowed
     try {
       const meta = await vmMetaService.getVmMeta(vmUuid);

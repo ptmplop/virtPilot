@@ -3,6 +3,23 @@
 All notable changes to VirtPilot are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.16.6] - 2026-11-01
+
+### Fixed
+
+- **A port forward or a locked IP now needs a NIC on that network.** The API took any MAC, made a reservation and a DNAT rule for it, and sent the traffic to an address that wasn't that VM's. The dashboard never offered this. It is now refused in words, ahead of any reservation a NIC left behind when it went. A host port already taken is a 409 rather than a 500.
+- **A VM on an OS bridge through a libvirt network VirtPilot doesn't know now counts as on that bridge.** With a record of `virbr0` and a VM on `default` by name, or a record of `br0` and a libvirt network in bridge mode on it, the VM's Network tab named the libvirt network, Add NIC offered the bridge again, and the record didn't count it as connected. A libvirt network with no record of its bridge still shows under its own name.
+- **A clone or a VM restored from a backup can't keep its source's MACs.** MACs were re-keyed from a NIC list read apart from the domain XML, and a libvirt failure on that read gave an empty list without a word: two VMs with one MAC. They now come from the XML being rewritten. That also corrects a restore from a backup taken during such a failure, and a backup now lists its NICs from the XML it keeps.
+- **A failed read of a VM's NICs is now an error, not "this VM has no NICs".** Remove NIC, rate limits, firewall Apply and port forwards stop and say so, and the VM's page keeps what it last showed rather than an empty table. Nothing else depends on it: the VM list, starting a VM, clones and backups carry on.
+- **libvirt not answering no longer reads as a VM that has gone.** A restore, a disk move, a disk download, a rename and a new VM's name check took any failure to read a VM as "there is no such VM". A restore could replace a running VM's disks, a disk move could leave a VM's definition naming the old path so it wouldn't start, and a rename to a name in use could lose the VM's definition. Now only what libvirt says it has no record of counts as gone, and anything else is refused. The Backups page no longer calls a live VM orphaned in that moment, and a VM's page says it can't read the VM rather than that it was deleted.
+- **A restore is refused on a paused VM too**, whose disks are as open as a running one's.
+- **A rename whose new definition fails puts the VM back** under its old name. It was left undefined, with its disks behind it.
+- **A VM with a space in its name has its UUID in the VM list**, and so can be opened and managed. It had its name there instead, which no page or action could use, as did any VM libvirt was slow to describe.
+
+### Changed
+
+- **The dashboard starts far fewer `virsh` processes.** The VM list, on a five second timer, read everything about every VM and used only a fraction of it. With four VMs, two of them running: the VM list went from 49 processes and 2.06 s to 4 and 0.19 s, the delete dialog's check from 8 to 2, a VM's addresses from 7 to 3, and a VM's page from 11 to 9. Reads that ask about many VMs now share one process, so their cost no longer grows with the number of VMs.
+
 ## [2.16.5] - 2026-11-01
 
 ### Fixed

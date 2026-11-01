@@ -59,29 +59,16 @@ async function logSubject(uuid: string): Promise<{ subject: string; subjectUuid:
   try {
     const meta = await vmMetaService.getVmMeta(uuid);
     if (meta?.name) subject = meta.name;
-    else {
-      const info = await vmService.getVmInfo(uuid);
-      subject = info.name;
-    }
+    else subject = (await vmService.findVm(uuid))?.name ?? uuid;
   } catch { /* fall back to UUID */ }
   return { subject, subjectUuid: uuid };
 }
 
-// Fail-closed existence probe for the orphan-storage routes. `virsh dominfo`
-// tells the two failure modes apart: a domain libvirt genuinely doesn't know
-// (safe to call orphaned) versus libvirtd being unreachable, which must never
-// read as "the VM is gone" — an outage would otherwise green-light wiping the
-// disks of every running VM. Deliberately not listVmsRaw(): its per-VM
-// fallback records the domain NAME as `id`, so any VM whose info lookup fails
-// never matches by uuid and looks orphaned even on a healthy host.
+// Fail-closed existence probe for the orphan-storage routes: libvirtd being
+// unreachable must never read as "the VM is gone", or an outage would
+// green-light wiping the disks of every running VM.
 async function isVmDefined(uuid: string): Promise<boolean> {
-  try {
-    await virsh(['dominfo', validateVmUuid(uuid)]);
-    return true;
-  } catch (err: unknown) {
-    if (/failed to get domain|domain not found|no domain with matching/i.test(String(err))) return false;
-    throw err;
-  }
+  return (await vmService.findVm(validateVmUuid(uuid))) !== null;
 }
 
 vmsRouter.get('/', async (_req, res) => {
@@ -123,9 +110,8 @@ vmsRouter.get('/disks', async (_req, res) => {
       }
     }
 
-    // A uuid missing from the roster isn't proof the VM is gone — listVmsRaw
-    // records the domain name as `id` whenever its per-VM lookup failed. Ask
-    // libvirt directly about each apparent orphan before flagging it.
+    // A uuid missing from the roster isn't proof the VM is gone. Ask libvirt
+    // directly about each apparent orphan before flagging it.
     for (const vmUuid of new Set(locations.map((l) => l.vmUuid))) {
       if (definedUuids.has(vmUuid)) continue;
       try {
@@ -226,10 +212,11 @@ vmsRouter.delete('/disks/:uuid', requireUuidParam, async (req, res) => {
 
 vmsRouter.get('/:uuid', requireUuidParam, async (req, res) => {
   try {
-    const vm = await vmService.getVmInfo(req.params.uuid);
-    res.json({ vm });
+    const [info, nics] = await Promise.all([vmService.getVmInfo(req.params.uuid), vmService.getVmNics(req.params.uuid)]);
+    res.json({ vm: { ...info, nics } });
   } catch (err: unknown) {
-    res.status(404).json({ error: String(err) });
+    // The page says a 404 has been deleted, which libvirt not answering doesn't mean.
+    res.status(vmService.isNoSuchVm(err) ? 404 : 503).json({ error: failureMessage(err) });
   }
 });
 
@@ -371,11 +358,8 @@ vmsRouter.post('/', async (req, res) => {
 
     // Libvirt enforces uniqueness on the user-typed name. Catch the conflict
     // here rather than waiting for `virsh define` to fail mid-way.
-    try {
-      await vmService.getVmInfo(name);
+    if (await vmService.findVm(name)) {
       return res.status(409).json({ error: `A VM named "${name}" already exists` });
-    } catch {
-      // expected — VM does not exist yet
     }
 
     if (templateFilename) {
@@ -610,15 +594,15 @@ vmsRouter.put('/:uuid/rename', requireUuidParam, async (req, res) => {
   }
 
   try {
-    const vm = await vmService.getVmInfo(uuid);
+    const vm = await vmService.findVm(uuid);
+    if (!vm) return res.status(404).json({ error: 'VM not found' });
     if (vm.status !== 'stopped') return res.status(400).json({ error: 'VM must be stopped before renaming' });
     if (newName === vm.name) return res.status(400).json({ error: 'New name is the same as the current name' });
 
     // Check new name is not already taken (libvirt enforces name uniqueness)
-    try {
-      await vmService.getVmInfo(newName);
+    if (await vmService.findVm(newName)) {
       return res.status(409).json({ error: `A VM named "${newName}" already exists` });
-    } catch { /* expected */ }
+    }
 
     const safeUuid = validateVmUuid(uuid);
     const safeNewName = validateVmName(newName);
@@ -641,7 +625,14 @@ vmsRouter.put('/:uuid/rename', requireUuidParam, async (req, res) => {
         // VMs without NVRAM (BIOS firmware) reject --keep-nvram with an error.
         await virsh(['undefine', safeOldName, '--snapshots-metadata']);
       }
-      await virsh(['define', tmpFile]);
+      try {
+        await virsh(['define', tmpFile]);
+      } catch (err) {
+        // With the old definition gone, this failing would lose the VM and leave its disks behind.
+        await fs.writeFile(tmpFile, xml, 'utf8');
+        await virsh(['define', tmpFile]);
+        throw err;
+      }
     } finally {
       await fs.unlink(tmpFile).catch(() => {});
     }
@@ -962,10 +953,12 @@ vmsRouter.delete('/:uuid/nics/:mac', requireUuidParam, async (req, res) => {
 
     void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'success', output, durationMs: Date.now() - start });
     // virsh gives up waiting after about 5 seconds, whether or not the guest has let it go.
-    const pending = (await vmService.getVmNics(uuid)).some((n) => n.mac.toLowerCase() === mac.toLowerCase());
+    // If libvirt can't say, "sent" is still true and "gone" might not be.
+    const pending = await vmService.getVmNics(uuid).then((nics) => nics.some((n) => n.mac.toLowerCase() === mac.toLowerCase()), () => true);
     res.json({ ok: true, pending });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
+    if (err instanceof networkService.NetworkError) return res.status(err.status).json({ error: err.message });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -1235,16 +1228,13 @@ vmsRouter.post('/:uuid/disk-files/:filename/move', requireUuidParam, async (req,
     }
 
     // VM may be undefined (orphan disk) — move is still allowed in that case.
-    let vmDefined = false;
-    let vmName: string | null = null;
-    try {
-      const info = await vmService.getVmInfo(uuid);
-      vmDefined = true;
-      vmName = info.name;
-      if (info.status !== 'stopped') {
-        return res.status(409).json({ error: 'VM must be stopped before moving its disk' });
-      }
-    } catch { /* undefined — fall through */ }
+    // If libvirt can't say this throws: the move would leave a VM's XML naming the old path.
+    const info = await vmService.findVm(uuid);
+    if (info && info.status !== 'stopped') {
+      return res.status(409).json({ error: 'VM must be stopped before moving its disk' });
+    }
+    const vmDefined = !!info;
+    const vmName = info?.name ?? null;
 
     // Phase 1 — plan + pre-validate.
     const plan = await storageService.planVmDiskMove(uuid, safeFilename, storageDirId);
@@ -1354,13 +1344,11 @@ vmsRouter.post('/:uuid/disk-files/:filename/download-ticket', requireUuidParam, 
 
     // Block tickets while the VM is running — a live qcow2 is being mutated
     // and the resulting download would be torn. Orphaned VMs (no libvirt
-    // record) are fine to download from.
-    try {
-      const vmInfo = await vmService.getVmInfo(uuid);
-      if (vmInfo.status !== 'stopped') {
-        return res.status(409).json({ error: 'VM must be stopped before downloading its disk' });
-      }
-    } catch { /* VM undefined — orphan disk, allow */ }
+    // record) are fine to download from. If libvirt can't say, this throws.
+    const vmInfo = await vmService.findVm(uuid);
+    if (vmInfo && vmInfo.status !== 'stopped') {
+      return res.status(409).json({ error: 'VM must be stopped before downloading its disk' });
+    }
 
     const exp = Math.floor(Date.now() / 1000) + 60;
     const token = jwt.sign(
@@ -1415,7 +1403,8 @@ vmsRouter.put('/:uuid/resources', requireUuidParam, async (req, res) => {
       return res.status(400).json({ error: 'memoryMb must be a whole number between 128 and 4194304' });
     }
     if (safeMemoryMb < 128) return res.status(400).json({ error: 'memoryMb must be ≥ 128' });
-    const vm = await vmService.getVmInfo(uuid);
+    const vm = await vmService.findVm(uuid);
+    if (!vm) return res.status(404).json({ error: 'VM not found' });
     if (vm.status !== 'stopped') return res.status(400).json({ error: 'VM must be stopped before editing resources' });
     const output = await vmService.updateVmResources(uuid, safeCpus, safeMemoryMb);
     void logService.appendLog({ type: 'vm.resources.update', ...log, status: 'success', output, durationMs: Date.now() - start });

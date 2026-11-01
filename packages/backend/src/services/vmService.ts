@@ -4,15 +4,16 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import * as storageDirService from './storageDirService.js';
 import { listVmMetas } from './vmMetaService.js';
-import { ensureBridges, listNetworks, type Network } from './networkService.js';
+import { ensureBridges, listNetworks, NetworkError, type Network } from './networkService.js';
 import { getRecentVmCpu, guestMemory } from './vmMetricsService.js';
 import type { Vm, VmDisk, VmNic, VmStatus, VmSnapshot, VmSummary, VmStatsSample, VmStatsResponse } from '../types.js';
 import { type TraceEntry, formatTrace } from './traceService.js';
-import { run, virsh as safeVirsh, qemuImg } from './safeExec.js';
+import { run, virsh as safeVirsh, virshBatch, qemuImg } from './safeExec.js';
 import * as deviceService from './deviceService.js';
 import { DeviceError } from './deviceService.js';
 import { parseHostdevs, portableHostdevXml, stripBackingStores, stripHostdevs } from '../lib/hostdevXml.js';
 import { parseDhcpLeases, parseDomIfAddr, pickVmIp, type NicAddress } from '../lib/vmAddresses.js';
+import { isBatchWord } from '../lib/virshBatch.js';
 import { buildInterfaceXml } from './xmlBuilder.js';
 import {
   validateVmName,
@@ -24,9 +25,8 @@ import {
   validateNonNegativeInt,
 } from '../lib/validate.js';
 
-// Most callers now pass a UUID; listVmsRaw() still passes a name when
-// fanning out to per-VM `getVmInfo` lookups, so internal validators must
-// accept both shapes. validateVmName's regex (`[A-Za-z0-9][A-Za-z0-9._-]{0,62}`)
+// Most callers now pass a UUID; listVmsRaw() still reads each VM by its
+// name, so internal validators must accept both shapes. validateVmName's regex (`[A-Za-z0-9][A-Za-z0-9._-]{0,62}`)
 // permits the 36-character RFC 4122 form, so it's safe to use here.
 
 // ─── Internal virsh helper ────────────────────────────────────────────────────
@@ -76,53 +76,66 @@ export async function listVms(): Promise<VmSummary[]> {
  * under its libvirt name, and a guard comparing bridges would pass it.
  */
 export async function listVmsWithNics(networks: readonly NetworkRef[]): Promise<Array<{ id: string; name: string; status: VmStatus; nics: VmNic[] }>> {
-  const [table, names] = await Promise.all([virsh(['list', '--all']), virsh(['list', '--all', '--uuid', '--name'])]);
-  const states = new Map(
-    table.split('\n').slice(2).map((line) => line.trim().split(/\s{2,}/)).filter((p) => p.length >= 3).map((p) => [p[1].trim(), p[2].trim()]),
-  );
-  // A name made outside VirtPilot can have spaces, and a VM skipped here would pass the guard.
-  const rows = names.split('\n').flatMap((line) => {
-    const m = line.trim().match(/^(\S+)\s+(.+)$/);
+  const vms = await listDomains();
+  const nics = await readNicsOf(vms.map((vm) => ({ id: vm.id, running: vm.status !== 'stopped' })), networks);
+  return vms.map((vm, i) => ({ ...vm, nics: nics[i] }));
+}
+
+/**
+ * The two listings `virsh list` gives, joined. The table has the state and the other the UUID, and
+ * a name made outside VirtPilot can have spaces, even several, which is why neither is split on
+ * them and why the name is what runs up to the last gap. A VM dropped here would pass the guard
+ * on deleting its network, so a listing that doesn't add up throws. With no VMs, the second prints
+ * nothing at all.
+ */
+export function parseDomainLists(table: string | null, names: string | null): Array<{ id: string; name: string; status: VmStatus }> {
+  if (table === null) throw new Error('libvirt could not list its VMs');
+  const lines = table.split('\n').slice(2).map((line) => line.trim()).filter(Boolean);
+  const states = new Map(lines.flatMap((line) => {
+    const m = line.match(/^\S+\s+(.+\S)\s{2,}(\S+(?: \S+)?)$/);
     return m ? [[m[1], m[2]]] : [];
-  });
-  return Promise.all(rows.map(async ([id, name]) => {
-    const status = parseStatus(states.get(name) ?? '');
-    // Not caught: "no NICs" would pass the guard on deleting a network with a VM still on it.
-    return { id, name, status, nics: await readNics(id, networks, status !== 'stopped') };
   }));
+  const rows = (names ?? '').split('\n').flatMap((line) => {
+    const m = line.trim().match(/^(\S+)\s+(.+)$/);
+    return m ? [{ id: m[1], name: m[2], status: parseStatus(states.get(m[2]) ?? '') }] : [];
+  });
+  if (rows.length !== lines.length) throw new Error('libvirt could not list its VMs');
+  return rows;
+}
+
+async function listDomains(): Promise<Array<{ id: string; name: string; status: VmStatus }>> {
+  const [table, names] = await virshBatch([['list', '--all'], ['list', '--all', '--uuid', '--name']]);
+  return parseDomainLists(table, names);
 }
 
 export async function listVmsRaw(): Promise<VmSummary[]> {
-  const out = await virsh(['list', '--all']);
-  const lines = out.split('\n').slice(2).filter(Boolean);
-  const vms: VmSummary[] = [];
-
-  for (const line of lines) {
-    const parts = line.trim().split(/\s{2,}/);
-    if (parts.length < 3) continue;
-    const name = parts[1].trim();
-    const stateStr = parts[2].trim();
-    try {
-      const info = await getVmInfo(name);
-      vms.push({ id: info.id, name, status: parseStatus(stateStr), cpus: info.cpus, memoryMb: info.memoryMb, autostart: info.autostart });
-    } catch {
-      vms.push({ id: name, name, status: parseStatus(stateStr), cpus: 0, memoryMb: 0 });
-    }
-  }
+  const domains = await listDomains();
+  // `dominfo` holds all a row here needs. The rest of getVmInfo costs several processes a VM,
+  // and this is on a five second timer.
+  const infos = await virshBatch(domains.map((vm) => ['dominfo', vm.id]));
+  // Nothing at all is libvirt not answering: an error keeps the list the browser has, where
+  // rows with nothing in them would say every VM has no CPUs.
+  if (domains.length > 0 && infos.every((info) => info === null)) throw new Error('libvirt did not answer');
+  const vms: VmSummary[] = domains.map(({ id, name, status }, i) => {
+    const info = infos[i];
+    if (!info) return { id, name, status, cpus: 0, memoryMb: 0 };
+    const { cpus, memoryMb, autostart } = parseDomInfo(info);
+    return { id, name, status, cpus, memoryMb, autostart };
+  });
 
   // Fan out guest-agent pings in parallel — only meaningful for running VMs.
   const runningVms = vms.filter((v) => v.status === 'running');
   if (runningVms.length > 0) {
     const results = await Promise.allSettled(
-      runningVms.map((v) => checkGuestAgent(v.name).then((ok) => ({ name: v.name, ok }))),
+      runningVms.map((v) => checkGuestAgent(v.id).then((ok) => ({ id: v.id, ok }))),
     );
     const agentMap = new Map(
       results
-        .filter((r): r is PromiseFulfilledResult<{ name: string; ok: boolean }> => r.status === 'fulfilled')
-        .map((r) => [r.value.name, r.value.ok]),
+        .filter((r): r is PromiseFulfilledResult<{ id: string; ok: boolean }> => r.status === 'fulfilled')
+        .map((r) => [r.value.id, r.value.ok]),
     );
     for (const vm of vms) {
-      if (vm.status === 'running') vm.guestAgent = agentMap.get(vm.name) ?? false;
+      if (vm.status === 'running') vm.guestAgent = agentMap.get(vm.id) ?? false;
     }
   }
 
@@ -144,26 +157,63 @@ export async function listVmsRaw(): Promise<VmSummary[]> {
   return vms;
 }
 
-export async function getVmInfo(nameOrId: string): Promise<Vm> {
-  const name = validateVmName(nameOrId);
-  const info = await virsh(['dominfo', name]);
+function parseDomInfo(info: string): VmBasics {
   const lines = info.split('\n');
-
   const get = (key: string): string => {
     const line = lines.find((l) => l.startsWith(key));
     return line?.split(':')[1]?.trim() ?? '';
   };
-
-  const id = get('UUID');
-  const vmName = get('Name');
-  const stateStr = get('State');
-  const cpus = parseInt(get('CPU(s)') || '0', 10);
   const memKb = parseInt(get('Used memory').replace(/[^0-9]/g, '') || '0', 10);
-  const memoryMb = Math.round(memKb / 1024);
-  const autostart = get('Autostart').toLowerCase() === 'enable';
+  return {
+    id: get('UUID'),
+    name: get('Name'),
+    status: parseStatus(get('State')),
+    cpus: parseInt(get('CPU(s)') || '0', 10),
+    memoryMb: Math.round(memKb / 1024),
+    autostart: get('Autostart').toLowerCase() === 'enable',
+  };
+}
+
+type VmBasics = Pick<Vm, 'id' | 'name' | 'status' | 'cpus' | 'memoryMb' | 'autostart'>;
+
+/**
+ * What virsh prints for a VM it has no record of, on libvirt 10.0 and 11.3, and nothing else:
+ * a connection that broke during the lookup prints the same line with its reason after it.
+ */
+export function saysNoSuchVm(stderr: string): boolean {
+  const lines = stderr.split('\n').map((line) => line.trim()).filter(Boolean);
+  return lines.length > 0 && lines.every((line) => /^error: (failed to get domain|Domain not found)/i.test(line));
+}
+
+export function isNoSuchVm(err: unknown): boolean {
+  if (err instanceof NetworkError) return err.status === 404;
+  return saysNoSuchVm(String((err as { stderr?: unknown })?.stderr ?? ''));
+}
+
+/**
+ * What libvirt says of a VM, or null if it has no such VM. Anything else throws, and every guard
+ * asking "is it there, is it running" has to use this: "libvirt can't say" read as "gone" waves a
+ * restore or a disk move through on a running VM's disks.
+ */
+export async function findVm(nameOrId: string): Promise<VmBasics | null> {
+  const name = validateVmName(nameOrId);
+  try {
+    return parseDomInfo(await virsh(['dominfo', name]));
+  } catch (err) {
+    if (isNoSuchVm(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * No NICs: nothing here needs them but the VM's page, which asks with getVmNics, whose failure
+ * means something different. Throws if the VM isn't there or libvirt can't say.
+ */
+export async function getVmInfo(nameOrId: string): Promise<Omit<Vm, 'nics'>> {
+  const name = validateVmName(nameOrId);
+  const { id, name: vmName, status, cpus, memoryMb, autostart } = parseDomInfo(await virsh(['dominfo', name]));
 
   const disks = await getVmDisks(name);
-  const nics = await getVmNics(name);
 
   try {
     const xml = await getVmXml(name);
@@ -188,10 +238,9 @@ export async function getVmInfo(nameOrId: string): Promise<Vm> {
     // VNC not available (VM stopped)
   }
 
-  const status = parseStatus(stateStr);
   const guestAgent = status === 'running' ? await checkGuestAgent(name) : undefined;
 
-  return { id, name: vmName, status, cpus, memoryMb, disks, nics, vncDisplay, vncPort, guestAgent, autostart };
+  return { id, name: vmName, status, cpus, memoryMb, disks, vncDisplay, vncPort, guestAgent, autostart };
 }
 
 export async function getVmDisks(nameOrId: string): Promise<VmDisk[]> {
@@ -316,50 +365,113 @@ export function mergeNicDefinitions(live: VmNic[], saved: VmNic[]): VmNic[] {
 
 type NetworkRef = Pick<Network, 'bridge' | 'libvirtName'>;
 
-/** A stopped VM has the one definition, so `running: false` saves asking twice. */
-async function readNics(name: string, networks: readonly NetworkRef[], running = true): Promise<VmNic[]> {
-  const read = async (...flags: string[]) => withBridgeSources(parseDomIfList(await virsh(['domiflist', name, ...flags])), networks);
-  const now = await read();
-  return running ? mergeNicDefinitions(now, await read('--inactive')) : now;
+// A failed read is said, never read as no NICs: that would pass the guard on deleting a network
+// with a VM on it. A table with no NICs still has its heading and rule.
+function nicTable(answer: string | null): VmNic[] | null {
+  return answer && /^-+$/.test(answer.split('\n')[1]?.trim() ?? '') ? parseDomIfList(answer) : null;
+}
+
+/** A stopped VM has the one definition, so `running: false` saves asking twice. All in one process. */
+async function readNicsOf(vms: ReadonlyArray<{ id: string; running: boolean }>, networks: readonly NetworkRef[]): Promise<VmNic[][]> {
+  const answers = await virshBatch(vms.flatMap(({ id, running }) => [['domiflist', id], ...(running ? [['domiflist', id, '--inactive']] : [])]));
+  let next = 0;
+  const definitions = vms.map(({ id, running }) => {
+    const live = nicTable(answers[next++]);
+    const saved = running ? nicTable(answers[next++]) : null;
+    if (!live || (running && !saved)) throw new Error(`libvirt could not list the NICs of ${id}`);
+    return { live, saved };
+  });
+  return resolveNics(definitions, networks);
+}
+
+async function resolveNics(definitions: ReadonlyArray<{ live: VmNic[]; saved: VmNic[] | null }>, networks: readonly NetworkRef[]): Promise<VmNic[][]> {
+  const refs = [...networks, ...await osBridgeOwners(definitions.flatMap(({ live, saved }) => [...live, ...(saved ?? [])]), networks)];
+  return definitions.map(({ live, saved }) => {
+    const now = withBridgeSources(live, refs);
+    return saved ? mergeNicDefinitions(now, withBridgeSources(saved, refs)) : now;
+  });
 }
 
 /**
  * A NIC made outside VirtPilot, with virsh or virt-manager, names the libvirt network where
  * VirtPilot's own name its bridge. Everything after this, the browser too, knows a network by
  * its bridge, so the difference is dealt with where NICs are read. `type` still says how the
- * NIC is attached, and a libvirt network VirtPilot doesn't know keeps its name.
+ * NIC is attached, and a libvirt network VirtPilot doesn't know keeps its name. `bridge` as well
+ * as `network`, as that is what a running VM says of a NIC on a libvirt network in bridge mode.
  */
 export function withBridgeSources(nics: VmNic[], networks: readonly NetworkRef[]): VmNic[] {
   return nics.map((nic) => {
-    const network = nic.type === 'network' ? networks.find((n) => n.libvirtName === nic.source) : undefined;
+    const network = nic.type === 'network' || nic.type === 'bridge' ? networks.find((n) => n.libvirtName === nic.source) : undefined;
     return network ? { ...nic, source: network.bridge } : nic;
+  });
+}
+
+/** The bridge `virsh net-info` names, which a network in macvtap mode doesn't have. */
+export function parseNetInfoBridge(info: string): string | null {
+  return info.match(/^Bridge:\s*(\S+)/m)?.[1] ?? null;
+}
+
+/**
+ * An OS bridge VirtPilot has a record of can belong to a libvirt network it doesn't: virbr0 to
+ * `default`, or br0 to a network in bridge mode on it. A NIC on that network by name is on that
+ * bridge. Asked only with such a record to match, which most hosts don't have, and at worst a
+ * NIC reads under its libvirt name: every network VirtPilot would refuse to delete is in the list.
+ */
+async function osBridgeOwners(nics: readonly VmNic[], networks: readonly NetworkRef[]): Promise<NetworkRef[]> {
+  const osBridges = new Set(networks.filter((n) => !n.libvirtName).map((n) => n.bridge));
+  if (osBridges.size === 0) return [];
+  const known = new Set(networks.flatMap((n) => [n.libvirtName, n.bridge]));
+  const named = [...new Set(nics.filter((n) => (n.type === 'network' || n.type === 'bridge') && !known.has(n.source)).map((n) => n.source))].filter(isBatchWord);
+  // A real device is what a `bridge` NIC's source usually is. A network called the same would mislabel it.
+  const present = await Promise.all(named.map((name) => fs.access(`/sys/class/net/${name}`).then(() => true, () => false)));
+  const names = named.filter((_, i) => !present[i]);
+  if (names.length === 0) return [];
+  const infos = await virshBatch(names.map((name) => ['net-info', name])).catch(() => [] as Array<string | null>);
+  return names.flatMap((libvirtName, i) => {
+    const bridge = parseNetInfoBridge(infos[i] ?? '');
+    return bridge && osBridges.has(bridge) ? [{ libvirtName, bridge }] : [];
   });
 }
 
 export async function getVmNics(nameOrId: string): Promise<VmNic[]> {
   const name = validateVmName(nameOrId);
-  try {
-    const nics = await readNics(name, await listNetworks());
-
-    try {
-      const saved = parseNicBandwidthFromXml(await virsh(['dumpxml', name, '--inactive']));
-      // A NIC only on the running VM isn't in the saved XML. Worth asking only for one of those.
-      const live = nics.some((n) => n.onlyIn === 'live') ? parseNicBandwidthFromXml(await virsh(['dumpxml', name])) : saved;
-      for (const nic of nics) {
-        const bw = (nic.onlyIn === 'live' ? live : saved).get(nic.mac.toLowerCase());
-        if (bw) {
-          if (bw.inboundKbps !== undefined) nic.inboundKbps = bw.inboundKbps;
-          if (bw.outboundKbps !== undefined) nic.outboundKbps = bw.outboundKbps;
-        }
-      }
-    } catch {
-      // bandwidth info is best-effort; ignore if dumpxml fails
-    }
-
-    return nics;
-  } catch {
-    return [];
+  const [liveAnswer, savedAnswer, savedXml] = await virshBatch([['domiflist', name], ['domiflist', name, '--inactive'], ['dumpxml', name, '--inactive']]);
+  const live = nicTable(liveAnswer);
+  const saved = nicTable(savedAnswer);
+  if (!live || !saved) {
+    // A batch can't say why. Worth asking, as these two read very differently to whoever gets them.
+    if ((await findVm(name).catch(() => undefined)) === null) throw new NetworkError(`There is no VM ${name}.`, 404);
+    throw new Error(`libvirt could not list the NICs of ${name}`);
   }
+  const [nics] = await resolveNics([{ live, saved }], await listNetworks());
+
+  try {
+    const savedLimits = parseNicBandwidthFromXml(savedXml ?? '');
+    // A NIC only on the running VM isn't in the saved XML. Worth asking only for one of those.
+    const liveLimits = nics.some((n) => n.onlyIn === 'live') ? parseNicBandwidthFromXml(await virsh(['dumpxml', name])) : savedLimits;
+    for (const nic of nics) {
+      const bw = (nic.onlyIn === 'live' ? liveLimits : savedLimits).get(nic.mac.toLowerCase());
+      if (bw) {
+        if (bw.inboundKbps !== undefined) nic.inboundKbps = bw.inboundKbps;
+        if (bw.outboundKbps !== undefined) nic.outboundKbps = bw.outboundKbps;
+      }
+    }
+  } catch {
+    // bandwidth info is best-effort; ignore if dumpxml fails
+  }
+
+  return nics;
+}
+
+/** The NICs a domain's XML defines, in its order. Where a VM is built from that XML, this is what it must re-key, whatever libvirt says later. */
+export function parseInterfacesFromXml(xml: string): Array<{ mac: string; model: string; source: string }> {
+  return [...xml.matchAll(/<interface\b[^>]*>([\s\S]*?)<\/interface>/g)].flatMap(([, block]) => {
+    const mac = block.match(/<mac\s+address=['"]([^'"]+)['"]/)?.[1];
+    if (!mac) return [];
+    const model = block.match(/<model\s+type=['"]([^'"]+)['"]/)?.[1] ?? '-';
+    const source = block.match(/<source\s[^>]*\b(?:bridge|network|dev)=['"]([^'"]+)['"]/)?.[1] ?? '-';
+    return [{ mac, model, source }];
+  });
 }
 
 function parseNicBandwidthFromXml(xml: string): Map<string, { inboundKbps?: number; outboundKbps?: number }> {
@@ -393,16 +505,18 @@ function parseNicBandwidthFromXml(xml: string): Map<string, { inboundKbps?: numb
 export async function getVmInterfaceIps(nameOrId: string): Promise<Record<string, string>> {
   const name = validateVmName(nameOrId);
   const result: Record<string, string> = {};
-  for (const source of ['agent', 'arp'] as const) {
-    try {
-      for (const { mac, ip } of parseDomIfAddr(await virsh(['domifaddr', name, '--source', source]))) {
-        result[mac] ??= ip;
-      }
-    } catch {}
+  // The agent last, as the one that can stall, and a batch keeps what it had finished.
+  const [arp, state, agent] = await virshBatch([
+    ['domifaddr', name, '--source', 'arp'],
+    ['domstate', name],
+    ['domifaddr', name, '--source', 'agent'],
+  ]).catch(() => [] as Array<string | null>);
+  for (const answer of [agent, arp]) {
+    for (const { mac, ip } of parseDomIfAddr(answer ?? '')) result[mac] ??= ip;
   }
   try {
     // A lease outlives a stopped VM by its whole lease time: an address it doesn't have.
-    const running = parseStatus(await virsh(['domstate', name]).catch(() => '')) !== 'stopped';
+    const running = parseStatus(state ?? '') !== 'stopped';
     // A NIC saved for its next start isn't connected, though an old lease may still name it.
     const missing = running ? (await getVmNics(name)).filter((nic) => nic.onlyIn !== 'saved' && !result[nic.mac.toLowerCase()]) : [];
     if (missing.length > 0) {
@@ -788,7 +902,8 @@ export async function attachNic(
       try {
         await setNicBandwidth(name, mac, { inboundKbps, outboundKbps }, trace);
       } catch (err) {
-        await detachNic(name, mac).catch(() => {});
+        // By what was just attached: reading the NICs may be what failed.
+        await virsh(['detach-interface', name, 'bridge', '--mac', validateMac(mac), '--persistent'], trace).catch(() => {});
         throw err;
       }
     }

@@ -13,6 +13,19 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.16.6',
+    date: '2026-11-01',
+    changes: [
+      { type: 'fixed', text: 'A port forward or a locked IP now needs a NIC on that network. The API took any MAC and sent the traffic to an address that wasn\'t that VM\'s, though the dashboard never offered it.' },
+      { type: 'fixed', text: 'A VM on an OS bridge through a libvirt network VirtPilot doesn\'t know, such as default on virbr0, now counts as on that bridge: its Network tab names the record, and Add NIC doesn\'t offer it again.' },
+      { type: 'fixed', text: 'A clone or a VM restored from a backup can\'t keep its source\'s MACs. They now come from the definition being copied, so a libvirt failure on a separate list can\'t leave two VMs with one MAC.' },
+      { type: 'fixed', text: 'A failed read of a VM\'s NICs is now an error rather than "no NICs": Remove NIC, rate limits, firewall Apply and port forwards stop and say so, and a VM\'s page keeps what it last showed. The VM list, starting a VM, clones and backups carry on.' },
+      { type: 'fixed', text: 'libvirt not answering no longer reads as a VM that has gone. A restore could replace a running VM\'s disks, a disk move could leave a VM unable to start, and a rename could lose its definition. Only what libvirt says it has no record of counts as gone, and anything else is refused. A restore is refused on a paused VM too, and a rename whose new definition fails puts the VM back.' },
+      { type: 'fixed', text: 'A VM with a space in its name has its UUID in the VM list, and so can be opened and managed.' },
+      { type: 'changed', text: 'The dashboard starts far fewer virsh processes. With four VMs, the VM list went from 49 processes every five seconds to 4, and reads that ask about many VMs now share one process.' },
+    ],
+  },
+  {
     version: '2.16.5',
     date: '2026-11-01',
     changes: [

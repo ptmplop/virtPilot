@@ -226,7 +226,6 @@ interface ProvisionOptions {
   disks: Array<{ target: string; filename: string }>;
   /** Writes the images. Called once with every resolved destination path. */
   copyDisks: (placements: DiskPlacement[]) => Promise<void>;
-  sourceNics: Array<{ mac: string }>;
   sourceMeta: vmMetaService.VmMeta | null;
   newName: string;
   storageDirId?: string;
@@ -248,8 +247,7 @@ async function provisionDerivedVm(opts: ProvisionOptions): Promise<ProvisionResu
 
   // libvirt enforces name uniqueness; catch it here rather than half-way
   // through, once disks have already been written.
-  const nameTaken = await vmService.getVmInfo(newName).then(() => true).catch(() => false);
-  if (nameTaken) throw new Error(`A VM named "${newName}" already exists`);
+  if (await vmService.findVm(newName)) throw new Error(`A VM named "${newName}" already exists`);
 
   if (opts.disks.length === 0) throw new Error('The source has no disks to copy');
 
@@ -270,7 +268,9 @@ async function provisionDerivedVm(opts: ProvisionOptions): Promise<ProvisionResu
     await opts.copyDisks(placements);
 
     // ── Networking ──────────────────────────────────────────────────────────
-    const net = await deriveNetworking(opts.sourceNics, opts.sourceMeta, uuid);
+    // From the XML being rewritten, not a list read separately: every MAC it holds has to change,
+    // and a list that came back empty would leave two VMs with the same one, without a word.
+    const net = await deriveNetworking(vmService.parseInterfacesFromXml(opts.sourceXml), opts.sourceMeta, uuid);
     warnings.push(...net.warnings);
     const passedThrough = parseHostdevs(opts.sourceXml).length;
     if (passedThrough > 0) {
@@ -434,8 +434,6 @@ async function cloneVmInner(
       });
       consistency = running ? (copy.consistent ? 'app-consistent' : 'crash-consistent') : 'offline';
     },
-    // What the saved definition holds, which is what gets copied.
-    sourceNics: source.nics.filter((n) => n.onlyIn !== 'live'),
     sourceMeta,
     newName: opts.newName,
     storageDirId: opts.storageDirId,
@@ -488,7 +486,6 @@ export async function createVmFromBackup(
         await backupService.materialiseBackupDisk(path.join(bdir, p.filename), p.destPath);
       }
     },
-    sourceNics: manifest.nics ?? [],
     sourceMeta,
     newName: opts.newName,
     storageDirId: opts.storageDirId,

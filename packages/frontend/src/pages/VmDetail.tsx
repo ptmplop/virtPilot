@@ -156,7 +156,7 @@ export function VmDetailPage() {
     setTab(TABS[to]);
     tabRefs.current[TABS[to]]?.focus();
   };
-  const { data: vm, isLoading } = useVm(uuid!);
+  const { data: vm, isLoading, error: vmError } = useVm(uuid!);
   const { data: metaData } = useVmMeta(uuid!);
   const vmMeta = metaData?.meta ?? null;
   // The VM's mark, as on the list: one picked by hand, else the one its image implies.
@@ -237,10 +237,20 @@ export function VmDetailPage() {
       ) : !vm ? (
         <Panel className="flex flex-col items-center justify-center px-6 py-16 text-center">
           <Server className="h-5 w-5 text-muted-foreground" aria-hidden />
-          <p className="mt-3 text-[15px] font-semibold text-foreground">VM not found</p>
-          <p className="mt-1 text-[13px] text-muted-foreground">
-            <span className="font-mono text-[12.5px]">"{uuid}"</span> does not exist or has been deleted.
-          </p>
+          {/* A 503 is libvirt not answering, which says nothing about whether the VM is there. */}
+          {(vmError as { response?: { status?: number } } | null)?.response?.status === 503 ? (
+            <>
+              <p className="mt-3 text-[15px] font-semibold text-foreground">Can't read this VM right now</p>
+              <p className="mt-1 text-[13px] text-muted-foreground">libvirt didn't answer. This page keeps trying.</p>
+            </>
+          ) : (
+            <>
+              <p className="mt-3 text-[15px] font-semibold text-foreground">VM not found</p>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                <span className="font-mono text-[12.5px]">"{uuid}"</span> does not exist or has been deleted.
+              </p>
+            </>
+          )}
           <Button size="sm" variant="secondary" className="mt-5" onClick={() => navigate('/vms')}>
             <ArrowLeft size={14} /> Back to list
           </Button>

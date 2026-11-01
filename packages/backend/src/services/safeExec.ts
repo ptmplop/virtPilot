@@ -4,8 +4,10 @@
 // here to trust the rest of the codebase.
 
 import { execFile } from 'child_process';
+import { randomUUID } from 'crypto';
 import { promisify } from 'util';
 import { config } from '../config.js';
+import { buildVirshBatch, splitVirshBatch } from '../lib/virshBatch.js';
 import type { TraceEntry } from './traceService.js';
 
 const execFileAsync = promisify(execFile) as (
@@ -53,6 +55,28 @@ export async function run(file: string, args: readonly string[], opts: RunOpts =
 // virsh wrapper — prepends `-c <libvirtUri>` so callers don't have to.
 export async function virsh(args: readonly string[], opts: RunOpts = {}): Promise<string> {
   return run('virsh', ['-c', config.libvirtUri, ...args], { timeout: 30_000, ...opts });
+}
+
+// Bounds the one argument it all goes in as, and how long a poll can hold one connection.
+const BATCH_SIZE = 200;
+
+// Read-only commands in one process: see lib/virshBatch. An answer is null where its command
+// failed, and it's for the caller to say what that means. Killed at its timeout, it keeps what it
+// had finished. Throws if it got nowhere, saying why and not the whole command line.
+export async function virshBatch(commands: ReadonlyArray<readonly string[]>, opts: RunOpts = {}): Promise<Array<string | null>> {
+  const answers: Array<string | null> = [];
+  for (let i = 0; i < commands.length; i += BATCH_SIZE) {
+    const part = commands.slice(i, i + BATCH_SIZE);
+    const mark = `@@${randomUUID()}`;
+    const stdout = await virsh([buildVirshBatch(part, mark)], opts).catch((err: { stdout?: unknown; stderr?: unknown }) => {
+      const printed = String(err.stdout ?? '');
+      if (printed.includes(`${mark}:`)) return printed;
+      const said = String(err.stderr ?? '').trim();
+      throw Object.assign(new Error(said || 'libvirt did not answer in time'), { stderr: said });
+    });
+    answers.push(...splitVirshBatch(stdout, mark, part.length));
+  }
+  return answers;
 }
 
 // Convenience wrapper for the legacy "swallow all errors" callers.
