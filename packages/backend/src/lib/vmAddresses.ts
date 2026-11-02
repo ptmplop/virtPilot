@@ -57,8 +57,9 @@ export function pickVmIp(addresses: readonly NicAddress[], primaryMac?: string):
  * offered, with no way to type it in. Whoever really holds one is found when it is taken. An entry
  * with no MAC was asked for and never answered.
  */
-export function parseNeighbours(output: string): NicAddress[] {
-  return [...output.matchAll(/^(\d{1,3}(?:\.\d{1,3}){3}) lladdr ([0-9a-f]{2}(?::[0-9a-f]{2}){5})\b.*\b(REACHABLE|DELAY|PROBE|PERMANENT)\s*$/gim)]
+export function parseNeighbours(output: string, { stale = false } = {}): NicAddress[] {
+  const states = stale ? 'REACHABLE|DELAY|PROBE|PERMANENT|STALE' : 'REACHABLE|DELAY|PROBE|PERMANENT';
+  return [...output.matchAll(new RegExp(`^(\\d{1,3}(?:\\.\\d{1,3}){3}) lladdr ([0-9a-f]{2}(?::[0-9a-f]{2}){5})\\b.*\\b(?:${states})\\s*$`, 'gim'))]
     .map(([, ip, mac]) => ({ ip, mac: mac.toLowerCase() }));
 }
 

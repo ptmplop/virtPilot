@@ -100,6 +100,22 @@ describe('parseNeighbours', () => {
   });
 });
 
+describe('parseNeighbours with stale entries', () => {
+  const table = [
+    '10.0.0.5 lladdr 52:54:00:00:00:05 REACHABLE',
+    '10.0.0.6 lladdr 52:54:00:00:00:06 STALE',
+    '10.0.0.7 FAILED',
+  ].join('\n');
+
+  it('leaves them out unless asked', () => {
+    expect(parseNeighbours(table).map((n) => n.ip)).toEqual(['10.0.0.5']);
+  });
+
+  it('keeps them when asked, and still no entry with no MAC', () => {
+    expect(parseNeighbours(table, { stale: true }).map((n) => n.ip)).toEqual(['10.0.0.5', '10.0.0.6']);
+  });
+});
+
 describe('parseArpingReply', () => {
   const held = 'ARPING 10.77.0.9 from 0.0.0.0 rigarp0\nUnicast reply from 10.77.0.9 [9A:E6:6F:23:B5:93]  0.597ms\nSent 1 probes (1 broadcast(s))\nReceived 1 response(s)\n';
 

@@ -143,6 +143,10 @@ apt-get install -y -qq \
 # Before taking a static pool's address, VirtPilot asks who answers for it. The two arping packages
 # conflict, so one an administrator chose stays. The pool works without it, so nothing fails here.
 command -v arping >/dev/null 2>&1 || apt-get install -y -qq iputils-arping || warn "Could not install iputils-arping: static pools can't check an address is free before taking it"
+# A VM's firewall across a bridge is an nftables table. Ubuntu Server has it unless it was removed.
+command -v nft >/dev/null 2>&1 || apt-get install -y -qq nftables || warn "Could not install nftables: VM firewalls can't filter traffic at a VM's NICs"
+# Lets a VM keep its open connections when its rules first go on at its NICs.
+command -v conntrack >/dev/null 2>&1 || apt-get install -y -qq conntrack || warn "Could not install conntrack: a VM's open connections may drop when its rules are first applied"
 log "System packages verified"
 
 # ─── Storage directories (idempotent) ────────────────────────────────────────
@@ -288,6 +292,22 @@ if [[ -f "${SUDOERS_FILE}" ]] && ! grep -q 'libvirt-qemu.*qemu-img' "${SUDOERS_F
   log "Sudoers rules healed"
 fi
 
+# The libvirt hook that puts a VM's firewall in place as it starts. It needs to know where the rules
+# are, which is the one thing it reads from .env, and it reads it rather than running it.
+install_firewall_hook() {
+  local env="${INSTALL_DIR}/packages/backend/.env" dir root tmp
+  dir="$(grep -m1 '^CLOUD_INIT_DIR=' "${env}" 2>/dev/null | cut -d= -f2-)"
+  root="$(grep -m1 '^STORAGE_ROOT=' "${env}" 2>/dev/null | cut -d= -f2-)"
+  dir="${dir:-${root:-/var/lib/virtpilot}/cloud-init}"
+  [[ "${dir}" =~ ^/[A-Za-z0-9._/-]+$ ]] || { warn "CLOUD_INIT_DIR is not a plain path, so the firewall hook was not installed"; return 0; }
+  install -d -m 0755 /etc/libvirt/hooks/qemu.d
+  tmp="$(mktemp /etc/libvirt/hooks/qemu.d/.virtpilot-firewall.XXXXXX)"
+  sed "s|@CLOUD_INIT_DIR@|${dir}|" "${INSTALL_DIR}/scripts/virtpilot-firewall-hook.sh" > "${tmp}"
+  chown root:root "${tmp}"
+  chmod 0755 "${tmp}"
+  mv -f "${tmp}" /etc/libvirt/hooks/qemu.d/virtpilot-firewall
+}
+
 # ─── Passthrough helper ──────────────────────────────────────────────────────
 # "Keep for VMs" and SR-IOV virtual functions write to /sys, which the
 # service's own sandbox makes read-only; the backend runs this root-owned
@@ -297,6 +317,11 @@ install -m 0755 -o root -g root "${INSTALL_DIR}/scripts/virtpilot-passthrough.sh
 install -m 0644 -o root -g root "${INSTALL_DIR}/scripts/virtpilot-passthrough.service" /etc/systemd/system/virtpilot-passthrough.service
 systemctl daemon-reload
 systemctl enable --quiet virtpilot-passthrough.service
+# Puts a VM's firewall in place as it starts, ahead of the backend at boot. libvirt only looks for
+# hooks when it starts, and restarting it isn't worth the risk to a running host for this: it takes
+# effect from the next restart of libvirt or the host, which is when it matters. Until then the
+# backend covers a VM within seconds of it starting.
+install_firewall_hook
 # vfio-pci binds nothing unless asked, but the service can't see /lib/modules
 # (ProtectKernelModules), so it can only tell a loaded module from a missing one.
 echo vfio-pci > /etc/modules-load.d/virtpilot.conf

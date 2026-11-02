@@ -4,7 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { config, VERSION } from '../config.js';
 import { getUserSettings } from './userSettingsService.js';
-import { findVm, getVmInfo, getVmXml, getVmDisks, parseInterfacesFromXml, refreshDomainBackingChain } from './vmService.js';
+import { findVm, getVmInfo, getVmXml, getVmDisks, heldBecause, parseInterfacesFromXml, refreshDomainBackingChain } from './vmService.js';
 import { getVmMeta, type VmMeta } from './vmMetaService.js';
 import { appendLog } from './logService.js';
 import { qemuImg } from './safeExec.js';
@@ -828,6 +828,8 @@ export interface CreateBackupOptions {
 }
 
 export async function createBackup(vmUuid: string, opts: CreateBackupOptions): Promise<BackupEntry> {
+  const held = heldBecause(vmUuid);
+  if (held) throw new Error(`A backup of this VM has to wait: ${held}.`);
   if (backupsInProgress.has(vmUuid)) {
     throw new Error(`Backup already in progress for VM "${vmUuid}"`);
   }
@@ -1338,6 +1340,8 @@ async function dropCheckpointFor(vmUuid: string, id: string): Promise<void> {
  * links the backup is made of.
  */
 export async function restoreBackup(sourceVmUuid: string, id: string, targetVmUuidArg?: string): Promise<void> {
+  const held = heldBecause(targetVmUuidArg ?? sourceVmUuid);
+  if (held) throw new Error(`Restoring this VM has to wait: ${held}.`);
   const { manifest, bdir } = await openBackupForRestore(sourceVmUuid, id);
 
   // The restore target's UUID must be a valid UUID — never a free-form name.

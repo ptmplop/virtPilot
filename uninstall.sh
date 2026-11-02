@@ -74,7 +74,8 @@ echo "  • Libvirt VMs created by VirtPilot (a hard disk under /var/lib/virtpil
 echo "    or a cloud-init seed from /var/lib/virtpilot/cloud-init/) - the domain"
 echo "    and those disk images only; disks stored elsewhere are kept"
 echo "  • VXLAN tunnels (interfaces named vpx*) and managed bridges (vp<N>)"
-echo "  • iptables VP-IN-* / VP-OUT-* / VP-VXLAN chains"
+echo "  • iptables VP-IN-* / VP-OUT-* / VP-VXLAN chains and the nftables table bridge virtpilot"
+echo "  • The libvirt hook /etc/libvirt/hooks/qemu.d/virtpilot-firewall"
 echo "  • /etc/nginx/sites-{available,enabled}/virtpilot"
 echo "  • UFW rules for ports ${PUBLIC_PORT}/${BACKEND_PORT}"
 echo "  • /etc/sudoers.d/virtpilot"
@@ -299,6 +300,15 @@ fi
 if [[ -d /var/lib/virtpilot ]]; then
   rm -rf /var/lib/virtpilot
   log "Removed /var/lib/virtpilot"
+fi
+
+# ─── VM firewalls across a bridge ─────────────────────────────────────────────
+if command -v nft >/dev/null 2>&1 && nft list table bridge virtpilot >/dev/null 2>&1; then
+  nft delete table bridge virtpilot && log "nftables table bridge virtpilot removed"
+fi
+if [[ -e /etc/libvirt/hooks/qemu.d/virtpilot-firewall ]]; then
+  rm -f /etc/libvirt/hooks/qemu.d/virtpilot-firewall
+  log "Removed the libvirt firewall hook"
 fi
 
 # ─── 11. Restart libvirtd ─────────────────────────────────────────────────────

@@ -14,6 +14,8 @@ export interface VmDisk {
 
 export interface VmNic {
   mac: string;
+  /** How libvirt attaches it: 'bridge' for everything VirtPilot makes. */
+  type?: string;
   source: string;
   model: string;
   /** In only one of a running VM's definitions: 'saved' from its next start, 'live' until then. */
@@ -272,6 +274,8 @@ export interface PortForward {
   vmPort: number;
   description?: string;
   createdAt: string;
+  /** The guest sees the network's gateway as the client, and so answers through this NIC. */
+  sourceNat?: boolean;
 }
 
 export interface FirewallRule {
@@ -292,12 +296,18 @@ export interface FirewallConfig {
   defaultOutbound: 'allow' | 'drop';
   allowEstablishedInbound?: boolean;
   allowEstablishedOutbound?: boolean;
+  /** Read only: Apply has put these in force, whether or not they have an address to be on yet. */
+  applied?: boolean;
   /** Read only: the addresses these rules were applied to and still are. Null if that can't be read. */
   inForceOn?: string[] | null;
   /** Read only: what is saved isn't what was last applied. */
   unapplied?: boolean;
-  /** Read only: bridged traffic reaches these rules on this host, which takes br_netfilter. */
-  bridgedFiltered?: boolean;
+  /** Read only: the tap devices these rules are in force on across the bridge. */
+  ports?: string[];
+  /** Read only: applied by a version that filters across the bridge. */
+  bridgeLayer?: boolean;
+  /** Read only: why the last Apply couldn't filter across the bridge. */
+  bridgeError?: string;
 }
 
 export interface BackupSettings {

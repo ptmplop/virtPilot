@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { constants as fsConstants } from 'fs';
 import path from 'path';
 import { config } from '../config.js';
 import type { Iso, Template } from '../types.js';
@@ -360,12 +361,34 @@ export async function writeVmNameMarker(vmUuidRaw: string, name: string): Promis
 // mount from the source, in which case fs.rename throws EXDEV and we have to
 // fall through to copy + unlink. Both legs throw on error — caller handles
 // rollback at a higher level.
-async function moveCrossFs(src: string, dest: string): Promise<void> {
+async function moveCrossFs(src: string, dest: string, beforeSrcGoes?: () => Promise<void>): Promise<void> {
   try {
     await fs.rename(src, dest);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
-    await fs.copyFile(src, dest);
+    let created = false;
+    try {
+      const before = await fs.stat(src);
+      // Never over a file that is there: that would be another copy's, or a disk of the same name.
+      await fs.copyFile(src, dest, fsConstants.COPYFILE_EXCL);
+      created = true;
+      // On the disk, not in the page cache, before the only other copy is deleted.
+      const copied = await fs.open(dest, 'r+');
+      try {
+        await copied.sync();
+      } finally {
+        await copied.close();
+      }
+      // Anything that wrote to it during those hours, by whatever route, makes the copy stale.
+      const after = await fs.stat(src);
+      if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) throw new Error(`${path.basename(src)} changed while it was being copied, so the copy was thrown away and it stays where it was.`);
+      await beforeSrcGoes?.();
+    } catch (copyErr) {
+      // Half a disk at the destination would also refuse every later try, as already being there.
+      // Only this copy's: a file that was there first isn't this call's to delete.
+      if (created) await fs.unlink(dest).catch(() => {});
+      throw copyErr;
+    }
     await fs.unlink(src);
   }
 }
@@ -511,12 +534,12 @@ export async function planVmDiskMove(
 // Execute a previously-planned move: physical file move + DB row update +
 // empty-folder cleanup. Caller wraps libvirt-XML side effects around this so
 // failures can be rolled back via rollbackVmDiskMove.
-export async function executeVmDiskMove(plan: VmDiskMovePlan): Promise<void> {
+export async function executeVmDiskMove(plan: VmDiskMovePlan, beforeOriginalGoes?: () => Promise<void>): Promise<void> {
   const destFolder = path.dirname(plan.newPath);
   await fs.mkdir(destFolder, { recursive: true });
   await fs.chmod(destFolder, 0o770).catch(() => {});
 
-  await moveCrossFs(plan.oldPath, plan.newPath);
+  await moveCrossFs(plan.oldPath, plan.newPath, beforeOriginalGoes);
   try {
     await storageDirService.recordDiskLocation(plan.vmUuid, plan.diskFilename, plan.toDir.id);
   } catch (err) {

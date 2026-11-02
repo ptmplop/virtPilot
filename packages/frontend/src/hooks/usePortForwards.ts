@@ -39,6 +39,7 @@ export function useCreatePortForward(networkId: string) {
       hostPort: number;
       vmPort: number;
       description?: string;
+      sourceNat?: boolean;
     }) => {
       const { data } = await api.post<{ forward: PortForward }>(
         `/api/networks/${networkId}/port-forwards`,
@@ -49,6 +50,19 @@ export function useCreatePortForward(networkId: string) {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: KEYS.forNetwork(networkId) });
       qc.invalidateQueries({ queryKey: KEYS.forVm(variables.vmUuid) });
+    },
+  });
+}
+
+export function useSetForwardSourceNat(networkId: string, vmUuid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ forwardId, sourceNat }: { forwardId: string; sourceNat: boolean }) => {
+      await api.patch(`/api/networks/${networkId}/port-forwards/${forwardId}`, { sourceNat });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.forVm(vmUuid) });
+      qc.invalidateQueries({ queryKey: KEYS.forNetwork(networkId) });
     },
   });
 }

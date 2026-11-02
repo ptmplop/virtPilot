@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { validateFirewallConfig, tokeniseIptablesRule, type FirewallConfig, type FirewallRule } from './firewallService.js';
+import { createHash } from 'crypto';
+import { firewallInForce, jumpsOutOfPlace, validateFirewallConfig, tokeniseIptablesRule, type FirewallConfig, type FirewallFile, type FirewallRule } from './firewallService.js';
 import { ValidationError } from '../lib/validate.js';
 
 const rule = (over: Partial<FirewallRule> = {}): FirewallRule => ({
@@ -103,5 +104,66 @@ describe('tokeniseIptablesRule', () => {
     expect(tokens.slice(1)).toEqual([
       'FORWARD', '-d', '10.0.1.2/32', '-m', 'comment', '--comment', 'virtpilot fw 1', '-j', 'ACCEPT',
     ]);
+  });
+});
+
+describe('firewallInForce', () => {
+  const saved: FirewallFile = cfg([rule()]);
+
+  it('a file Apply never touched is not in force, whatever it says', () => {
+    expect(firewallInForce(saved)).toBeNull();
+  });
+
+  it('what Apply put in force, not what has been saved since', () => {
+    const applied = cfg([rule({ portRange: '443' })]);
+    expect(firewallInForce({ ...saved, appliedHash: 'x', applied })?.cfg).toBe(applied);
+  });
+
+  it('what the kernel had when this version first saw it', () => {
+    expect(firewallInForce({ ...saved, appliedRaw: ['-A VP-IN-aaaaaaaa -j DROP'] })?.raw).toEqual(['-A VP-IN-aaaaaaaa -j DROP']);
+  });
+
+  it('a hash from 2.16.7 that says the saved rules are what was applied: those', () => {
+    const hash = createHash('sha256').update(JSON.stringify([saved.rules.map(({ id: _id, ...r }) => r), 'drop', 'allow', false, false])).digest('hex');
+    expect(firewallInForce({ ...saved, appliedHash: hash })?.cfg?.rules).toEqual(saved.rules);
+  });
+
+  it('a hash that says they are not: a draft, which an upgrade does not put in force', () => {
+    expect(firewallInForce({ ...saved, appliedHash: 'something else' })).toBeNull();
+  });
+
+  it('an Apply cut short with nothing known: nothing', () => {
+    expect(firewallInForce({ ...saved, appliedHash: null })).toBeNull();
+  });
+
+  it('rules that say nothing put nothing in force', () => {
+    expect(firewallInForce({ ...saved, applied: cfg([], { defaultInbound: 'allow' }) })).toBeNull();
+  });
+});
+
+describe('jumpsOutOfPlace', () => {
+  const vm = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const jumps = (ip: string) => [`-A FORWARD -s ${ip}/32 -j VP-OUT-aaaaaaaa`, `-A FORWARD -d ${ip}/32 -j VP-IN-aaaaaaaa`];
+  const libvirt = ['-A FORWARD -j LIBVIRT_FWX', '-A FORWARD -j LIBVIRT_FWI', '-A FORWARD -j LIBVIRT_FWO'];
+  const accept = (ip: string) => `-A FORWARD -d ${ip}/32 -p tcp -m tcp --dport 22 -m comment --comment "virtpilot-1234" -j ACCEPT`;
+
+  it('all is well above a forward and libvirt', () => {
+    expect(jumpsOutOfPlace(['-P FORWARD ACCEPT', ...jumps('10.0.0.5'), accept('10.0.0.5'), ...libvirt].join('\n'), vm)).toEqual([]);
+  });
+
+  it('under its forward\'s ACCEPT', () => {
+    expect(jumpsOutOfPlace([accept('10.0.0.5'), ...jumps('10.0.0.5'), ...libvirt].join('\n'), vm)).toEqual(['10.0.0.5']);
+  });
+
+  it('under libvirt\'s rules', () => {
+    expect(jumpsOutOfPlace([...libvirt, ...jumps('10.0.0.5')].join('\n'), vm)).toEqual(['10.0.0.5']);
+  });
+
+  it('another address\'s ACCEPT above it is no matter', () => {
+    expect(jumpsOutOfPlace([accept('10.0.0.6'), ...jumps('10.0.0.5'), ...libvirt].join('\n'), vm)).toEqual([]);
+  });
+
+  it('another VM\'s jumps are not its business', () => {
+    expect(jumpsOutOfPlace([...libvirt, '-A FORWARD -d 10.0.0.9/32 -j VP-IN-bbbbbbbb'].join('\n'), vm)).toEqual([]);
   });
 });

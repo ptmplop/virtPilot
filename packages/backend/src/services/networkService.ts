@@ -799,10 +799,79 @@ function guestsOnSoon(network: Network) {
  * can be told. Costs a few processes and is read when a pool is shown, not on a timer. Never holds
  * that up for long: libvirt only adds to what is known, and taking an address probes it anyway.
  */
+// What guests on a static pool were last seen using. Nobody can ask a stopped guest what address it
+// has set itself, but it will want it back when it starts, and the pool remembers it having it.
+interface SeenAddress {
+  networkId: string;
+  mac: string;
+  ip: string;
+  vmUuid: string;
+  seenAt: string;
+}
+
+const seenPath = () => path.join(config.storageRoot, 'seen-addresses.json');
+
+async function readSeen(): Promise<SeenAddress[]> {
+  try {
+    return JSON.parse(await fs.readFile(seenPath(), 'utf8')) as SeenAddress[];
+  } catch {
+    return [];
+  }
+}
+
+// A guest's latest address replaces its last, and one with none to report keeps what it had: that
+// is every stopped VM. Only VMs libvirt says are on the pool's bridge: throwing if it can't say
+// keeps the book as it was, where a wrong answer would have emptied it.
+async function noteGuestAddresses(networks: readonly Network[]): Promise<void> {
+  const pools = networks.filter(usesStaticIps);
+  const before = await readSeen();
+  if (pools.length === 0 && before.length === 0) return;
+  const vms = await (await import('./vmService.js')).listVmsWithNics(networks);
+  const now = new Date().toISOString();
+  const after: SeenAddress[] = [];
+  for (const pool of pools) {
+    const onPool = new Map(vms.flatMap((vm) => vm.nics.filter((n) => n.source === pool.bridge).map((n) => [n.mac.toLowerCase(), vm.id] as const)));
+    const guests = await guestsOnSoon(pool);
+    const table = await runSafe('ip', ['-4', 'neigh', 'show', 'dev', validateBridgeName(pool.bridge)], { timeout: 5_000 }) ?? '';
+    const onIt = ({ ip, mac }: { ip: string; mac: string }) => onPool.has(mac) && ipInCidr(ip, pool.cidr);
+    const heard = [...parseNeighbours(table), ...(guests?.addresses ?? [])].filter(onIt);
+    // A quiet guest's entry goes stale in seconds. It still says what that guest last used, unless
+    // there is something newer to go on.
+    const heardBefore = parseNeighbours(table, { stale: true }).filter(onIt);
+    for (const [mac, vmUuid] of onPool) {
+      const fresh = heard.filter((h) => h.mac === mac);
+      const mine = fresh.length > 0 ? fresh : heardBefore.filter((h) => h.mac === mac);
+      if (mine.length > 0) {
+        for (const ip of new Set(mine.map((h) => h.ip))) after.push({ networkId: pool.id, mac, ip, vmUuid, seenAt: now });
+      } else {
+        after.push(...before.filter((row) => row.networkId === pool.id && row.mac === mac));
+      }
+    }
+  }
+  const tmp = `${seenPath()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(after, null, 2), 'utf8');
+  await fs.rename(tmp, seenPath());
+}
+
+/** Costs nothing with no static pool. On a timer of its own, as an agent or a stalled libvirt can hold a pass up. */
+export function startPoolWatch(intervalMs = 30_000): void {
+  let busy = false;
+  const pass = () => {
+    if (busy) return;
+    busy = true;
+    void readNetworks().then(noteGuestAddresses).catch((err) => console.warn('[network] Could not note guest addresses:', err)).finally(() => { busy = false; });
+  };
+  pass();
+  setInterval(pass, intervalMs).unref();
+}
+
 async function addressesInUse(network: Network): Promise<Map<string, string | undefined>> {
   const guests = await guestsOnSoon(network);
   const neighbours = parseNeighbours(await runSafe('ip', ['-4', 'neigh', 'show', 'dev', validateBridgeName(network.bridge)], { timeout: 5_000 }) ?? '');
   const inUse = new Map<string, string | undefined>();
+  for (const row of await readSeen()) {
+    if (row.networkId === network.id) inUse.set(row.ip, row.vmUuid);
+  }
   for (const ip of await hostAddresses(network.bridge)) inUse.set(ip, undefined);
   for (const { ip, mac } of [...neighbours, ...(guests?.addresses ?? [])]) inUse.set(ip, guests?.owner.get(mac) ?? inUse.get(ip));
   return inUse;
@@ -827,12 +896,13 @@ export async function getNetworkIpStatus(id: string): Promise<{ ip: string; allo
 
 /**
  * Who answers for an address on a bridge, by ARP, which a guest's own firewall doesn't touch.
- * Needs no address on the bridge, as `-D` asks from 0.0.0.0. It takes a second when nobody does.
+ * Needs no address on the bridge, as `-D` asks from 0.0.0.0. Three tries a second apart, for a guest
+ * that is busy or a request that is lost, so it takes three seconds when nobody answers.
  * Null too where it can't tell: no arping on this host, or the bridge is down.
  */
 async function arpHolder(bridge: string, ip: string): Promise<string | null> {
   try {
-    await run('arping', ['-D', '-c', '1', '-w', '1', '-I', validateBridgeName(bridge), validateIpv4(ip)], { timeout: 4_000 });
+    await run('arping', ['-D', '-c', '3', '-w', '3', '-I', validateBridgeName(bridge), validateIpv4(ip)], { timeout: 6_000 });
     return null;
   } catch (err) {
     return parseArpingReply(String((err as { stdout?: unknown }).stdout ?? ''), ip);
@@ -840,9 +910,15 @@ async function arpHolder(bridge: string, ip: string): Promise<string | null> {
 }
 
 /** A guest with no agent that set its own address, or any other machine on a bridge to a LAN. */
-async function refuseIfInUse(network: Network, ip: string): Promise<void> {
+async function refuseIfInUse(network: Network, ip: string, forVm: string): Promise<void> {
   if ((await hostAddresses(network.bridge)).includes(ip)) {
     throw new NetworkError(`${ip} is this host's own address on ${network.name}. Choose another.`, 409);
+  }
+  // Ahead of asking: a stopped guest won't answer. If libvirt can't say it is still there, it counts.
+  const seen = (await readSeen()).find((row) => row.networkId === network.id && row.ip === ip && row.vmUuid !== forVm);
+  if (seen) {
+    const vm = await (await import('./vmService.js')).findVm(seen.vmUuid).catch(() => undefined);
+    if (vm !== null) throw new NetworkError(`${ip} is in use on ${network.name}: ${vm?.name ?? 'another VM'} had it when last seen. Choose another.`, 409);
   }
   const holder = await arpHolder(network.bridge, ip);
   if (!holder) return;
@@ -867,8 +943,8 @@ export async function allocateSpecificIp(networkId: string, vmUuid: string, mac:
     if (n <= ipToNum(networkAddr) || n >= ipToNum(broadcast) || ip === network.gateway) {
       throw new NetworkError(`${ip} is not a free address on ${network.name} (${network.cidr}).`);
     }
-    // Ahead of the file, as this takes a second.
-    await refuseIfInUse(network, ip);
+    // Ahead of the file, as this takes seconds.
+    await refuseIfInUse(network, ip, vmUuid);
   }
   await changeAllocations((allocations) => {
     const conflict = allocations.find((a) => a.networkId === networkId && a.ip === ip);

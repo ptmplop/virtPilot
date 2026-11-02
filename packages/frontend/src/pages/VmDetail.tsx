@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Activity, ArrowLeft, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
+  Activity, ArrowLeft, ArrowLeftRight, ArrowUp, Camera, Check, ChevronDown, ChevronUp,
   Copy, CopyPlus, Disc, Download, Eye, EyeOff, FolderInput, Gauge, HardDrive, Info, Pencil, Plus,
   Power, PowerOff, RotateCcw, Server, Shield, Terminal, Trash2, Zap,
 } from 'lucide-react';
@@ -37,7 +37,7 @@ import { VmDevicesTab } from '@/components/devices/VmDevicesTab';
 import { RowAction } from '@/components/ui/RowAction';
 import { apiErrorMessage } from '@/lib/api';
 import { useDownloadVmDisk } from '@/hooks/useVmDisks';
-import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useReserveIp } from '@/hooks/usePortForwards';
+import { useVmPortForwards, useCreatePortForward, useDeletePortForward, useSetForwardSourceNat, useReserveIp } from '@/hooks/usePortForwards';
 import { useIsos } from '@/hooks/useIsos';
 import { useNetworks, useNetwork } from '@/hooks/useNetworks';
 import { NicConfigHelp } from '@/components/networks/NicConfigHelp';
@@ -237,11 +237,11 @@ export function VmDetailPage() {
       ) : !vm ? (
         <Panel className="flex flex-col items-center justify-center px-6 py-16 text-center">
           <Server className="h-5 w-5 text-muted-foreground" aria-hidden />
-          {/* A 503 is libvirt not answering, which says nothing about whether the VM is there. */}
-          {(vmError as { response?: { status?: number } } | null)?.response?.status === 503 ? (
+          {/* Only a 404 says the VM is gone. libvirt not answering, or the server not, says nothing about it. */}
+          {(vmError as { response?: { status?: number } } | null)?.response?.status !== 404 ? (
             <>
               <p className="mt-3 text-[15px] font-semibold text-foreground">Can't read this VM right now</p>
-              <p className="mt-1 text-[13px] text-muted-foreground">libvirt didn't answer. This page keeps trying.</p>
+              <p className="mt-1 text-[13px] text-muted-foreground">libvirt or the server didn't answer. This page keeps trying.</p>
             </>
           ) : (
             <>
@@ -460,7 +460,7 @@ export function VmDetailPage() {
           <div role="tabpanel" id="vm-panel-disks" aria-labelledby="vm-tab-disks" className={tab !== 'disks' ? 'hidden' : undefined}><DisksTab vmUuid={uuid!} disks={vm.disks} vmStatus={vm.status} /></div>
           <div role="tabpanel" id="vm-panel-network" aria-labelledby="vm-tab-network" className={tab !== 'network' ? 'hidden' : undefined}><NetworkTab vmUuid={uuid!} nics={vm.nics} meta={vmMeta} /></div>
           <div role="tabpanel" id="vm-panel-snapshots" aria-labelledby="vm-tab-snapshots" className={tab !== 'snapshots' ? 'hidden' : undefined}><SnapshotsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
-          <div role="tabpanel" id="vm-panel-firewall" aria-labelledby="vm-tab-firewall" className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmUuid={uuid!} vmStatus={vm.status} nics={vm.nics} /></div>
+          <div role="tabpanel" id="vm-panel-firewall" aria-labelledby="vm-tab-firewall" className={tab !== 'firewall' ? 'hidden' : undefined}><FirewallTab vmUuid={uuid!} nics={vm.nics} /></div>
           <div role="tabpanel" id="vm-panel-devices" aria-labelledby="vm-tab-devices" className={tab !== 'devices' ? 'hidden' : undefined}><VmDevicesTab vmUuid={uuid!} vmName={vm.name} /></div>
           <div role="tabpanel" id="vm-panel-metrics" aria-labelledby="vm-tab-metrics" className={tab !== 'metrics' ? 'hidden' : undefined}><MetricsTab vmUuid={uuid!} vmStatus={vm.status} /></div>
         </>
@@ -1405,8 +1405,9 @@ function SnapshotsTab({ vmUuid, vmStatus }: { vmUuid: string; vmStatus: VmStatus
     setRevertTarget(null);
     setPendingRevert(target);
     try {
-      await revertSnapshot.mutateAsync(target);
-      toast.success('Snapshot restored - VM is starting');
+      const reverted = await revertSnapshot.mutateAsync(target);
+      if (reverted.warning) toast.warning(reverted.warning, { duration: 15_000 });
+      else toast.success('Snapshot restored - VM is starting');
     } catch (err) {
       toast.error(apiErrorMessage(err, 'Failed to restore snapshot'), { duration: 10_000 });
     } finally {
@@ -1669,6 +1670,7 @@ function PortForwardsSection({
   networkName,
   mac,
   untilNextStart,
+  firstNic,
 }: {
   vmUuid: string;
   networkId: string;
@@ -1676,14 +1678,18 @@ function PortForwardsSection({
   mac: string;
   /** Gone at the VM's next start, so the backend refuses it a new forward. */
   untilNextStart?: boolean;
+  /** The NIC a guest's default route is likely on. Any other can't answer a forward unless the guest sees the gateway as the client. */
+  firstNic: boolean;
 }) {
   const { data: allForwards = [] } = useVmPortForwards(vmUuid);
   const forwards = allForwards.filter((f) => f.networkId === networkId && f.mac === mac);
   const createForward = useCreatePortForward(networkId);
   const deleteForward = useDeletePortForward(networkId, vmUuid);
+  const setSourceNat = useSetForwardSourceNat(networkId, vmUuid);
 
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState<AddPortForwardForm>(defaultPfForm);
+  const [sourceNat, setSourceNatChoice] = useState(!firstNic);
 
   const set = (key: keyof AddPortForwardForm) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -1697,6 +1703,7 @@ function PortForwardsSection({
         protocol: form.protocol,
         hostPort: Number(form.hostPort),
         vmPort: Number(form.vmPort),
+        sourceNat,
         description: form.description || undefined,
       });
       toast.success('Port forward created - DHCP reservation added');
@@ -1747,8 +1754,24 @@ function PortForwardsSection({
                   <td className="px-5 py-2.5 font-mono text-[12.5px] tabular-nums text-foreground">{fwd.hostPort}</td>
                   <td className="px-5 py-2.5 font-mono text-[12.5px] tabular-nums text-muted-foreground">{fwd.vmPort}</td>
                   <td className="px-5 py-2.5 font-mono text-[12px] text-muted-foreground">{fwd.vmIp}</td>
-                  <td className="px-5 py-2.5 text-[12.5px] text-muted-foreground">{fwd.description}</td>
-                  <td className="px-5 py-1.5 text-right">
+                  <td className="px-5 py-2.5 text-[12.5px] text-muted-foreground">
+                    {fwd.description}
+                    {fwd.sourceNat && <span className="block text-[12px]">The VM sees the gateway as the client.</span>}
+                    {!fwd.sourceNat && !firstNic && <span className="block text-[12px]">Answers only if the guest routes replies back through this NIC. Use the arrows to answer through it.</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-1.5 text-right">
+                    <RowAction
+                      label={fwd.sourceNat ? "Show the VM the client's address. It then answers by its own routes." : 'Answer through this NIC. The VM then sees the gateway as the client.'}
+                      onClick={async () => {
+                        try {
+                          await setSourceNat.mutateAsync({ forwardId: fwd.id, sourceNat: !fwd.sourceNat });
+                        } catch (err) {
+                          toast.error(apiErrorMessage(err, 'Failed to change the port forward'));
+                        }
+                      }}
+                    >
+                      <ArrowLeftRight size={14} />
+                    </RowAction>
                     <RowAction
                       label="Delete rule"
                       danger
@@ -1822,6 +1845,21 @@ function PortForwardsSection({
             value={form.description}
             onChange={set('description')}
           />
+          <label className="flex items-start gap-2.5 text-[13px] text-foreground">
+            <input
+              type="checkbox"
+              className="mt-[3px]"
+              checked={sourceNat}
+              onChange={(e) => setSourceNatChoice(e.target.checked)}
+            />
+            <span>
+              Answer through this NIC
+              <span className="mt-0.5 block text-[12.5px] leading-5 text-muted-foreground">
+                The VM sees the network's gateway as the client, so its replies come back this way whatever its default route is. It no longer sees the client's address.
+                {firstNic ? ' Not needed on a VM\'s first NIC, unless its default route is on another.' : ' A forward on any NIC but the first needs this, unless the guest has policy routing of its own.'}
+              </span>
+            </span>
+          </label>
           <Callout>
             A static DHCP reservation will be created for this NIC so its IP stays fixed.
             The VM must be rebooted once for the reservation to take effect if it is already running.
@@ -2179,6 +2217,7 @@ function NetworkTab({ vmUuid, nics, meta }: { vmUuid: string; nics: VmNic[]; met
               networkId={network.id}
               networkName={network.name}
               mac={nic.mac}
+              firstNic={nic.mac === (meta?.networks?.find((n) => n.isPrimary)?.mac ?? nics.find((n) => n.onlyIn !== 'saved')?.mac ?? nics[0]?.mac)}
             />
           );
         })}
@@ -2444,12 +2483,9 @@ function FirewallRulesTable({
   );
 }
 
-function FirewallTab({ vmUuid, vmStatus, nics }: { vmUuid: string; vmStatus: VmStatus; nics: VmNic[] }) {
+function FirewallTab({ vmUuid, nics }: { vmUuid: string; nics: VmNic[] }) {
   const { data: networks } = useNetworks();
   const networkOf = (nic: VmNic) => networks?.find((n) => n.bridge === nic.source)?.type;
-  const onVxlan = nics.some((nic) => networkOf(nic) === 'vxlan');
-  const onlyOnVxlans = nics.length > 0 && nics.every((nic) => networkOf(nic) === 'vxlan');
-  const onBridge = nics.some((nic) => networkOf(nic) === 'bridge' || networkOf(nic) === 'existing-bridge');
   const [addDirection, setAddDirection] = useState<'inbound' | 'outbound' | null>(null);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleForm>(defaultRuleForm);
@@ -2636,18 +2672,12 @@ function FirewallTab({ vmUuid, vmStatus, nics }: { vmUuid: string; vmStatus: VmS
     <div className="space-y-6">
       {/* Header */}
       <SectionHeading label="Firewall">
-        <Tooltip
-          label={
-            vmStatus !== 'running'
-              ? 'VM must be running to apply rules'
-              : 'Apply saved rules to the running VM via iptables'
-          }
-        >
+        <Tooltip label="Put the saved rules in force. They stay in force until you change them, through restarts of this VM and of the host.">
           <Button
             size="sm"
             variant="secondary"
             onClick={handleApply}
-            disabled={applyFirewall.isPending || vmStatus !== 'running'}
+            disabled={applyFirewall.isPending}
           >
             <Shield size={14} />
             {applyFirewall.isPending ? 'Applying…' : 'Apply rules'}
@@ -2656,30 +2686,45 @@ function FirewallTab({ vmUuid, vmStatus, nics }: { vmUuid: string; vmStatus: VmS
       </SectionHeading>
 
       {/* What is saved isn't always what is in force, and nothing else says which. No rules at all
-          has no chains to find, and nothing to be out of force. On a VM only on VXLANs, Apply can
-          only refuse, and the callout below says why. */}
-      {!isLoading && !onlyOnVxlans && (cfg?.inForceOn?.length ? (
-        <p className="text-[13px] text-muted-foreground">
-          Applied to <span className="font-mono text-[12.5px] text-foreground">{cfg.inForceOn.join(', ')}</span>.
-          {cfg.unapplied && <span className="text-foreground"> The rules below have changes that aren't in force until you press Apply rules.</span>}
-        </p>
-      ) : cfg?.inForceOn && (current.rules.length > 0 || current.defaultInbound === 'drop' || current.defaultOutbound === 'drop') && (
+          has no chains to find, and nothing to be out of force. */}
+      {!isLoading && cfg?.applied ? (
+        <>
+          <p className="text-[13px] text-muted-foreground">
+            {(cfg.inForceOn?.length ?? 0) > 0 || (cfg.ports?.length ?? 0) > 0 ? (
+              <>
+                In force on {(cfg.inForceOn?.length ?? 0) > 0 && <span className="font-mono text-[12.5px] text-foreground">{cfg.inForceOn!.join(', ')}</span>}
+                {(cfg.inForceOn?.length ?? 0) > 0 && (cfg.ports?.length ?? 0) > 0 && ', and '}
+                {(cfg.ports?.length ?? 0) > 0 && <>{cfg.ports!.length === 1 ? 'its NIC' : `its ${cfg.ports!.length} NICs`} across the bridge</>}.
+              </>
+            ) : (
+              <>Applied. Nothing is being filtered yet, as this VM is off or has no address. The rules go on by themselves.</>
+            )}
+            {cfg.unapplied && <span className="text-foreground"> The rules below have changes that aren't in force until you press Apply rules.</span>}
+          </p>
+          {!cfg.bridgeLayer && (
+            <Callout>
+              {cfg.bridgeError
+                ? <>These rules only filter traffic routed through this host: they couldn't be put in force across the bridge ({cfg.bridgeError}). Press Apply rules to try again.</>
+                : <>These rules were applied by an older version, so they only filter traffic routed through this host on the NIC they were applied to and any port forwards. Other NICs, and traffic across a bridge such as a bridged LAN or other VMs on the same network, go straight past them. Press Apply rules to cover all of it. Check them first: until now they haven't been filtering that traffic.</>}
+            </Callout>
+          )}
+        </>
+      ) : !isLoading && cfg && (current.rules.length > 0 || current.defaultInbound === 'drop' || current.defaultOutbound === 'drop') && (
         <Callout>
-          These rules are saved but not in force. A host restart clears them, and VirtPilot doesn't put them back yet. Press Apply rules with the VM running.
-        </Callout>
-      ))}
-
-      {onBridge && cfg && !cfg.bridgedFiltered && (
-        <Callout>
-          These rules don't filter a NIC on a bridge: its traffic goes straight through the bridge without reaching them, as this host doesn't have br_netfilter on. To restrict it, use a firewall inside the VM.
+          These rules are saved but not in force. Press Apply rules to put them in force.
         </Callout>
       )}
 
-      {onVxlan && (
+      {nics.some((nic) => nic.type === 'direct') && (
         <Callout>
-          These rules don't apply inside a VXLAN: its traffic goes straight through the bridge. To restrict what VMs on
-          one can do to each other, use a firewall inside the VM.
+          A macvtap NIC doesn't pass through a bridge or this host's routing, so these rules can't filter it. Use a firewall inside the VM for that NIC.
         </Callout>
+      )}
+
+      {nics.some((nic) => networkOf(nic) === 'vxlan') && (
+        <p className="text-[12.5px] leading-5 text-muted-foreground">
+          A frame a guest tags itself, for a VLAN over a VXLAN or otherwise, can't be looked inside: only a default or a rule for all traffic applies to it.
+        </p>
       )}
 
       {/* Default Policies */}

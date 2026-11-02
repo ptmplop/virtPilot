@@ -30,8 +30,9 @@ import { createSshWss } from './ssh.js';
 import { createVncWss } from './vnc.js';
 import { ensureDirs } from './services/storageService.js';
 import { seedDefault as seedDefaultStorageDir } from './services/storageDirService.js';
-import { applyAllRules, startExtendingMovedFirewalls } from './services/portForwardService.js';
-import { applyBridgeNetworks, applyVxlanNetworks, dropAllocationsOfMissingVms, startNetworkWatch } from './services/networkService.js';
+import { applyAllRules } from './services/portForwardService.js';
+import { restoreFirewalls, startFirewallSync } from './services/firewallSync.js';
+import { applyBridgeNetworks, applyVxlanNetworks, dropAllocationsOfMissingVms, startNetworkWatch, startPoolWatch } from './services/networkService.js';
 import { startSampling } from './services/statsService.js';
 import { startVmMetricsSampling } from './services/vmMetricsService.js';
 import { startBackupScheduler } from './services/backupSchedulerService.js';
@@ -350,7 +351,14 @@ async function main() {
   } catch (err) {
     console.warn('Could not initialise storage dirs:', err);
   }
-  // First, as VMs on these bridges may be booting right now: libvirt brought the bridges
+  // First of all, as VMs may be booting right now, and ahead of the forwards below: an ACCEPT with
+  // no firewall above it is open. This asks nothing of libvirt, which the next step can wait on.
+  try {
+    await restoreFirewalls();
+  } catch (err) {
+    console.warn('Could not put firewall rules back:', err);
+  }
+  // Next, as VMs on these bridges may be booting right now: libvirt brought the bridges
   // back by itself, and the physical NICs on them are ours.
   try {
     await applyBridgeNetworks();
@@ -391,7 +399,8 @@ async function main() {
     ready = true;
     const proto = tlsAvailable ? 'https' : 'http';
     console.log(`VirtPilot backend listening on ${proto}://${config.bindAddress}:${config.port}`);
-    startExtendingMovedFirewalls();
+    startFirewallSync();
+    startPoolWatch();
     void dropAllocationsOfMissingVms().catch((err) => console.warn('Could not check IP allocations:', err));
   });
 }

@@ -257,7 +257,7 @@ networksRouter.get('/:id/port-forwards', async (req, res) => {
 networksRouter.post('/:id/port-forwards', async (req, res) => {
   const start = Date.now();
   try {
-    const { vmUuid, mac, protocol, hostPort, vmPort, description } = req.body;
+    const { vmUuid, mac, protocol, hostPort, vmPort, description, sourceNat } = req.body;
     if (!vmUuid || !mac || !protocol || !hostPort || !vmPort) {
       return res.status(400).json({ error: 'vmUuid, mac, protocol, hostPort, and vmPort are required' });
     }
@@ -272,6 +272,7 @@ networksRouter.post('/:id/port-forwards', async (req, res) => {
       hostPort: Number(hostPort),
       vmPort: Number(vmPort),
       description,
+      sourceNat: typeof sourceNat === 'boolean' ? sourceNat : undefined,
     });
     void logService.appendLog({
       type: 'network.port-forward.create',
@@ -290,6 +291,29 @@ networksRouter.post('/:id/port-forwards', async (req, res) => {
       output: String(err),
       durationMs: Date.now() - start,
     });
+    const { status, error } = failure(err);
+    res.status(status).json({ error });
+  }
+});
+
+networksRouter.patch('/:id/port-forwards/:forwardId', async (req, res) => {
+  const start = Date.now();
+  const { forwardId } = req.params;
+  const { sourceNat } = req.body as { sourceNat?: unknown };
+  if (typeof sourceNat !== 'boolean') return res.status(400).json({ error: 'sourceNat must be true or false' });
+  try {
+    const forward = await portForwardService.setForwardSourceNat(forwardId, sourceNat);
+    void logService.appendLog({
+      type: 'network.port-forward.update',
+      subject: forward.vmUuid,
+      subjectUuid: forward.vmUuid,
+      status: 'success',
+      output: `Port ${forward.hostPort}/${forward.protocol}: the VM ${sourceNat ? "sees the network's gateway as the client, and answers through this NIC" : "sees the client's address, and answers by its own routes"}`,
+      durationMs: Date.now() - start,
+    });
+    res.json({ forward });
+  } catch (err: unknown) {
+    void logService.appendLog({ type: 'network.port-forward.update', subject: forwardId, status: 'error', output: String(err), durationMs: Date.now() - start });
     const { status, error } = failure(err);
     res.status(status).json({ error });
   }

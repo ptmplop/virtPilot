@@ -97,6 +97,8 @@ apt-get install -y -qq \
   genisoimage \
   bridge-utils \
   iptables \
+  nftables \
+  conntrack \
   curl \
   openssl \
   ca-certificates \
@@ -552,6 +554,22 @@ chmod 0440 "${SUDOERS_FILE}"
 visudo -cf "${SUDOERS_FILE}" >/dev/null
 log "Sudoers rules installed"
 
+# The libvirt hook that puts a VM's firewall in place as it starts. It needs to know where the rules
+# are, which is the one thing it reads from .env, and it reads it rather than running it.
+install_firewall_hook() {
+  local env="${INSTALL_DIR}/packages/backend/.env" dir root tmp
+  dir="$(grep -m1 '^CLOUD_INIT_DIR=' "${env}" 2>/dev/null | cut -d= -f2-)"
+  root="$(grep -m1 '^STORAGE_ROOT=' "${env}" 2>/dev/null | cut -d= -f2-)"
+  dir="${dir:-${root:-/var/lib/virtpilot}/cloud-init}"
+  [[ "${dir}" =~ ^/[A-Za-z0-9._/-]+$ ]] || { warn "CLOUD_INIT_DIR is not a plain path, so the firewall hook was not installed"; return 0; }
+  install -d -m 0755 /etc/libvirt/hooks/qemu.d
+  tmp="$(mktemp /etc/libvirt/hooks/qemu.d/.virtpilot-firewall.XXXXXX)"
+  sed "s|@CLOUD_INIT_DIR@|${dir}|" "${INSTALL_DIR}/scripts/virtpilot-firewall-hook.sh" > "${tmp}"
+  chown root:root "${tmp}"
+  chmod 0755 "${tmp}"
+  mv -f "${tmp}" /etc/libvirt/hooks/qemu.d/virtpilot-firewall
+}
+
 # ─── Passthrough helper ──────────────────────────────────────────────────────
 # "Keep for VMs" and SR-IOV virtual functions write to /sys, which the
 # service's own sandbox makes read-only; the backend runs this root-owned
@@ -566,6 +584,15 @@ systemctl enable --quiet virtpilot-passthrough.service
 echo vfio-pci > /etc/modules-load.d/virtpilot.conf
 modprobe vfio-pci 2>/dev/null || true
 log "Passthrough helper installed"
+
+# ─── Firewall hook ────────────────────────────────────────────────────────────
+# Puts a VM's firewall in place as it starts, ahead of the backend at boot. Root's, and it reads
+# only rule files, never the service's code or .env. Written whole and then moved, so a VM starting
+# meanwhile never meets half of it.
+install_firewall_hook
+# libvirt only looks for hooks when it starts. Running VMs carry on through this.
+systemctl restart libvirtd
+log "Firewall hook installed"
 
 # ─── Systemd service ──────────────────────────────────────────────────────────
 NODE_BIN="$(command -v node)"

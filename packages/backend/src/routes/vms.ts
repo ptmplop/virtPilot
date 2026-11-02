@@ -21,12 +21,24 @@ import * as vmMetricsService from '../services/vmMetricsService.js';
 import * as vmDeriveService from '../services/vmDeriveService.js';
 import * as portForwardService from '../services/portForwardService.js';
 import * as firewallService from '../services/firewallService.js';
+import * as firewallSync from '../services/firewallSync.js';
 import * as logService from '../services/logService.js';
 import { type TraceEntry, formatTrace } from '../services/traceService.js';
 import { buildCloudInitIso, deleteCloudInitArtifacts, getHostSshPublicKey, nicCloudInitFor, type NicCloudInit } from '../services/cloudInitService.js';
 import { buildDomainXml, generateMac, type NicDefinition, type CpuMode, type FirmwareMode } from '../services/xmlBuilder.js';
 
 export const vmsRouter = Router();
+
+// While a VM's disk is being moved, which can take hours, nothing that reads or writes its disks or
+// would start it can happen. Reverting a snapshot, say, would stop the VM and then fail to start it.
+vmsRouter.use((req, res, next) => {
+  if (req.method === 'GET') return next();
+  const on = req.path.match(/^\/(?:disks\/)?([0-9a-fA-F-]{36})(?:\/(start|boot-once|clone|rename|snapshots|disks|disk-files|resources|cdrom)(?:\/|$)|\/?$)/);
+  if (!on || (!on[2] && req.method !== 'DELETE')) return next();
+  const held = vmService.heldBecause(on[1]);
+  if (held) return res.status(409).json({ error: `That has to wait: ${held}.` });
+  next();
+});
 
 // Validates the `:uuid` path parameter as a strict RFC 4122 UUID before any
 // route handler runs. Rejects bad input with a 400 so handlers can assume
@@ -610,38 +622,10 @@ vmsRouter.put('/:uuid/rename', requireUuidParam, async (req, res) => {
       return res.status(409).json({ error: `A VM named "${newName}" already exists` });
     }
 
-    const safeUuid = validateVmUuid(uuid);
-    const safeNewName = validateVmName(newName);
-    const safeOldName = validateVmName(vm.name);
-    // Dump current XML, replace <name> element, write to tmpfile.
-    const xml = await virsh(['dumpxml', safeUuid]);
-    const updatedXml = xml.replace(/<name>[^<]*<\/name>/, `<name>${safeNewName}</name>`);
-    const tmpFile = path.join(os.tmpdir(), `virtpilot-rename-${randomUUID()}.xml`);
-    await fs.writeFile(tmpFile, updatedXml, 'utf8');
-
-    try {
-      // libvirt enforces name uniqueness AND rejects `define` on an existing
-      // UUID with a different name — so we undefine the old name first, then
-      // define the new XML. `--keep-nvram` preserves the NVRAM file (which is
-      // UUID-keyed and survives the cycle untouched). `--snapshots-metadata`
-      // keeps any snapshot records attached.
-      try {
-        await virsh(['undefine', safeOldName, '--keep-nvram', '--snapshots-metadata']);
-      } catch {
-        // VMs without NVRAM (BIOS firmware) reject --keep-nvram with an error.
-        await virsh(['undefine', safeOldName, '--snapshots-metadata']);
-      }
-      try {
-        await virsh(['define', tmpFile]);
-      } catch (err) {
-        // With the old definition gone, this failing would lose the VM and leave its disks behind.
-        await fs.writeFile(tmpFile, xml, 'utf8');
-        await virsh(['define', tmpFile]);
-        throw err;
-      }
-    } finally {
-      await fs.unlink(tmpFile).catch(() => {});
-    }
+    // One step, on libvirt's side. Undefining and defining it again lost every record of its
+    // snapshots, as --snapshots-metadata deletes them and nothing can undefine a VM without it, and
+    // for a moment left no VM at all.
+    await virsh(['domrename', validateVmName(vm.name), validateVmName(newName)]);
 
     await vmMetaService.setVmMetaName(uuid, newName);
     await storageService.writeVmNameMarker(uuid, newName);
@@ -708,6 +692,7 @@ vmsRouter.post('/:uuid/start', requireUuidParam, async (req, res) => {
   const log = await logSubject(uuid);
   try {
     const output = await vmService.startVm(uuid);
+    firewallSync.syncFirewall(uuid);
     void logService.appendLog({ type: 'vm.start', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
@@ -875,6 +860,7 @@ vmsRouter.post('/:uuid/boot-once', requireUuidParam, async (req, res) => {
     const { device } = req.body as { device: 'cdrom' | 'hd' };
     if (!device) return res.status(400).json({ error: 'device is required' });
     const output = await vmService.startVmBootOnce(uuid, device);
+    firewallSync.syncFirewall(uuid);
     void logService.appendLog({ type: 'vm.boot-once', ...log, status: 'success', output, durationMs: Date.now() - start });
     res.json({ ok: true });
   } catch (err: unknown) {
@@ -933,6 +919,7 @@ vmsRouter.post('/:uuid/nics', requireUuidParam, async (req, res) => {
     }
 
     void logService.appendLog({ type: 'vm.nic.attach', ...log, status: 'success', output, durationMs: Date.now() - start });
+    firewallSync.syncFirewall(uuid);
     res.json({ ok: true, mac });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.nic.attach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
@@ -943,39 +930,35 @@ vmsRouter.post('/:uuid/nics', requireUuidParam, async (req, res) => {
   }
 });
 
+// With a NIC gone, what was made for it has no row left to remove it from.
+async function forgetNic(uuid: string, mac: string): Promise<void> {
+  await portForwardService.deletePortForwardsForNic(uuid, mac);
+  const meta = await vmMetaService.getVmMeta(uuid);
+  if (meta?.networks) {
+    const alloc = meta.networks.find((n) => n.mac === mac);
+    if (alloc?.ip) await networkService.deallocateByMac(mac);
+    await vmMetaService.saveVmMeta({
+      ...meta,
+      networks: meta.networks.filter((n) => n.mac !== mac),
+    });
+  }
+}
+
 vmsRouter.delete('/:uuid/nics/:mac', requireUuidParam, async (req, res) => {
   const start = Date.now();
   const { uuid, mac } = req.params;
   const log = await logSubject(uuid);
   try {
-    // Read first: which network it was on is about to go.
-    const nics = await vmService.getVmNics(uuid);
-    const onNetwork = nics.find((n) => n.mac.toLowerCase() === mac.toLowerCase())?.source;
     const output = await vmService.detachNic(uuid, mac);
-    await portForwardService.deletePortForwardsForNic(uuid, mac);
-
-    const meta = await vmMetaService.getVmMeta(uuid);
-    if (meta?.networks) {
-      const alloc = meta.networks.find((n) => n.mac === mac);
-      if (alloc?.ip) await networkService.deallocateByMac(mac);
-      await vmMetaService.saveVmMeta({
-        ...meta,
-        networks: meta.networks.filter((n) => n.mac !== mac),
-      });
-    }
+    await forgetNic(uuid, mac);
 
     void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'success', output, durationMs: Date.now() - start });
     // virsh gives up waiting after about 5 seconds, whether or not the guest has let it go.
     // If libvirt can't say, "sent" is still true and "gone" might not be.
     const pending = await vmService.getVmNics(uuid).then((left) => left.some((n) => n.mac.toLowerCase() === mac.toLowerCase()), () => true);
-    // A jump left on its address would filter whichever VM gets that address next. Not while the
-    // guest still has it, and not with another NIC of this VM on that network.
-    if (!pending && onNetwork && !nics.some((n) => n.mac.toLowerCase() !== mac.toLowerCase() && n.source === onNetwork)) {
-      const network = (await networkService.listNetworks()).find((n) => n.bridge === onNetwork);
-      for (const ip of (network?.cidr && await firewallService.firewallAddresses(uuid)) || []) {
-        if (networkService.ipInCidr(ip, network!.cidr)) await firewallService.removeFirewallAddress(uuid, ip);
-      }
-    }
+    // A jump left on its address would filter whichever VM gets that address next. If the guest
+    // hasn't let it go yet, the regular check sees to it when it does.
+    if (!pending) firewallSync.syncFirewall(uuid);
     res.json({ ok: true, pending });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.nic.detach', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
@@ -1054,9 +1037,16 @@ vmsRouter.post('/:uuid/snapshots/:snapshot/revert', requireUuidParam, async (req
   const { uuid, snapshot } = req.params;
   const log = await logSubject(uuid);
   try {
-    const output = await vmService.revertSnapshot(uuid, snapshot);
-    void logService.appendLog({ type: 'vm.snapshot.revert', ...log, status: 'success', output, durationMs: Date.now() - start });
-    res.json({ ok: true });
+    const before = await vmService.getVmNics(uuid).catch(() => []);
+    const { output, warning } = await vmService.revertSnapshot(uuid, snapshot);
+    void logService.appendLog({ type: 'vm.snapshot.revert', ...log, status: 'success', output: warning ? `${warning}\n${output}` : output, durationMs: Date.now() - start });
+    // A NIC added since the snapshot has gone, and a forward for it would point at nothing.
+    const after = await vmService.getVmNics(uuid).catch(() => null);
+    for (const { mac } of after ? before : []) {
+      if (!after!.some((n) => n.mac.toLowerCase() === mac.toLowerCase())) await forgetNic(uuid, mac);
+    }
+    firewallSync.syncFirewall(uuid);
+    res.json({ ok: true, warning });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.snapshot.revert', ...log, status: 'error', output: err instanceof DeviceError ? err.message : String(err), durationMs: Date.now() - start });
     // A passthrough problem found before the start (or translated after it) is said in words.
@@ -1178,31 +1168,24 @@ vmsRouter.post('/:uuid/firewall/apply', requireUuidParam, async (req, res) => {
   const { uuid } = req.params;
   const log = await logSubject(uuid);
   try {
-    // Consults DHCP leases as well as ARP: on a managed NAT network there is no
-    // static address to fall back on, and a deny-all inbound policy applied a
-    // moment ago is exactly what stops ARP resolving — which used to leave the
-    // operator unable to apply any further rules, including the ones undoing it.
-    const { ip, vxlanOnly, routedLater } = await vmService.resolveFirewallTarget(uuid);
-    if (vxlanOnly) {
-      const refused = 'This VM is only on VXLANs, and their traffic goes straight through the bridge, so there is nothing here for these rules to filter';
-      // A NIC saved for its next start would be filtered again by rules already in place.
-      if (routedLater) return res.status(409).json({ error: `${refused}. Use a firewall inside the VM.` });
-      // Rules from before it was only on VXLANs, or from a version that didn't see it was. They
-      // filter nothing here, and their FORWARD jumps sit above libvirt's isolation of the network.
-      await firewallService.removeVmFirewall(uuid);
-      void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'error', output: 'Refused: only on VXLANs. Any rules from before were removed.', durationMs: Date.now() - start });
-      return res.status(409).json({ error: `${refused}, and none are in force. Use a firewall inside the VM.` });
-    }
-    // Every forward's address too: its ACCEPT is below the firewall's jumps only on an address they
-    // name. They are known when the NIC's isn't, and a forward shouldn't wait on that for its rules.
-    const ips = [...new Set([...(ip ? [ip] : []), ...(await portForwardService.getPortForwardsForVm(uuid)).map((f) => f.vmIp)])];
-    if (ips.length === 0) return res.status(400).json({ error: 'Could not resolve VM IP - ensure the VM is running' });
+    // Every routed NIC's address that can be known, and every NIC's tap. There needn't be any: a VM
+    // that is off, or still waiting for an address, gets its rules from the moment it has one.
+    const { addresses, ports } = await firewallSync.firewallPlan(uuid);
+    // Every forward's address too: its ACCEPT is below the firewall's jumps only on an address they name.
+    const ips = [...new Set([...addresses, ...(await portForwardService.getPortForwardsForVm(uuid)).map((f) => f.vmIp)])];
     const cfg = await firewallService.getFirewallConfig(uuid);
-    await firewallService.applyFirewallRules(uuid, ips, cfg);
-    void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'success', output: `Applied ${cfg.rules.length} rule(s) to ${ips.join(', ')}`, durationMs: Date.now() - start });
-    res.json({ ok: true, ...(ip ? {} : { warning: `Applied to its port forwards only (${ips.join(', ')}). Its main NIC has no address yet: apply again once it has.` }) });
+    const { bridgeError } = await firewallService.applyFirewallRules(uuid, ips, cfg, ports);
+    const where = [...ips, ...ports].join(', ') || 'no NIC yet';
+    void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: bridgeError ? 'error' : 'success', output: `Applied ${cfg.rules.length} rule(s) to ${where}${bridgeError ? `. Not across the bridge: ${bridgeError}` : ''}`, durationMs: Date.now() - start });
+    res.json({
+      ok: true,
+      ...(bridgeError
+        ? { warning: `Applied to traffic routed through this host, but not across the bridge: ${bridgeError}` }
+        : ips.length > 0 || ports.length > 0 ? {} : { warning: 'Applied. This VM is off or has no NIC, so nothing is being filtered until it starts, and the rules then go on by themselves.' }),
+    });
   } catch (err: unknown) {
     void logService.appendLog({ type: 'vm.firewall.apply', ...log, status: 'error', output: String(err), durationMs: Date.now() - start });
+    if (err instanceof networkService.NetworkError) return res.status(err.status).json({ error: err.message });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -1239,6 +1222,11 @@ vmsRouter.put('/:uuid/autostart', requireUuidParam, async (req, res) => {
 vmsRouter.post('/:uuid/disk-files/:filename/move', requireUuidParam, async (req, res) => {
   const start = Date.now();
   const { uuid } = req.params;
+  // Before anything is awaited: a copy across filesystems can take hours, and nothing should start
+  // this VM, write to its disks, delete it or move them again from under one.
+  const held = vmService.holdVm(uuid, 'its disk is being moved');
+  if (!held) return res.status(409).json({ error: `That has to wait: ${vmService.heldBecause(uuid)}.` });
+  const releaseVm = held;
   const log = await logSubject(uuid);
   try {
     let safeFilename: string;
@@ -1261,12 +1249,11 @@ vmsRouter.post('/:uuid/disk-files/:filename/move', requireUuidParam, async (req,
     const vmDefined = !!info;
     const vmName = info?.name ?? null;
 
-    // Phase 1 — plan + pre-validate.
+    // Phase 1 — plan + pre-validate. Only to refuse now rather than after the copy.
     const plan = await storageService.planVmDiskMove(uuid, safeFilename, storageDirId);
-    let rewrittenXml: string | null = null;
     if (vmDefined && vmName) {
       try {
-        rewrittenXml = await vmService.buildReplacedDiskSourceXml(vmName, plan.oldPath, plan.newPath);
+        await vmService.buildReplacedDiskSourceXml(uuid, plan.oldPath, plan.newPath);
       } catch (err) {
         return res.status(409).json({
           error: `Refusing to move: domain XML pre-validation failed (${err instanceof Error ? err.message : String(err)})`,
@@ -1274,14 +1261,18 @@ vmsRouter.post('/:uuid/disk-files/:filename/move', requireUuidParam, async (req,
       }
     }
 
-    // Phase 2 — physically move the file + update DB row.
-    await storageService.executeVmDiskMove(plan);
+    // Phase 2 — physically move the file + update DB row. A hold only stops what comes through
+    // here, and virsh can still start it: that is found out before the original goes.
+    await storageService.executeVmDiskMove(plan, async () => {
+      const now = await vmService.findVm(uuid);
+      if (now && now.status !== 'stopped') throw new Error('This VM was started while its disk was being copied, so the copy was thrown away and the disk stays where it was.');
+    });
 
-    // Phase 3 — apply the rewritten XML. Roll back the move if libvirt rejects
-    // the redefine.
-    if (rewrittenXml && vmName) {
+    // Phase 3 — apply the rewrite to the definition as it is now, as anyone may have changed it in
+    // the hours since. Roll back the move if libvirt rejects the redefine, or the VM has gone.
+    if (vmDefined && vmName) {
       try {
-        await vmService.defineFromXml(rewrittenXml, vmName);
+        await vmService.defineFromXml(await vmService.buildReplacedDiskSourceXml(uuid, plan.oldPath, plan.newPath), vmName);
       } catch (err) {
         await storageService.rollbackVmDiskMove(plan).catch((rbErr) => {
           // Rollback can fail if the destination filesystem went read-only
@@ -1330,6 +1321,8 @@ vmsRouter.post('/:uuid/disk-files/:filename/move', requireUuidParam, async (req,
       durationMs: Date.now() - start,
     });
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  } finally {
+    releaseVm();
   }
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { explainMissingNetwork, isNoSuchVm, mergeNicDefinitions, parseDiskBusesFromXml, parseDomainLists, parseInterfacesFromXml, parseNetInfoBridge, saysNoSuchVm, withBridgeSources } from './vmService.js';
+import { explainMissingNetwork, isNoSuchVm, mergeNicDefinitions, parseDiskBusesFromXml, parseDomainLists, parseInterfacesFromXml, parseNetInfoBridge, saysNoSuchVm, unplugNicsInXml, withBridgeSources } from './vmService.js';
 import { NetworkError } from './networkService.js';
 
 // `virsh domblklist --details` prints "Type Device Target Source", and its Type is the
@@ -257,5 +257,32 @@ describe('parseDomainLists', () => {
 
   it('calls a state it doesn\'t know unknown, which counts as not stopped', () => {
     expect(parseDomainLists(table(' 3    a   in shutdown', ' 4    b   pmsuspended'), 'u1 a\nu2 b').map((v) => v.status)).toEqual(['unknown', 'unknown']);
+  });
+});
+
+describe('parseInterfacesFromXml, a running VM on a libvirt network', () => {
+  it('goes by the network, which is what is in the saved definition, and not its bridge', () => {
+    const xml = `<interface type='bridge'><mac address='52:54:00:00:00:01'/><source network='lab' portid='x' bridge='virbr7'/><model type='virtio'/></interface>`;
+    expect(parseInterfacesFromXml(xml)[0].source).toBe('lab');
+  });
+});
+
+describe('unplugNicsInXml', () => {
+  const xml = `<domainsnapshot><domain>
+    <interface type='bridge'><mac address='52:54:00:00:00:01'/><source bridge='vp3'/><target dev='vnet4'/><model type='virtio'/><address type='pci' bus='0x01'/></interface>
+    <interface type='network'><mac address='52:54:00:00:00:02'/><source network='lab' portid='x' bridge='vp4'/><model type='virtio'/></interface>
+  </domain></domainsnapshot>`;
+
+  it('leaves the guest its device, connected to nothing', () => {
+    const out = unplugNicsInXml(xml, ['52:54:00:00:00:01']);
+    expect(out).toContain("<interface type='ethernet'><mac address='52:54:00:00:00:01'/><model type='virtio'/><address type='pci' bus='0x01'/></interface>");
+  });
+
+  it('touches no other NIC', () => {
+    expect(unplugNicsInXml(xml, ['52:54:00:00:00:01'])).toContain("<source network='lab' portid='x' bridge='vp4'/>");
+  });
+
+  it('does nothing with none to unplug', () => {
+    expect(unplugNicsInXml(xml, [])).toBe(xml);
   });
 });

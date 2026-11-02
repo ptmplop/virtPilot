@@ -39,7 +39,7 @@ async function virsh(args: readonly string[], trace?: TraceEntry[], timeout = 30
 
 // ─── Parsers ──────────────────────────────────────────────────────────────────
 
-function parseStatus(state: string): VmStatus {
+export function parseStatus(state: string): VmStatus {
   const s = state.toLowerCase().trim();
   if (s === 'running') return 'running';
   if (s === 'shut off' || s === 'shut_off') return 'stopped';
@@ -372,6 +372,12 @@ function nicTable(answer: string | null): VmNic[] | null {
 }
 
 /** A stopped VM has the one definition, so `running: false` saves asking twice. All in one process. */
+/** These VMs only, for a pass that has no business reading every VM on the host. A VM not returned isn't on it. */
+export async function listNicsOf(ids: readonly string[], networks: readonly NetworkRef[]): Promise<Array<{ id: string; name: string; status: VmStatus; nics: VmNic[] }>> {
+  const vms = (await listDomains()).filter((vm) => ids.includes(vm.id));
+  const nics = await readNicsOf(vms.map((vm) => ({ id: vm.id, running: vm.status !== 'stopped' })), networks);
+  return vms.map((vm, i) => ({ ...vm, nics: nics[i] }));
+}
 async function readNicsOf(vms: ReadonlyArray<{ id: string; running: boolean }>, networks: readonly NetworkRef[]): Promise<VmNic[][]> {
   const answers = await virshBatch(vms.flatMap(({ id, running }) => [['domiflist', id], ...(running ? [['domiflist', id, '--inactive']] : [])]));
   let next = 0;
@@ -493,7 +499,8 @@ export function parseInterfacesFromXml(xml: string): Array<{ mac: string; model:
     const mac = block.match(/<mac\s+address=['"]([^'"]+)['"]/)?.[1];
     if (!mac) return [];
     const model = block.match(/<model\s+type=['"]([^'"]+)['"]/)?.[1] ?? '-';
-    const source = block.match(/<source\s[^>]*\b(?:bridge|network|dev)=['"]([^'"]+)['"]/)?.[1] ?? '-';
+    // A running VM's definition names both the network and its bridge, and the network is what counts.
+    const source = block.match(/<source\s[^>]*\bnetwork=['"]([^'"]+)['"]/)?.[1] ?? block.match(/<source\s[^>]*\b(?:bridge|dev)=['"]([^'"]+)['"]/)?.[1] ?? '-';
     return [{ mac, model, source }];
   });
 }
@@ -585,7 +592,7 @@ export async function resolveVmIp(nameOrId: string): Promise<string | null> {
 
   // The primary NIC's address wins wherever it turns up. Until a source has it, any
   // other address is only held in reserve, for showing and for the SSH console. The
-  // firewall needs a stricter answer: see resolveFirewallTarget.
+  // firewall needs a stricter answer: see firewallSync.
   let reserve: string | null = null;
   const found = (addresses: NicAddress[]): string | null => {
     reserve ??= pickVmIp(addresses);
@@ -620,52 +627,6 @@ export async function resolveVmIp(nameOrId: string): Promise<string | null> {
   } catch { /* give up */ }
 
   return reserve;
-}
-
-/**
- * The NIC VirtPilot's firewall filters: one whose traffic is routed through this host, the
- * primary one if it can be. Never a VXLAN's: its traffic goes straight through the bridge, so
- * rules there filter nothing, and the FORWARD jumps they need sit above libvirt's isolation
- * of the network, so they would let other networks in.
- */
-async function findFirewallNic(id: string) {
-  const [defined, networks, metas] = await Promise.all([getVmNics(id), listNetworks(), listVmMetas().catch(() => [])]);
-  // A NIC saved for its next start has no traffic yet, and no address to filter.
-  const nics = defined.filter((n) => n.onlyIn !== 'saved');
-  const vxlanBridges = new Set(networks.filter((n) => n.type === 'vxlan').map((n) => n.bridge));
-  const routed = nics.filter((n) => !vxlanBridges.has(n.source));
-  const allocs = metas.find((m) => m.uuid === id.toLowerCase())?.networks ?? [];
-  const primaryMac = allocs.find((a) => a.isPrimary)?.mac.toLowerCase();
-  return {
-    target: routed.find((n) => n.mac.toLowerCase() === primaryMac) ?? routed[0],
-    vxlanOnly: nics.length > 0 && routed.length === 0,
-    routedLater: defined.some((n) => !vxlanBridges.has(n.source)),
-    allocs,
-  };
-}
-
-export async function firewallNicMac(nameOrId: string): Promise<string | undefined> {
-  return (await findFirewallNic(validateVmName(nameOrId))).target?.mac.toLowerCase();
-}
-
-/** The address VirtPilot's firewall filters: that of the NIC above. */
-export async function resolveFirewallTarget(nameOrId: string): Promise<{ ip: string | null; vxlanOnly: boolean; routedLater?: boolean }> {
-  const id = validateVmName(nameOrId);
-  const { target, vxlanOnly, routedLater, allocs } = await findFirewallNic(id);
-  if (vxlanOnly) return { ip: null, vxlanOnly: true, routedLater };
-  if (!target) return { ip: null, vxlanOnly: false };
-  const mac = target.mac.toLowerCase();
-  const fixed = allocs.find((a) => a.mac.toLowerCase() === mac)?.ip;
-  if (fixed) return { ip: fixed, vxlanOnly: false };
-  const seen = (await getVmInterfaceIps(id))[mac] ?? null;
-  // ARP knows a MAC whatever network it was on, and a firewall on that address filters whoever
-  // has it now. The network's own lease knows better.
-  const network = (await listNetworks()).find((n) => n.bridge === target.source);
-  if (seen && network?.cidr && !ipInCidr(seen, network.cidr)) {
-    const leases = network.libvirtName ? parseDhcpLeases(await virsh(['net-dhcp-leases', network.libvirtName]).catch(() => '')) : new Map<string, string>();
-    return { ip: leases.get(mac) ?? null, vxlanOnly: false };
-  }
-  return { ip: seen, vxlanOnly: false };
 }
 
 // ─── Mutating operations ──────────────────────────────────────────────────────
@@ -705,6 +666,21 @@ export function explainMissingNetwork(raw: string, networks: readonly NetworkRef
     : `This VM has a NIC on the libvirt network ${libvirtName}, which no longer exists on this host. Remove the NIC on its Network tab.`;
 }
 
+// Something long is being done to a stopped VM's disks. Reasons by UUID, in words that finish "while".
+const vmHolds = new Map<string, string>();
+
+/** Null if something already holds it: two holds on one VM would be two of the same long job at once. */
+export function holdVm(uuid: string, why: string): (() => void) | null {
+  const id = uuid.toLowerCase();
+  if (vmHolds.has(id)) return null;
+  vmHolds.set(id, why);
+  return () => { vmHolds.delete(id); };
+}
+
+export function heldBecause(uuid: string): string | undefined {
+  return vmHolds.get(uuid.toLowerCase());
+}
+
 /**
  * Every start VirtPilot makes goes through here.
  *
@@ -719,6 +695,11 @@ export function explainMissingNetwork(raw: string, networks: readonly NetworkRef
  * words, and a failure it still produces is translated where it is known.
  */
 async function startDomain(name: string, trace: TraceEntry[]): Promise<void> {
+  if (vmHolds.size > 0) {
+    const vm = await findVm(name);
+    const held = vm && heldBecause(vm.id);
+    if (held) throw new DeviceError(`This VM can't start while ${held}.`, 409);
+  }
   await refreshChainQuietly(name);
   await deviceService.checkBeforeStart(name);
   await getVmNics(name).then((nics) => ensureBridges(nics.map((n) => n.source))).catch(() => {});
@@ -1444,15 +1425,61 @@ export async function deleteSnapshot(
   return formatTrace(trace);
 }
 
-export async function revertSnapshot(nameOrId: string, snapshotName: string): Promise<string> {
+/**
+ * A snapshot's NICs on what is no longer on this host. Nothing keeps a network for a snapshot's
+ * sake, and libvirt won't start a VM with a NIC on one that has gone.
+ */
+async function snapshotNicsWithoutNetwork(snapshotXml: string): Promise<Array<{ mac: string; source: string; type: string }>> {
+  const domain = extractSavedDomainXml(snapshotXml) ?? '';
+  const nics = [...domain.matchAll(/<interface\b[^>]*\btype=['"]([^'"]+)['"][^>]*>[\s\S]*?<\/interface>/g)].flatMap(([block, type]) => {
+    const mac = block.match(/<mac\s+address=['"]([^'"]+)['"]/)?.[1];
+    // A running VM's definition names both the network and its bridge, in that order, and the network is what counts.
+    const source = block.match(/<source\s[^>]*\bnetwork=['"]([^'"]+)['"]/)?.[1] ?? block.match(/<source\s[^>]*\b(?:bridge|dev)=['"]([^'"]+)['"]/)?.[1];
+    return mac && source ? [{ mac: mac.toLowerCase(), source, type }] : [];
+  });
+  const present = await Promise.all(nics.map((nic) => nicSourceExists(nic.source)));
+  return nics.filter((_, i) => !present[i]);
+}
+
+/** A snapshot's definition with these NICs still in the guest and connected to nothing. */
+export function unplugNicsInXml(xml: string, macs: readonly string[]): string {
+  return xml.replace(/<interface\b[^>]*>[\s\S]*?<\/interface>/g, (block) => {
+    const mac = block.match(/<mac\s+address=['"]([^'"]+)['"]/)?.[1]?.toLowerCase();
+    if (!mac || !macs.includes(mac)) return block;
+    return block
+      .replace(/<interface\b[^>]*>/, "<interface type='ethernet'>")
+      .replace(/\s*<source\s[^>]*\/>/, '')
+      .replace(/\s*<target\s[^>]*\/>/, '');
+  });
+}
+
+export async function revertSnapshot(nameOrId: string, snapshotName: string): Promise<{ output: string; warning?: string }> {
   const name = validateVmName(nameOrId);
   const snap = validateSnapshotName(snapshotName);
   const trace: TraceEntry[] = [];
   const snapshotXml = await getSnapshotXml(name, snap);
+  const gone = await snapshotNicsWithoutNetwork(snapshotXml);
+  const withMemory = /<state>(?:running|paused|blocked)<\/state>/.test(snapshotXml);
+  if (gone.length > 0 && withMemory) {
+    // The guest in that memory has the NIC, so it can't be left out, and libvirt won't bring it back
+    // on a network that has gone. On a tap connected to nothing it comes back as it was. Ahead of
+    // anything that stops the VM: if libvirt refuses this, the VM is as it was.
+    const full = await virsh(['snapshot-dumpxml', name, snap, '--security-info']);
+    const tmp = path.join(os.tmpdir(), `virtpilot-snapshot-${randomUUID()}.xml`);
+    await fs.writeFile(tmp, unplugNicsInXml(full, gone.map((nic) => nic.mac)), { encoding: 'utf8', mode: 0o600 });
+    try {
+      await virsh(['snapshot-create', name, tmp, '--redefine'], trace);
+    } finally {
+      await fs.unlink(tmp).catch(() => {});
+    }
+  }
   // Passed-through devices are the host's hardware, not the VM's state: a
   // snapshot from before a GPU was attached must not take it away, and one
   // from before it moved to another VM must not hand it back.
   const devicesBefore = parseHostdevs(await getVmXml(name));
+  // Ahead of stopping it. Under the name it has now: libvirt refuses a VM's own UUID under any other,
+  // and a rename since the snapshot changes nothing inside it.
+  const currentName = (await virsh(['domname', name])).trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   try { await virsh(['destroy', name], trace); } catch { /* already stopped */ }
 
@@ -1463,7 +1490,7 @@ export async function revertSnapshot(nameOrId: string, snapshotName: string): Pr
     if (!savedXml) throw new Error('Snapshot XML missing saved <domain> element');
 
     const snapDisks = parseExternalSnapshotDisks(snapshotXml);
-    let pivotedXml = savedXml;
+    let pivotedXml = savedXml.replace(/<name>[^<]*<\/name>/, `<name>${currentName}</name>`);
     const stamp = Date.now();
     for (const sd of snapDisks) {
       const sealed = parseDiskSourceFromDomainXml(savedXml, sd.target);
@@ -1497,13 +1524,26 @@ export async function revertSnapshot(nameOrId: string, snapshotName: string): Pr
     // still checked against the host before it starts.
     trace.push({ cmd: 'virsh define (restoring the passed-through devices)', stdout: '', stderr: err instanceof Error ? err.message : String(err), exitCode: 1 });
   });
+  // From the saved definition, so its next start works. A running guest keeps its unplugged copy
+  // until then, and the Network tab says so.
+  for (const nic of gone) {
+    await virsh(['detach-interface', name, withMemory ? 'ethernet' : nic.type, '--mac', nic.mac, '--config'], trace).catch(() => {});
+  }
   await refreshChainQuietly(name);
 
   const state = await virsh(['domstate', name]);
   if (parseStatus(state) !== 'running') {
     await startDomain(name, trace);
   }
-  return formatTrace(trace);
+  const named = gone.map((nic) => `${nic.mac} on ${nic.source}`).join(', ');
+  return {
+    output: formatTrace(trace),
+    ...(gone.length === 0 ? {} : {
+      warning: withMemory
+        ? `This snapshot has a NIC on a network that no longer exists (${named}). The guest keeps it, connected to nothing, until its next start, when it goes.`
+        : `This snapshot has a NIC on a network that no longer exists (${named}), so it was left out. Add a NIC on the Network tab to connect this VM.`,
+    }),
+  };
 }
 
 /** Put a VM's saved definition back to exactly these passed-through devices. */

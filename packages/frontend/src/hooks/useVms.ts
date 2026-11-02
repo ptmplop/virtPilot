@@ -285,7 +285,8 @@ export function useRevertSnapshot(uuid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (snapshotName: string) => {
-      await api.post(`/api/vms/${uuid}/snapshots/${snapshotName}/revert`, undefined, { timeout: 3 * 60_000 });
+      const { data } = await api.post<{ warning?: string }>(`/api/vms/${uuid}/snapshots/${snapshotName}/revert`, undefined, { timeout: 3 * 60_000 });
+      return data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEYS.vms });

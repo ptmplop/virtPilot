@@ -13,6 +13,18 @@ export interface ReleaseEntry {
 
 export const releaseNotes: ReleaseEntry[] = [
   {
+    version: '2.17.0',
+    date: '2026-11-02',
+    changes: [
+      { type: 'added', text: 'A VM\'s firewall now holds at every NIC\'s tap device, whatever addresses a guest uses: across its bridge and routed through the host, on OS bridges, managed bridges, VXLANs and NAT networks alike. A VM on nothing but VXLANs can now have a firewall. Rules applied before this stay as they were until you press Apply rules.' },
+      { type: 'added', text: 'A VM\'s firewall stays in force by itself: through a host restart, with a libvirt hook that puts it in place as the VM starts, following a new address, after Remove NIC, and when something else empties it. What a guest says for itself can\'t take it off.' },
+      { type: 'added', text: 'A port forward on a VM\'s second NIC can answer whatever the guest\'s routes, with the guest seeing the network\'s gateway as the client: on for new ones off the first NIC, a switch on each forward, and existing ones left as they were.' },
+      { type: 'fixed', text: 'Applying rules no longer leaves a gap, and works with the VM off. Renaming a VM no longer loses its snapshots. A snapshot with a NIC on a network that has gone can be reverted. A disk move keeps what changed during it, and nothing can start the VM or touch its disks meanwhile.' },
+      { type: 'fixed', text: 'A static pool remembers what a stopped guest was using, and a guest slow to answer ARP is no longer missed. A VM page that can\'t be read no longer says the VM was deleted.' },
+      { type: 'changed', text: 'Needs nftables, which is installed if missing. Allowing established connections across a bridge keeps connection tracking on for the host\'s bridges while any VM\'s rules use it.' },
+    ],
+  },
+  {
     version: '2.16.7',
     date: '2026-11-01',
     changes: [
